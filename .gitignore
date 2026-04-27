@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Next.js / build output
+.next/
+apps/web/.next/
+dist/
+build/
+coverage/
+
+# Local environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Database backups and runtime data
+backups/
+*.sql
+!db/
+!db/init.sql
+*.dump
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Docker override files that may contain local paths/secrets
+docker-compose.override.yml

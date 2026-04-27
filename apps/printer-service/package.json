@@ -1,0 +1,14 @@
+{
+  "name": "@qypos/printer-service",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/worker.js",
+    "start": "node src/worker.js"
+  },
+  "dependencies": {
+    "@qypos/shared": "file:../../packages/shared",
+    "ioredis": "^5.4.1",
+    "pg": "^8.12.0"
+  }
+}
