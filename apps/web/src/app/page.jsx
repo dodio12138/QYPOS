@@ -286,7 +286,7 @@ export default function PosPage() {
         method: "POST",
         body: JSON.stringify(payment)
       });
-      setSelectedOrder(await api(`/orders/${selectedOrder.id}`));
+      setSelectedOrder(null);
       setPaying(false);
       await refresh(false);
     }, "已收款");
@@ -424,6 +424,7 @@ export default function PosPage() {
           onAdjustService={adjustServiceCharge}
           onDiscount={applyDiscount}
           onCancelOrder={cancelOrder}
+          onExit={() => setSelectedOrder(null)}
           busy={busy}
         />
       </section>
@@ -586,7 +587,7 @@ function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, 
               className="product-tile"
               key={item.id}
               onClick={() => (hasOrder ? onPick(item) : onNeedOrder())}
-              disabled={!item.variants.some((variant) => variant.active)}
+              disabled={!hasOrder || !item.variants.some((variant) => variant.active)}
             >
               <strong>{labelOf(item.name_i18n, locale)}</strong>
               <span>{labelOf(item.description_i18n, locale) || item.kitchen_group}</span>
@@ -608,11 +609,12 @@ function ReceiptTitle() {
   );
 }
 
-function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, onQuantity, onSaveNotes, onSubmit, onPrintBill, onPay, onAdjustService, onDiscount, onCancelOrder, busy }) {
+function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, onQuantity, onSaveNotes, onSubmit, onPrintBill, onPay, onAdjustService, onDiscount, onCancelOrder, onExit, busy }) {
   const [notes, setNotes] = useState("");
   const [discount, setDiscount] = useState("0");
   const [serviceRate, setServiceRate] = useState("0.15");
   const [cancelReason, setCancelReason] = useState("");
+  const [orderFilter, setOrderFilter] = useState("active");
 
   useEffect(() => setNotes(order?.notes || ""), [order?.id, order?.notes]);
   useEffect(() => {
@@ -620,7 +622,15 @@ function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, on
     setServiceRate(String(order?.service_charge_rate ?? 0.15));
   }, [order?.id, order?.discount, order?.service_charge_rate]);
 
-  const openOrders = orders.filter((item) => !["paid", "cancelled"].includes(item.status));
+  const today = new Date().toDateString();
+  const todayOrders = orders.filter(
+    (item) => new Date(item.created_at).toDateString() === today
+  );
+  const filteredOrders = todayOrders.filter((item) => {
+    if (orderFilter === "active") return !["paid", "cancelled"].includes(item.status);
+    if (orderFilter === "paid") return item.status === "paid";
+    return true; // "all"
+  });
   const tableById = new Map(tables.map((table) => [table.id, table]));
 
   function orderLocation(targetOrder) {
@@ -632,22 +642,34 @@ function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, on
 
   return (
     <section className="panel order-panel">
-      <div className="panel-title">
-        <ClipboardList size={18} />
-        <h2>{order ? order.order_no : "当前订单"}</h2>
+      <div className="panel-title split">
+        <div className="inline-title">
+          <ClipboardList size={18} />
+          <h2>{order ? order.order_no : "当前订单"}</h2>
+        </div>
+        <div className="inline-title">
+          {order && <span className="order-location-tag">{orderLocation(order)}</span>}
+          {order && <button className="icon-btn" onClick={onExit} title="退出订单"><X size={18} /></button>}
+        </div>
       </div>
 
       {!order && (
         <>
-          <div className="empty">选择餐桌或点击外带开始点单</div>
+          <div className="order-filter-bar">
+            <button className={orderFilter === "active" ? "selected" : ""} onClick={() => setOrderFilter("active")}>已开台</button>
+            <button className={orderFilter === "paid" ? "selected" : ""} onClick={() => setOrderFilter("paid")}>已付款</button>
+            <button className={orderFilter === "all" ? "selected" : ""} onClick={() => setOrderFilter("all")}>当日全部</button>
+          </div>
           <div className="quick-orders">
-            {openOrders.slice(0, 6).map((item) => (
-              <button key={item.id} onClick={() => onSelectOrder(item.id)}>
+            {filteredOrders.length === 0 && <div className="empty" style={{fontSize:13}}>暂无订单</div>}
+            {filteredOrders.slice(0, 12).map((item) => (
+              <button key={item.id} onClick={() => onSelectOrder(item.id)}
+                className={["paid","cancelled"].includes(item.status) ? "order-done" : ""}>
                 <span>
                   <strong>{orderLocation(item)}</strong>
                   <small>{item.order_no}</small>
                 </span>
-                <em>{item.status}</em>
+                <em className={`status-chip status-${item.status}`}>{item.status}</em>
                 <b>{money(item.total, currency, locale)}</b>
               </button>
             ))}

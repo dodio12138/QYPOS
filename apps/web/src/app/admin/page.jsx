@@ -16,6 +16,7 @@ import {
   RefreshCw,
   ReceiptText,
   Save,
+  Search,
   Settings,
   Trash2,
   Copy,
@@ -26,7 +27,8 @@ import {
   Undo2,
   User,
   WifiOff,
-  Wrench
+  Wrench,
+  X
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../../lib/api";
@@ -275,18 +277,203 @@ export default function AdminPage() {
   );
 }
 
-function OrdersView({ orders, locale, currency }) {
+const ORDER_STATUS_LABEL = {
+  draft: "草稿",
+  submitted: "已下单",
+  paid: "已付款",
+  cancelled: "已取消",
+};
+
+const ORDER_STATUS_COLOR = {
+  draft: "chip-warn",
+  submitted: "chip-blue",
+  paid: "chip-green",
+  cancelled: "chip-grey",
+};
+
+function OrderDetailModal({ order, locale, currency, onClose }) {
+  if (!order) return null;
+  const subtotal = Number(order.subtotal || 0);
+  const serviceCharge = Number(order.service_charge || 0);
+  const discount = Number(order.discount || 0);
+  const total = Number(order.total || 0);
+  const paid = (order.payments || []).reduce((s, p) => s + Number(p.amount), 0);
   return (
-    <section className="wide-list">
-      {orders.map((order) => (
-        <div className="list-row" key={order.id}>
-          <span>{order.order_no}</span>
-          <span>{order.service_type === "dine_in" ? "堂食" : "外带"}</span>
-          <span>{order.status}</span>
-          <strong>{money(order.total, currency, locale)}</strong>
+    <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal order-detail-modal">
+        <div className="modal-header">
+          <div>
+            <h2 style={{ marginBottom: 4 }}>{order.order_no}</h2>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span className={`admin-chip ${ORDER_STATUS_COLOR[order.status] || "chip-grey"}`}>
+                {ORDER_STATUS_LABEL[order.status] || order.status}
+              </span>
+              <span className="admin-chip chip-grey">{order.service_type === "dine_in" ? "堂食" : "外带"}</span>
+              <span style={{ color: "var(--muted)", fontSize: 13 }}>
+                {new Date(order.created_at).toLocaleString(locale)}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose}><X size={18} /></button>
         </div>
-      ))}
-    </section>
+
+        <div className="order-detail-items">
+          {(order.items || []).length === 0 && <div className="empty">无菜品记录</div>}
+          {(order.items || []).map((item) => (
+            <div className="order-detail-item" key={item.id}>
+              <div className="order-detail-item-name">
+                <strong>{item.name_i18n?.["zh-CN"] || item.name_i18n?.["en-GB"] || "-"}</strong>
+                {item.notes && <small style={{ color: "var(--muted)" }}>{item.notes}</small>}
+              </div>
+              <span style={{ color: "var(--muted)", fontSize: 13 }}>x{item.quantity}</span>
+              <strong>{money(Number(item.unit_price) * item.quantity, currency, locale)}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="order-detail-totals">
+          <div><span>小计</span><span>{money(subtotal, currency, locale)}</span></div>
+          {serviceCharge > 0 && <div><span>服务费</span><span>{money(serviceCharge, currency, locale)}</span></div>}
+          {discount > 0 && <div><span>折扣</span><span>-{money(discount, currency, locale)}</span></div>}
+          <div className="total-row"><span>合计</span><strong>{money(total, currency, locale)}</strong></div>
+        </div>
+
+        {(order.payments || []).length > 0 && (
+          <div className="order-detail-payments">
+            <h3>支付记录</h3>
+            {order.payments.map((p) => (
+              <div key={p.id} className="payment-row">
+                <span>{p.method}</span>
+                <span>{money(p.amount, currency, locale)}</span>
+                {p.change_due > 0 && <small>找零 {money(p.change_due, currency, locale)}</small>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OrdersView({ orders, locale, currency }) {
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [sortBy, setSortBy] = useState("time_desc");
+  const [search, setSearch] = useState("");
+  const [detailOrder, setDetailOrder] = useState(null);
+  const [loadingId, setLoadingId] = useState(null);
+
+  async function openDetail(order) {
+    setLoadingId(order.id);
+    try {
+      const full = await api(`/orders/${order.id}`);
+      setDetailOrder(full);
+    } finally {
+      setLoadingId(null);
+    }
+  }
+
+  const filtered = orders
+    .filter((o) => {
+      if (filterStatus !== "all" && o.status !== filterStatus) return false;
+      if (filterType !== "all" && o.service_type !== filterType) return false;
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        if (!o.order_no.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "time_desc") return new Date(b.created_at) - new Date(a.created_at);
+      if (sortBy === "time_asc") return new Date(a.created_at) - new Date(b.created_at);
+      if (sortBy === "amount_desc") return Number(b.total) - Number(a.total);
+      if (sortBy === "amount_asc") return Number(a.total) - Number(b.total);
+      return 0;
+    });
+
+  return (
+    <>
+      {detailOrder && (
+        <OrderDetailModal
+          order={detailOrder}
+          locale={locale}
+          currency={currency}
+          onClose={() => setDetailOrder(null)}
+        />
+      )}
+
+      <div className="orders-toolbar">
+        <div className="orders-filters">
+          <div className="filter-group">
+            <label>状态</label>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+              <option value="all">全部</option>
+              <option value="draft">草稿</option>
+              <option value="submitted">已下单</option>
+              <option value="paid">已付款</option>
+              <option value="cancelled">已取消</option>
+            </select>
+          </div>
+          <div className="filter-group">
+            <label>类型</label>
+            <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+              <option value="all">全部</option>
+              <option value="dine_in">堂食</option>
+              <option value="takeaway">外带</option>
+            </select>
+          </div>
+          <div className="filter-group">
+            <label>排序</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="time_desc">时间 ↓ 最新</option>
+              <option value="time_asc">时间 ↑ 最早</option>
+              <option value="amount_desc">金额 ↓ 最高</option>
+              <option value="amount_asc">金额 ↑ 最低</option>
+            </select>
+          </div>
+        </div>
+        <div className="orders-search">
+          <Search size={15} />
+          <input
+            placeholder="搜索单号…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <span className="orders-count">{filtered.length} 条</span>
+      </div>
+
+      <div className="orders-table">
+        <div className="orders-table-head">
+          <span>单号</span>
+          <span>类型</span>
+          <span>状态</span>
+          <span>时间</span>
+          <span style={{ textAlign: "right" }}>金额</span>
+        </div>
+        {filtered.length === 0 && <div className="empty" style={{ padding: "24px 0" }}>暂无订单</div>}
+        {filtered.map((order) => (
+          <button
+            key={order.id}
+            className="orders-table-row"
+            onClick={() => openDetail(order)}
+            disabled={loadingId === order.id}
+          >
+            <span className="order-no-cell">{order.order_no}</span>
+            <span>{order.service_type === "dine_in" ? "堂食" : "外带"}</span>
+            <span>
+              <em className={`admin-chip ${ORDER_STATUS_COLOR[order.status] || "chip-grey"}`}>
+                {ORDER_STATUS_LABEL[order.status] || order.status}
+              </em>
+            </span>
+            <span className="order-time-cell">
+              {new Date(order.created_at).toLocaleString(locale, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+            </span>
+            <strong style={{ textAlign: "right" }}>{money(order.total, currency, locale)}</strong>
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
