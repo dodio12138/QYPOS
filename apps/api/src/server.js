@@ -1,10 +1,17 @@
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
+import { execFile } from "node:child_process";
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { promisify } from "node:util";
 import Fastify from "fastify";
 import Redis from "ioredis";
 import pg from "pg";
 import { calculateTotals } from "@qypos/shared";
+import { defaultPrinterProfiles, printerProfiles, selectPrinter } from "./services/printers.js";
+import { normalizePermissions, requirePermission as requirePermissionWithRedis, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
+import { assertPositivePayment } from "./services/validation.js";
 
 const { Pool } = pg;
 const app = Fastify({ logger: true });
@@ -12,10 +19,20 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
 const redisSub = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
 const sockets = new Set();
+const execFileAsync = promisify(execFile);
+const backupDir = process.env.BACKUP_DIR ?? path.resolve(process.cwd(), "../../backups");
+let backupTimer = null;
 
 async function ensureSchema() {
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_reason TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_profiles JSONB NOT NULL DEFAULT '[]'");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_printer_id TEXT NOT NULL DEFAULT 'kitchen'");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_printer_id TEXT NOT NULL DEFAULT 'cashier'");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_enabled BOOLEAN NOT NULL DEFAULT false");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_interval_hours INTEGER NOT NULL DEFAULT 24");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
+  await pool.query("UPDATE settings SET printer_profiles = $1 WHERE printer_profiles = '[]'::jsonb", [JSON.stringify(defaultPrinterProfiles)]);
   await pool.query(
     `UPDATE roles SET permissions = '["manage_settings","manage_menu","manage_tables","manage_orders","adjust_service_charge","view_dashboard","view_reports","export_reports","view_audit_logs","view_kitchen","update_item_status","create_order","take_payment","print_receipt"]'
      WHERE name = 'owner'`
@@ -60,38 +77,12 @@ async function one(sql, params = []) {
   return rows[0] ?? null;
 }
 
-function normalizePermissions(value) {
-  if (Array.isArray(value)) return value;
-  if (!value) return [];
-  try {
-    return JSON.parse(value);
-  } catch {
-    return [];
-  }
-}
-
 async function userFromToken(request) {
-  const header = request.headers.authorization ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : request.query?.token ?? null;
-  if (!token) return null;
-  const payload = await redis.get(`session:${token}`);
-  if (!payload) return null;
-  const user = JSON.parse(payload);
-  user.permissions = normalizePermissions(user.permissions);
-  return user;
+  return userFromTokenWithRedis(request, redis);
 }
 
 async function requirePermission(request, reply, permission) {
-  const user = await userFromToken(request);
-  if (!user) {
-    reply.code(401);
-    return null;
-  }
-  if (permission && !user.permissions.includes(permission)) {
-    reply.code(403);
-    return null;
-  }
-  return user;
+  return requirePermissionWithRedis(request, reply, redis, permission);
 }
 
 async function auditLog(request, action, entityType, entityId = null, metadata = {}) {
@@ -111,6 +102,50 @@ async function getSettings() {
   return one("SELECT * FROM settings ORDER BY updated_at DESC LIMIT 1");
 }
 
+async function listBackupFiles() {
+  await fs.mkdir(backupDir, { recursive: true });
+  const entries = await fs.readdir(backupDir, { withFileTypes: true });
+  const files = await Promise.all(entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+    .map(async (entry) => {
+      const filepath = path.join(backupDir, entry.name);
+      const stat = await fs.stat(filepath);
+      return { name: entry.name, size: stat.size, created_at: stat.birthtime, updated_at: stat.mtime };
+    }));
+  return files.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+}
+
+async function createBackup(reason = "manual") {
+  await fs.mkdir(backupDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "").replace("T", "-");
+  const filename = `qypos-${stamp}.sql`;
+  const filepath = path.join(backupDir, filename);
+  await execFileAsync("pg_dump", ["--dbname", process.env.DATABASE_URL, "--file", filepath], { timeout: 120000 });
+  await query("UPDATE settings SET last_backup_at = now(), updated_at = now() WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)");
+  emit("backup.created", { filename, reason });
+  return (await listBackupFiles()).find((file) => file.name === filename);
+}
+
+async function maybeAutoBackup() {
+  const settings = await getSettings();
+  if (!settings?.backup_enabled) return;
+  const last = settings.last_backup_at ? new Date(settings.last_backup_at).getTime() : 0;
+  const intervalMs = Math.max(1, Number(settings.backup_interval_hours || 24)) * 60 * 60 * 1000;
+  if (Date.now() - last >= intervalMs) {
+    try {
+      await createBackup("auto");
+    } catch (error) {
+      app.log.error({ error }, "auto backup failed");
+    }
+  }
+}
+
+function scheduleAutoBackup() {
+  if (backupTimer) clearInterval(backupTimer);
+  backupTimer = setInterval(() => maybeAutoBackup(), 15 * 60 * 1000);
+  maybeAutoBackup().catch((error) => app.log.error({ error }, "initial auto backup check failed"));
+}
+
 async function getOrderItems(orderId, options = {}) {
   const where = ["order_id = $1"];
   const params = [orderId];
@@ -126,6 +161,11 @@ async function recalculateOrder(orderId, overrides = {}) {
   const settings = await getSettings();
   const items = await getOrderItems(orderId);
   const current = await one("SELECT * FROM orders WHERE id = $1", [orderId]);
+  if (!current) {
+    const error = new Error("Order not found");
+    error.statusCode = 404;
+    throw error;
+  }
   const totals = calculateTotals(items, settings, {
     service_charge_rate: overrides.service_charge_rate ?? current?.service_charge_rate,
     service_charge_exempt: overrides.service_charge_exempt ?? current?.service_charge_exempt,
@@ -135,7 +175,7 @@ async function recalculateOrder(orderId, overrides = {}) {
   const updated = await one(
     `UPDATE orders
      SET subtotal = $2, net_sales = $3, tax = $4, service_charge = $5, total = $6,
-         discount = COALESCE($7, discount),
+         discount = $7,
          service_charge_rate = COALESCE($8, service_charge_rate),
          service_charge_exempt = COALESCE($9, service_charge_exempt),
          updated_at = now()
@@ -148,7 +188,7 @@ async function recalculateOrder(orderId, overrides = {}) {
       totals.tax,
       totals.serviceCharge,
       totals.total,
-      overrides.discount ?? overrides.discount_amount ?? null,
+      totals.discount,
       overrides.service_charge_rate ?? null,
       overrides.service_charge_exempt ?? null
     ]
@@ -159,6 +199,11 @@ async function recalculateOrder(orderId, overrides = {}) {
 
 async function createPrintJob(orderId, type) {
   const order = await one("SELECT * FROM orders WHERE id = $1", [orderId]);
+  if (!order && type !== "test") {
+    const error = new Error("Order not found");
+    error.statusCode = 404;
+    throw error;
+  }
   const items = await getOrderItems(orderId, { onlyUnprintedKitchen: type === "kitchen" });
   if (type === "kitchen" && !items.length) {
     const error = new Error("No new items to print to kitchen");
@@ -168,21 +213,38 @@ async function createPrintJob(orderId, type) {
   const payments = await query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [orderId]);
   const settings = await getSettings();
   const table = order.table_id ? await one("SELECT * FROM tables WHERE id = $1", [order.table_id]) : null;
-  const payload = { order, items, payments, settings, table };
-  const job = await one(
-    "INSERT INTO print_jobs (order_id, type, payload) VALUES ($1, $2, $3) RETURNING *",
-    [orderId, type, payload]
-  );
-  if (type === "kitchen") {
-    await query("UPDATE order_items SET kitchen_printed_at = now() WHERE id = ANY($1::uuid[])", [items.map((item) => item.id)]);
+  const printer = selectPrinter(settings, type);
+  if (!printer) {
+    const error = new Error(`${type === "kitchen" ? "Kitchen" : "Receipt"} printer is not configured or enabled`);
+    error.statusCode = 409;
+    throw error;
   }
-  await redis.lpush("print_jobs", job.id);
-  emit("print.queued", job);
-  return job;
+  const payload = { order, items, payments, settings, table, printer };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query(
+      "INSERT INTO print_jobs (order_id, type, payload) VALUES ($1, $2, $3) RETURNING *",
+      [orderId, type, payload]
+    );
+    const job = inserted.rows[0];
+    if (type === "kitchen") {
+      await client.query("UPDATE order_items SET kitchen_printed_at = now() WHERE id = ANY($1::uuid[]) AND kitchen_printed_at IS NULL", [items.map((item) => item.id)]);
+    }
+    await client.query("COMMIT");
+    await redis.lpush("print_jobs", job.id);
+    emit("print.queued", job);
+    return job;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function updateOrderKitchenState(orderId) {
-  const items = await query("SELECT status FROM order_items WHERE order_id = $1", [orderId]);
+  const items = await query("SELECT status FROM order_items WHERE order_id = $1 AND status <> 'cancelled'", [orderId]);
   if (!items.length) return null;
 
   let status = "submitted";
@@ -265,6 +327,11 @@ app.put("/settings", async (request, reply) => {
       receipt_footer = COALESCE($9, receipt_footer),
       printer_host = COALESCE($10, printer_host),
       printer_port = COALESCE($11, printer_port),
+      printer_profiles = COALESCE($12::jsonb, printer_profiles),
+      kitchen_printer_id = COALESCE($13, kitchen_printer_id),
+      receipt_printer_id = COALESCE($14, receipt_printer_id),
+      backup_enabled = COALESCE($15::boolean, backup_enabled),
+      backup_interval_hours = COALESCE($16::integer, backup_interval_hours),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -279,10 +346,16 @@ app.put("/settings", async (request, reply) => {
       body.receipt_header,
       body.receipt_footer,
       body.printer_host,
-      body.printer_port
+      body.printer_port,
+      body.printer_profiles === undefined ? null : JSON.stringify(body.printer_profiles),
+      body.kitchen_printer_id,
+      body.receipt_printer_id,
+      body.backup_enabled,
+      body.backup_interval_hours
     ]
   );
   emit("settings.updated", settings);
+  scheduleAutoBackup();
   await auditLog(request, "settings.update", "settings", settings.id, { currency: settings.currency, tax_rate: settings.tax_rate, service_charge_rate: settings.service_charge_rate });
   return settings;
 });
@@ -349,6 +422,17 @@ app.delete("/menu/categories/:id", async (request, reply) => {
   return category;
 });
 
+app.delete("/menu/categories/:id/destroy", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_menu")) return;
+  const category = await one("DELETE FROM menu_categories WHERE id = $1 RETURNING *", [request.params.id]);
+  if (!category) {
+    reply.code(404);
+    return { error: "Category not found" };
+  }
+  await auditLog(request, "menu.category.destroy", "menu_category", category.id, { name_i18n: category.name_i18n });
+  return category;
+});
+
 app.post("/menu/items", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_menu")) return;
   const body = request.body ?? {};
@@ -395,6 +479,19 @@ app.delete("/menu/items/:id", async (request, reply) => {
     return { error: "Menu item not found" };
   }
   await auditLog(request, "menu.item.disable", "menu_item", item.id);
+  return item;
+});
+
+app.delete("/menu/items/:id/destroy", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_menu")) return;
+  // Unlink from historical order_items (preserve order history, just remove the reference)
+  await query("UPDATE order_items SET item_id = NULL, variant_id = NULL WHERE item_id = $1", [request.params.id]);
+  const item = await one("DELETE FROM menu_items WHERE id = $1 RETURNING *", [request.params.id]);
+  if (!item) {
+    reply.code(404);
+    return { error: "Menu item not found" };
+  }
+  await auditLog(request, "menu.item.destroy", "menu_item", item.id, { name_i18n: item.name_i18n });
   return item;
 });
 
@@ -696,7 +793,8 @@ app.delete("/tables/:id", async (request, reply) => {
   return deleted;
 });
 
-app.post("/tables/:id/open", async (request) => {
+app.post("/tables/:id/open", async (request, reply) => {
+  if (!await requirePermission(request, reply, "create_order")) return;
   const table = await one("SELECT * FROM tables WHERE id = $1", [request.params.id]);
   if (!table) {
     const error = new Error("Table not found");
@@ -719,6 +817,7 @@ app.post("/tables/:id/open", async (request) => {
 });
 
 app.post("/tables/:id/clear", async (request, reply) => {
+  if (!await requirePermission(request, reply, "create_order")) return;
   const table = await one("SELECT * FROM tables WHERE id = $1", [request.params.id]);
   if (!table) {
     reply.code(404);
@@ -745,7 +844,8 @@ app.post("/tables/:id/clear", async (request, reply) => {
   return updated;
 });
 
-app.post("/orders", async (request) => {
+app.post("/orders", async (request, reply) => {
+  if (!await requirePermission(request, reply, "create_order")) return;
   const body = request.body ?? {};
   const order = await one(
     `INSERT INTO orders (order_no, service_type, table_id, pickup_no, guests, notes, status)
@@ -781,16 +881,22 @@ app.get("/orders/:id", async (request) => {
   return { ...order, items: await getOrderItems(order.id), payments: await query("SELECT * FROM payments WHERE order_id = $1", [order.id]) };
 });
 
-app.patch("/orders/:id", async (request) => {
+app.patch("/orders/:id", async (request, reply) => {
+  if (!await requirePermission(request, reply, "create_order")) return;
   const body = request.body ?? {};
   if (body.update_item) {
     const item = body.update_item;
-    const existingItem = await one("SELECT id, kitchen_printed_at FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
+    const existingItem = await one("SELECT id, kitchen_printed_at, status FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
     if (!existingItem) {
       return recalculateOrder(request.params.id);
     }
     if (existingItem.kitchen_printed_at) {
       const error = new Error("Kitchen printed items are locked");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (existingItem.status === "served") {
+      const error = new Error("Served items cannot be modified");
       error.statusCode = 409;
       throw error;
     }
@@ -884,6 +990,9 @@ app.post("/orders/:id/discount", async (request, reply) => {
     body.reason
   ]);
   const order = await recalculateOrder(request.params.id);
+  if (Number(order.discount) !== Number(body.discount ?? body.discount_amount ?? order.discount)) {
+    await query("UPDATE orders SET discount = $2 WHERE id = $1", [order.id, order.discount]);
+  }
   await auditLog(request, "order.discount.adjust", "order", order.id, { discount: order.discount, reason: body.reason ?? "" });
   return order;
 });
@@ -904,41 +1013,80 @@ app.post("/orders/:id/cancel", async (request, reply) => {
   return order;
 });
 
-app.post("/orders/:id/submit", async (request) => {
+app.post("/orders/:id/submit", async (request, reply) => {
+  if (!await requirePermission(request, reply, "create_order")) return;
+  const itemCount = await one("SELECT COUNT(*)::integer AS count FROM order_items WHERE order_id = $1", [request.params.id]);
+  if (Number(itemCount?.count ?? 0) === 0) {
+    reply.code(400);
+    return { error: "Cannot submit an order with no items" };
+  }
   const order = await recalculateOrder(request.params.id);
+  const job = await createPrintJob(order.id, "kitchen");
   const updated = await one("UPDATE orders SET status = 'submitted', updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
   if (updated.table_id) {
     await query("UPDATE tables SET status = 'ordered', updated_at = now() WHERE id = $1", [updated.table_id]);
     emit("table.status.updated", { table_id: updated.table_id, status: "ordered" });
   }
-  const job = await createPrintJob(updated.id, "kitchen");
   emit("order.updated", updated);
   await auditLog(request, "order.submit", "order", updated.id, { print_job_id: job.id });
   return { order: updated, print_job: job };
 });
 
-app.post("/orders/:id/payments", async (request) => {
+app.post("/orders/:id/payments", async (request, reply) => {
+  if (!await requirePermission(request, reply, "take_payment")) return;
   const body = request.body ?? {};
-  const payment = await one(
-    "INSERT INTO payments (order_id, method, amount, change_due) VALUES ($1, $2, $3, COALESCE($4, 0)) RETURNING *",
-    [request.params.id, body.method, body.amount, body.change_due]
-  );
-  const order = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
-  const paid = await one("SELECT COALESCE(SUM(amount - change_due), 0)::numeric AS paid FROM payments WHERE order_id = $1", [request.params.id]);
-  let updated = order;
-  if (Number(paid.paid) >= Number(order.total)) {
-    updated = await one("UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
-    if (updated.table_id) {
-      await query("UPDATE tables SET status = 'needs_cleaning', updated_at = now() WHERE id = $1", [updated.table_id]);
-      emit("table.status.updated", { table_id: updated.table_id, status: "needs_cleaning" });
+  try {
+    assertPositivePayment(body);
+  } catch (error) {
+    reply.code(error.statusCode ?? 400);
+    return { error: error.message };
+  }
+  const currentOrder = await one("SELECT status FROM orders WHERE id = $1", [request.params.id]);
+  if (!currentOrder) { reply.code(404); return { error: "Order not found" }; }
+  if (currentOrder.status === "paid" || currentOrder.status === "cancelled") {
+    reply.code(409);
+    return { error: "Order is already closed" };
+  }
+  const client = await pool.connect();
+  let payment;
+  let updated;
+  let paid;
+  try {
+    await client.query("BEGIN");
+    const paymentResult = await client.query(
+      "INSERT INTO payments (order_id, method, amount, change_due) VALUES ($1, $2, $3, COALESCE($4, 0)) RETURNING *",
+      [request.params.id, body.method, body.amount, body.change_due]
+    );
+    payment = paymentResult.rows[0];
+    const orderResult = await client.query("SELECT * FROM orders WHERE id = $1 FOR UPDATE", [request.params.id]);
+    const order = orderResult.rows[0];
+    const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due), 0)::numeric AS paid FROM payments WHERE order_id = $1", [request.params.id]);
+    paid = paidResult.rows[0];
+    updated = order;
+    if (Number(paid.paid) >= Number(order.total)) {
+      const updatedResult = await client.query("UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
+      updated = updatedResult.rows[0];
+      if (updated.table_id) {
+        await client.query("UPDATE tables SET status = 'needs_cleaning', updated_at = now() WHERE id = $1", [updated.table_id]);
+      }
     }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  if (updated?.table_id && updated.status === "paid") {
+    emit("table.status.updated", { table_id: updated.table_id, status: "needs_cleaning" });
     emit("order.paid", updated);
   }
   await auditLog(request, "payment.create", "payment", payment.id, { order_id: request.params.id, method: payment.method, amount: payment.amount });
   return { payment, order: updated, paid: Number(paid.paid) };
 });
 
-app.post("/orders/:id/print", async (request) => {
+app.post("/orders/:id/print", async (request, reply) => {
+  if (!await requirePermission(request, reply, "print_receipt")) return;
   const job = await createPrintJob(request.params.id, request.body?.type ?? "receipt");
   await auditLog(request, "print.create", "print_job", job.id, { order_id: request.params.id, type: job.type });
   return job;
@@ -949,13 +1097,21 @@ app.get("/print-jobs", async () => query("SELECT id, order_id, type, status, att
 app.post("/print-jobs/test", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_settings")) return;
   const settings = await getSettings();
+  const printer = selectPrinter(settings, request.body?.printer_id ? "test" : "receipt");
+  const selectedPrinter = request.body?.printer_id
+    ? printerProfiles(settings).find((profile) => profile.id === request.body.printer_id) ?? printer
+    : printer;
+  if (!selectedPrinter || selectedPrinter.enabled === false || !selectedPrinter.host || !Number(selectedPrinter.port)) {
+    reply.code(409);
+    return { error: "Selected printer is not configured or enabled" };
+  }
   const job = await one(
     "INSERT INTO print_jobs (type, payload) VALUES ('test', $1) RETURNING *",
-    [{ settings, created_at: new Date().toISOString() }]
+    [{ settings, printer: selectedPrinter, created_at: new Date().toISOString() }]
   );
   await redis.lpush("print_jobs", job.id);
   emit("print.queued", job);
-  await auditLog(request, "print.test", "print_job", job.id, { printer_host: settings.printer_host });
+  await auditLog(request, "print.test", "print_job", job.id, { printer: selectedPrinter });
   return job;
 });
 
@@ -1132,5 +1288,73 @@ app.get("/audit-logs", async (request, reply) => {
   );
 });
 
+app.get("/ops/health", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_settings")) return;
+  const started = Date.now();
+  const checks = [];
+  async function check(name, action) {
+    const start = Date.now();
+    try {
+      const data = await action();
+      checks.push({ name, ok: true, latency_ms: Date.now() - start, data });
+    } catch (error) {
+      checks.push({ name, ok: false, latency_ms: Date.now() - start, error: error.message });
+    }
+  }
+
+  await check("database", async () => {
+    await pool.query("SELECT 1");
+    const stats = await one("SELECT COUNT(*)::integer AS orders FROM orders");
+    return stats;
+  });
+  await check("redis", async () => ({ pong: await redis.ping() }));
+  await check("print_queue", async () => one("SELECT status, COUNT(*)::integer FROM print_jobs GROUP BY status ORDER BY status LIMIT 1"));
+  await check("backups", async () => {
+    const files = await listBackupFiles();
+    return { count: files.length, latest: files[0] ?? null };
+  });
+
+  const settings = await getSettings();
+  return {
+    ok: checks.every((item) => item.ok),
+    uptime_seconds: Math.round(process.uptime()),
+    latency_ms: Date.now() - started,
+    settings: {
+      backup_enabled: settings.backup_enabled,
+      backup_interval_hours: settings.backup_interval_hours,
+      last_backup_at: settings.last_backup_at
+    },
+    printers: printerProfiles(settings),
+    checks
+  };
+});
+
+app.get("/ops/backups", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_settings")) return;
+  return listBackupFiles();
+});
+
+app.post("/ops/backups", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_settings")) return;
+  const file = await createBackup("manual");
+  await auditLog(request, "backup.create", "backup", null, file);
+  return file;
+});
+
+app.get("/ops/backups/:name", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_settings")) return;
+  const filename = path.basename(request.params.name);
+  if (!filename.endsWith(".sql")) {
+    reply.code(400);
+    return { error: "Invalid backup filename" };
+  }
+  const filepath = path.join(backupDir, filename);
+  const content = await fs.readFile(filepath, "utf8");
+  reply.header("Content-Type", "application/sql; charset=utf-8");
+  reply.header("Content-Disposition", `attachment; filename="${filename}"`);
+  return content;
+});
+
 const port = Number(process.env.API_PORT ?? 4000);
+scheduleAutoBackup();
 await app.listen({ port, host: "0.0.0.0" });

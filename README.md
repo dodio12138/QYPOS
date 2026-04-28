@@ -21,6 +21,7 @@ Seed login:
 - PIN: `0000`
 - Cashier seed: `Cashier / 1111`
 - Kitchen seed: `Kitchen / 2222`
+- POS front desk requires login for opening tables, takeaway orders, printing, payments, and clearing tables.
 
 ## Services
 
@@ -48,5 +49,8 @@ npm run restore -- backups/qypos-YYYYMMDD-HHMMSS.sql
 - Configurable tax, tax-inclusive pricing, receipt tax display, and service charge.
 - Permission-controlled service charge adjustment, discounting, and cancellation.
 - Manual payment records.
-- Kitchen and receipt print jobs with retryable job records.
+- Kitchen and receipt print jobs with retryable job records; configured route printers fail loudly if missing or disabled.
+- Multi-printer routing for kitchen, receipt, and bar printers.
 - Dashboard totals, historical sales report, CSV export, and audit log preview.
+- Operations page with health checks, manual/automatic backups, and backup downloads.
+- Offline and local API health banners in POS/admin.

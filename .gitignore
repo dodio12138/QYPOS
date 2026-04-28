@@ -19,6 +19,8 @@ backups/
 *.sql
 !db/
 !db/init.sql
+!db/migrations/
+!db/migrations/*.sql
 *.dump
 
 # Logs

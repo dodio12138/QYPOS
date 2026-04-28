@@ -20,6 +20,12 @@ CREATE TABLE settings (
   receipt_footer TEXT NOT NULL DEFAULT '',
   printer_host TEXT NOT NULL DEFAULT '192.168.1.100',
   printer_port INTEGER NOT NULL DEFAULT 9100,
+  printer_profiles JSONB NOT NULL DEFAULT '[]',
+  kitchen_printer_id TEXT NOT NULL DEFAULT 'kitchen',
+  receipt_printer_id TEXT NOT NULL DEFAULT 'cashier',
+  backup_enabled BOOLEAN NOT NULL DEFAULT false,
+  backup_interval_hours INTEGER NOT NULL DEFAULT 24,
+  last_backup_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -196,10 +202,14 @@ INSERT INTO restaurants (id, name) VALUES ('00000000-0000-0000-0000-000000000001
 
 INSERT INTO settings (
   restaurant_id, locale, fallback_locale, currency, tax_rate, prices_include_tax,
-  show_tax_on_receipt, service_charge_rate, receipt_header, receipt_footer
+  show_tax_on_receipt, service_charge_rate, receipt_header, receipt_footer,
+  printer_profiles, kitchen_printer_id, receipt_printer_id
 ) VALUES (
   '00000000-0000-0000-0000-000000000001', 'zh-CN', 'en-GB', 'GBP', 0.2000, false,
-  true, 0.1500, 'QY Restaurant', 'Thank you / 谢谢光临'
+  true, 0.1500, 'QY Restaurant', 'Thank you / 谢谢光临',
+  '[{"id":"kitchen","name":"厨房打印机","role":"kitchen","host":"192.168.1.100","port":9100,"enabled":true},{"id":"cashier","name":"收银打印机","role":"receipt","host":"192.168.1.101","port":9100,"enabled":true},{"id":"bar","name":"吧台打印机","role":"bar","host":"192.168.1.102","port":9100,"enabled":false}]',
+  'kitchen',
+  'cashier'
 );
 
 INSERT INTO roles (name, permissions) VALUES

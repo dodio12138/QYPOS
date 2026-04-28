@@ -22,7 +22,6 @@ export function calculateTotals(items, settings, overrides = {}) {
   );
   const pricesIncludeTax = Boolean(settings.prices_include_tax ?? settings.pricesIncludeTax);
   const serviceChargeExempt = Boolean(overrides.service_charge_exempt);
-  const discount = roundMoney(overrides.discount ?? overrides.discount_amount ?? 0);
 
   const subtotal = roundMoney(
     items.reduce((sum, item) => {
@@ -34,6 +33,8 @@ export function calculateTotals(items, settings, overrides = {}) {
     }, 0)
   );
 
+  const requestedDiscount = roundMoney(overrides.discount ?? overrides.discount_amount ?? 0);
+  const discount = Math.min(subtotal, Math.max(0, requestedDiscount));
   const discountedSubtotal = Math.max(0, roundMoney(subtotal - discount));
   const netSales = pricesIncludeTax ? roundMoney(discountedSubtotal / (1 + taxRate)) : discountedSubtotal;
   const tax = pricesIncludeTax ? roundMoney(discountedSubtotal - netSales) : roundMoney(discountedSubtotal * taxRate);

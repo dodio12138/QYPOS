@@ -13,8 +13,11 @@ import {
   Search,
   ShoppingBag,
   Loader2,
+  LogOut,
   Trash2,
   Utensils,
+  UserRound,
+  WifiOff,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -48,8 +51,13 @@ export default function PosPage() {
   const [tableAction, setTableAction] = useState(null);
   const [confirmTakeaway, setConfirmTakeaway] = useState(false);
   const [notice, setNotice] = useState("");
+  const [online, setOnline] = useState(true);
+  const [apiOnline, setApiOnline] = useState(true);
   const [busy, setBusy] = useState(false);
   const [busyTableId, setBusyTableId] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
@@ -80,6 +88,15 @@ export default function PosPage() {
     }
   }
 
+  async function checkApiHealth() {
+    try {
+      await api("/health");
+      setApiOnline(true);
+    } catch {
+      setApiOnline(false);
+    }
+  }
+
   async function run(action, successText) {
     setBusy(true);
     setNotice("");
@@ -94,11 +111,59 @@ export default function PosPage() {
   }
 
   useEffect(() => {
-    refresh(false).catch((error) => setNotice(error.message));
+    setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    api("/auth/me")
+      .then((me) => {
+        setUser(me);
+        return refresh(false);
+      })
+      .catch(() => {
+        window.localStorage.removeItem("qypos_token");
+        setUser(null);
+      })
+      .finally(() => setAuthChecked(true));
+    checkApiHealth();
+    const healthTimer = window.setInterval(checkApiHealth, 15000);
     const socket = new WebSocket(`${API_URL.replace(/^http/, "ws")}/ws`);
-    socket.onmessage = () => refresh().catch(() => {});
-    return () => socket.close();
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if ((msg.event ?? "").startsWith("kitchen.")) return;
+      } catch {
+        // ignore parse errors
+      }
+      refresh().catch(() => {});
+    };
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      window.clearInterval(healthTimer);
+      socket.close();
+    };
   }, []);
+
+  async function login(credentials) {
+    await run(async () => {
+      const result = await api("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(credentials)
+      });
+      window.localStorage.setItem("qypos_token", result.token);
+      setUser(result.user);
+      await refresh(false);
+    }, "已登录前台");
+  }
+
+  async function logout() {
+    await api("/auth/logout", { method: "POST" }).catch(() => {});
+    window.localStorage.removeItem("qypos_token");
+    setUser(null);
+    setSelectedOrder(null);
+  }
 
   async function openTable(table) {
     setBusyTableId(table.id);
@@ -177,19 +242,41 @@ export default function PosPage() {
 
   async function submitOrder() {
     if (!selectedOrder) return;
-    await run(async () => {
+    if (!(selectedOrder.items || []).length) {
+      setNotice("订单没有菜品，无法提交");
+      return;
+    }
+    setConfirmAction({
+      title: "厨房打印",
+      message: "确认把未打印的新菜品发送到厨房？已厨打的菜品不会重复打印。",
+      confirmLabel: "发送厨打",
+      icon: <Printer size={22} />,
+      onConfirm: async () => {
+        await run(async () => {
       await api(`/orders/${selectedOrder.id}/submit`, { method: "POST" });
       setSelectedOrder(await api(`/orders/${selectedOrder.id}`));
       await refresh(false);
-    }, "已发送厨房打印");
+        }, "已发送厨房打印");
+        setConfirmAction(null);
+      }
+    });
   }
 
   async function printBill() {
     if (!selectedOrder) return;
-    await run(async () => {
-      await api(`/orders/${selectedOrder.id}/print`, { method: "POST", body: JSON.stringify({ type: "receipt" }) });
-      await refresh(false);
-    }, "已发送账单打印");
+    setConfirmAction({
+      title: "账单打印",
+      message: "确认打印当前账单？这不会完成收款。",
+      confirmLabel: "打印账单",
+      icon: <ClipboardList size={22} />,
+      onConfirm: async () => {
+        await run(async () => {
+          await api(`/orders/${selectedOrder.id}/print`, { method: "POST", body: JSON.stringify({ type: "receipt" }) });
+          await refresh(false);
+        }, "已发送账单打印");
+        setConfirmAction(null);
+      }
+    });
   }
 
   async function payOrder(payment) {
@@ -231,14 +318,39 @@ export default function PosPage() {
 
   async function cancelOrder(reason) {
     if (!selectedOrder) return;
-    await run(async () => {
-      await api(`/orders/${selectedOrder.id}/cancel`, {
-        method: "POST",
-        body: JSON.stringify({ reason })
-      });
-      setSelectedOrder(null);
-      await refresh(false);
-    }, "订单已取消");
+    setConfirmAction({
+      title: "取消订单",
+      message: "确认取消当前订单？取消后会释放关联桌台。",
+      confirmLabel: "取消订单",
+      icon: <Trash2 size={22} />,
+      onConfirm: async () => {
+        await run(async () => {
+          await api(`/orders/${selectedOrder.id}/cancel`, {
+            method: "POST",
+            body: JSON.stringify({ reason })
+          });
+          setSelectedOrder(null);
+          await refresh(false);
+        }, "订单已取消");
+        setConfirmAction(null);
+      }
+    });
+  }
+
+  if (!authChecked) {
+    return (
+      <main className="pos-shell">
+        <div className="center-state"><Loader2 className="spin" size={24} /> 正在检查登录状态</div>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <main className="pos-shell">
+        <PosLogin notice={notice} online={online} apiOnline={apiOnline} busy={busy} onLogin={login} />
+      </main>
+    );
   }
 
   return (
@@ -253,6 +365,7 @@ export default function PosPage() {
           <span>点餐前台</span>
         </div>
         <div className="top-actions">
+          <span className="user-chip"><UserRound size={16} />{user.name}</span>
           <a className="link-button" href="/admin">后台</a>
           <button onClick={() => refresh()} disabled={busy} title="刷新">
             <RefreshCw size={18} />
@@ -262,9 +375,15 @@ export default function PosPage() {
             <ShoppingBag size={18} />
             <span>外带</span>
           </button>
+          <button onClick={logout} disabled={busy} title="退出">
+            <LogOut size={18} />
+            <span>退出</span>
+          </button>
         </div>
       </header>
 
+      {!online && <div className="offline-banner pos-offline"><WifiOff size={16} />当前离线，点单、打印和收款可能无法同步。</div>}
+      {online && !apiOnline && <div className="offline-banner pos-offline"><WifiOff size={16} />本地 API 暂不可用，请检查 Docker 服务。</div>}
       {notice && <button className="notice toast" onClick={() => setNotice("")}>{notice}</button>}
 
       <section className="pos-board">
@@ -344,6 +463,18 @@ export default function PosPage() {
         />
       )}
 
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          icon={confirmAction.icon}
+          busy={busy}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={confirmAction.onConfirm}
+        />
+      )}
+
       {paying && selectedOrder && (
         <PaymentModal
           order={selectedOrder}
@@ -385,6 +516,44 @@ function FloorMap({ layout, locale, currency, selectedOrder, busyTableId, onSele
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+function PosLogin({ notice, online, apiOnline, busy, onLogin }) {
+  const [name, setName] = useState("Cashier");
+  const [pin, setPin] = useState("1111");
+
+  return (
+    <section className="login-panel pos-login-panel">
+      <div className="brand login-brand">
+        <CircleDollarSign size={28} />
+        <span>QYPOS</span>
+      </div>
+      <h1>点餐前台登录</h1>
+      <p>开台、点餐、打印和收款需要员工账号。</p>
+      {!online && <div className="offline-banner"><WifiOff size={16} />当前离线，无法登录。</div>}
+      {online && !apiOnline && <div className="offline-banner"><WifiOff size={16} />本地 API 暂不可用，请检查 Docker 服务。</div>}
+      {notice && <div className="inline-error">{notice}</div>}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onLogin({ name, pin });
+        }}
+      >
+        <label>
+          员工
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Cashier" autoComplete="username" />
+        </label>
+        <label>
+          PIN
+          <input type="password" inputMode="numeric" value={pin} onChange={(event) => setPin(event.target.value)} placeholder="1111" autoComplete="current-password" />
+        </label>
+        <button className="primary wide-button" type="submit" disabled={busy || !name || !pin}>
+          {busy ? <Loader2 className="spin" size={18} /> : <UserRound size={18} />}
+          <span>登录点餐</span>
+        </button>
+      </form>
     </section>
   );
 }

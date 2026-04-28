@@ -51,6 +51,16 @@ test("applies discount before tax and service charge", () => {
   });
 });
 
+test("caps discount at the order subtotal", () => {
+  const totals = calculateTotals(
+    [{ unit_price: 10, quantity: 1, modifiers: [] }],
+    { tax_rate: 0.2, prices_include_tax: false, service_charge_rate: 0.15 },
+    { discount: 99 }
+  );
+  assert.equal(totals.discount, 10);
+  assert.equal(totals.total, 0);
+});
+
 test("allows service charge exemption", () => {
   const totals = calculateTotals(
     [{ unit_price: 80, quantity: 1, modifiers: [] }],

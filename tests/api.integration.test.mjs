@@ -60,7 +60,11 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
 
   const clearableTable = layout.tables.find((item) => item.status === "available" && !item.current_order_id);
   if (clearableTable) {
-    await request(`/tables/${clearableTable.id}/clear`, { method: "POST" });
+    await assert.rejects(
+      request(`/tables/${clearableTable.id}/clear`, { method: "POST" }),
+      /401/
+    );
+    await request(`/tables/${clearableTable.id}/clear`, authed(token, { method: "POST" }));
   }
 
   const menu = await request("/menu");
@@ -132,54 +136,114 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
   const testJob = await request("/print-jobs/test", authed(token, { method: "POST" }));
   assert.equal(testJob.type, "test");
 
-  const order = await request("/orders", {
+  const settings = await request("/settings");
+  const profile = {
+    id: `it-${Date.now().toString().slice(-5)}`,
+    name: "Integration Printer",
+    role: "receipt",
+    host: "192.168.1.250",
+    port: 9100,
+    enabled: true
+  };
+  const updatedSettings = await request("/settings", authed(token, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      printer_profiles: [...(settings.printer_profiles || []), profile],
+      receipt_printer_id: profile.id,
+      backup_enabled: false,
+      backup_interval_hours: 24
+    })
+  }));
+  assert.ok(updatedSettings.printer_profiles.some((item) => item.id === profile.id));
+
+  const health = await request("/ops/health", authed(token));
+  assert.equal(typeof health.ok, "boolean");
+  assert.ok(health.checks.some((check) => check.name === "database"));
+  const backupsBefore = await request("/ops/backups", authed(token));
+  assert.ok(Array.isArray(backupsBefore));
+  const backup = await request("/ops/backups", authed(token, { method: "POST" }));
+  assert.ok(backup.name.endsWith(".sql"));
+  const backupsAfter = await request("/ops/backups", authed(token));
+  assert.ok(backupsAfter.some((file) => file.name === backup.name));
+
+  await assert.rejects(
+    request("/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: "NOAUTH" })
+    }),
+    /401/
+  );
+
+  const order = await request("/orders", authed(token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT${Date.now().toString().slice(-3)}` })
-  });
+  }));
 
-  const updated = await request(`/orders/${order.id}`, {
+  const updated = await request(`/orders/${order.id}`, authed(token, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } })
-  });
+  }));
   assert.ok(Number(updated.total) > 0);
 
-  await request(`/orders/${order.id}/submit`, { method: "POST" });
+  await request(`/orders/${order.id}/submit`, authed(token, { method: "POST" }));
   const firstPrinted = await request(`/orders/${order.id}`);
   assert.ok(firstPrinted.items[0].kitchen_printed_at);
 
   await assert.rejects(
-    request(`/orders/${order.id}`, {
+    request(`/orders/${order.id}`, authed(token, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ update_item: { id: firstPrinted.items[0].id, quantity: 2 } })
-    }),
+    })),
     /Kitchen printed items are locked/
   );
 
-  await request(`/orders/${order.id}`, {
+  await request(`/orders/${order.id}`, authed(token, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } })
-  });
+  }));
   const withSecondItem = await request(`/orders/${order.id}`);
   const unprintedItem = withSecondItem.items.find((item) => !item.kitchen_printed_at);
   assert.ok(unprintedItem);
-  await request(`/orders/${order.id}/submit`, { method: "POST" });
+  await request(`/orders/${order.id}/submit`, authed(token, { method: "POST" }));
   const secondPrinted = await request(`/orders/${order.id}`);
   assert.equal(secondPrinted.items.filter((item) => item.kitchen_printed_at).length, 2);
 
   await assert.rejects(
-    request(`/orders/${order.id}/submit`, { method: "POST" }),
+    request(`/orders/${order.id}/submit`, authed(token, { method: "POST" })),
     /No new items to print to kitchen/
   );
 
-  await request(`/orders/${order.id}/print`, {
+  const settingsBeforeBadPrinter = await request("/settings");
+  await request("/settings", authed(token, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ receipt_printer_id: "missing-printer" })
+  }));
+  await assert.rejects(
+    request(`/orders/${order.id}/print`, authed(token, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "receipt" })
+    })),
+    /Receipt printer is not configured or enabled/
+  );
+  await request("/settings", authed(token, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ receipt_printer_id: settingsBeforeBadPrinter.receipt_printer_id })
+  }));
+
+  await request(`/orders/${order.id}/print`, authed(token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type: "receipt" })
-  });
+  }));
 
   const kitchenItems = await request("/kitchen/items");
   const kitchenItem = kitchenItems.find((item) => item.order_id === order.id);
@@ -205,11 +269,29 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
   assert.equal(Number(serviceAdjusted.service_charge), 0);
 
   const fullOrder = await request(`/orders/${order.id}`);
-  await request(`/orders/${order.id}/payments`, {
+  await assert.rejects(
+    request(`/orders/${order.id}/payments`, authed(token, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method: "cash", amount: 0, change_due: 0 })
+    })),
+    /Payment amount must be greater than zero/
+  );
+
+  await request(`/orders/${order.id}/payments`, authed(token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ method: "cash", amount: Number(fullOrder.total), change_due: 0 })
-  });
+  }));
+
+  await assert.rejects(
+    request(`/orders/${order.id}/payments`, authed(token, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method: "cash", amount: 1, change_due: 0 })
+    })),
+    /Order is already closed/
+  );
 
   const printJobs = await request("/print-jobs");
   assert.ok(printJobs.some((job) => job.order_id === order.id && job.type === "kitchen"));

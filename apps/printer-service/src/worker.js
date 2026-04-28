@@ -99,6 +99,7 @@ function renderReceipt(payload) {
 function renderTestTicket(payload) {
   const { settings } = payload;
   const locale = settings.locale ?? "zh-CN";
+  const printer = payload.printer ?? {};
   const rows = [
     "\x1b@",
     "\x1ba\x01",
@@ -107,7 +108,8 @@ function renderTestTicket(payload) {
     line(),
     settings.receipt_header || "QY Restaurant",
     `Time: ${new Date(payload.created_at ?? Date.now()).toLocaleString(locale)}`,
-    `Printer: ${settings.printer_host}:${settings.printer_port}`,
+    `Printer: ${printer.name ?? "Default"}`,
+    `Address: ${printer.host ?? settings.printer_host}:${printer.port ?? settings.printer_port}`,
     line(),
     "If you can read this, printing is online.",
     settings.receipt_footer || "Thank you",
@@ -123,8 +125,8 @@ function render(job) {
 }
 
 async function sendToPrinter(content, settings) {
-  const host = settings.printer_host || process.env.PRINTER_DEFAULT_HOST;
-  const port = Number(settings.printer_port || process.env.PRINTER_DEFAULT_PORT || 9100);
+  const host = settings.host || settings.printer_host || process.env.PRINTER_DEFAULT_HOST;
+  const port = Number(settings.port || settings.printer_port || process.env.PRINTER_DEFAULT_PORT || 9100);
 
   await new Promise((resolve, reject) => {
     const socket = net.createConnection({ host, port, timeout: 5000 }, () => {
@@ -156,7 +158,7 @@ async function processJob(id) {
   try {
     await pool.query("UPDATE print_jobs SET status = 'printing', updated_at = now() WHERE id = $1", [id]);
     const content = render(job);
-    await sendToPrinter(content, job.payload.settings);
+    await sendToPrinter(content, job.payload.printer ?? job.payload.settings);
     await updateJob(id, "succeeded");
     await redis.publish("print_events", JSON.stringify({ event: "print.succeeded", data: { id } }));
   } catch (error) {

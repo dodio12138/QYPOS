@@ -1,5 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
+RUN apk add --no-cache postgresql-client
 COPY package.json package-lock.json* ./
 COPY packages ./packages
 COPY apps/api/package.json ./apps/api/package.json
