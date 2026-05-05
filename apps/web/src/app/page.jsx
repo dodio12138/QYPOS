@@ -405,7 +405,7 @@ export default function PosPage() {
           setSearch={setSearch}
           locale={locale}
           currency={currency}
-          hasOrder={Boolean(selectedOrder)}
+          hasOrder={Boolean(selectedOrder) && !["paid", "cancelled"].includes(selectedOrder?.status)}
           onNeedOrder={() => setNotice("请先点击餐桌或创建外带订单")}
           onPick={setPickerItem}
         />
@@ -781,12 +781,10 @@ function TableActionModal({ table, locale, currency, busy, isSelected, onClose, 
               <span>{needsCleaning || hasOrder ? "清台" : "保持空桌"}</span>
             </button>
           )}
-          {!needsCleaning && (
-            <button className="primary" onClick={onOpen} disabled={busy}>
-              {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-              <span>{isAvailable ? "确认开台" : "继续点单"}</span>
-            </button>
-          )}
+          <button className="primary" onClick={onOpen} disabled={busy}>
+            {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
+            <span>{isAvailable ? "确认开台" : needsCleaning ? "新建订单" : "继续点单"}</span>
+          </button>
         </footer>
       </section>
     </div>

@@ -9,7 +9,7 @@ import Fastify from "fastify";
 import Redis from "ioredis";
 import pg from "pg";
 import { calculateTotals } from "@qypos/shared";
-import { defaultPrinterProfiles, printerProfiles, selectPrinter } from "./services/printers.js";
+import { defaultPrinterProfiles, printerProfiles, selectPrinter, isValidPrinter } from "./services/printers.js";
 import { normalizePermissions, requirePermission as requirePermissionWithRedis, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
 import { assertPositivePayment } from "./services/validation.js";
 
@@ -309,7 +309,12 @@ app.post("/auth/logout", async (request) => {
   return { ok: true };
 });
 
-app.get("/settings", getSettings);
+app.get("/settings", async () => {
+  const settings = await getSettings();
+  if (!settings) return settings;
+  // Ensure printer_profiles always has the effective list (with defaults) so the frontend can display them
+  return { ...settings, printer_profiles: printerProfiles(settings) };
+});
 
 app.put("/settings", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_settings")) return;
@@ -801,7 +806,10 @@ app.post("/tables/:id/open", async (request, reply) => {
     error.statusCode = 404;
     throw error;
   }
-  if (table.current_order_id) return one("SELECT * FROM orders WHERE id = $1", [table.current_order_id]);
+  if (table.current_order_id) {
+    const existing = await one("SELECT * FROM orders WHERE id = $1", [table.current_order_id]);
+    if (existing && existing.status !== 'paid' && existing.status !== 'cancelled') return existing;
+  }
   const order = await one(
     "INSERT INTO orders (order_no, service_type, table_id, guests, status) VALUES ($1, 'dine_in', $2, $3, 'draft') RETURNING *",
     [orderNo(), table.id, request.body?.guests ?? 1]
@@ -884,6 +892,13 @@ app.get("/orders/:id", async (request) => {
 app.patch("/orders/:id", async (request, reply) => {
   if (!await requirePermission(request, reply, "create_order")) return;
   const body = request.body ?? {};
+  if (body.add_item || body.update_item) {
+    const currentOrder = await one("SELECT status FROM orders WHERE id = $1", [request.params.id]);
+    if (currentOrder?.status === "paid" || currentOrder?.status === "cancelled") {
+      reply.code(409);
+      return { error: "Cannot modify a paid or cancelled order" };
+    }
+  }
   if (body.update_item) {
     const item = body.update_item;
     const existingItem = await one("SELECT id, kitchen_printed_at, status FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
@@ -1101,7 +1116,7 @@ app.post("/print-jobs/test", async (request, reply) => {
   const selectedPrinter = request.body?.printer_id
     ? printerProfiles(settings).find((profile) => profile.id === request.body.printer_id) ?? printer
     : printer;
-  if (!selectedPrinter || selectedPrinter.enabled === false || !selectedPrinter.host || !Number(selectedPrinter.port)) {
+  if (!selectedPrinter || !isValidPrinter(selectedPrinter)) {
     reply.code(409);
     return { error: "Selected printer is not configured or enabled" };
   }

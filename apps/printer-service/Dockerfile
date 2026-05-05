@@ -1,5 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
+RUN apk add --no-cache fontconfig font-noto-cjk
 COPY package.json package-lock.json* ./
 COPY packages ./packages
 COPY apps/printer-service/package.json ./apps/printer-service/package.json

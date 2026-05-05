@@ -1144,7 +1144,7 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
 
   function addProfile() {
     const id = `printer-${Date.now().toString().slice(-5)}`;
-    setProfiles((current) => [...current, { id, name: "新打印机", role: "receipt", host: "192.168.1.100", port: 9100, enabled: true }]);
+    setProfiles((current) => [...current, { id, name: "新打印机", role: "receipt", connection_type: "network", charset: "GBK", host: "192.168.1.100", port: 9100, enabled: true }]);
   }
 
   function removeProfile(id) {
@@ -1230,8 +1230,23 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
                   <option value="receipt">收银</option>
                   <option value="bar">吧台</option>
                 </select></label>
-                <label>IP 地址<input value={profile.host} onChange={(event) => updateProfile(profile.id, { host: event.target.value })} /></label>
-                <label>端口<input type="number" min="1" max="65535" value={profile.port} onChange={(event) => updateProfile(profile.id, { port: Number(event.target.value) })} /></label>
+                <label>连接方式<select value={profile.connection_type || "network"} onChange={(event) => updateProfile(profile.id, { connection_type: event.target.value })}>
+                  <option value="network">网络 (TCP/IP)</option>
+                  <option value="usb">USB</option>
+                </select></label>
+                <label>字符集<select value={profile.charset || "GBK"} onChange={(event) => updateProfile(profile.id, { charset: event.target.value })}>
+                  <option value="GBK">GBK（常用）</option>
+                  <option value="GB18030">GB18030（延伸GBK）</option>
+                  <option value="UTF-8">UTF-8（新型打印机）</option>
+                </select></label>
+                {(profile.connection_type || "network") === "usb" ? (
+                  <label>设备路径<input value={profile.device_path || "/dev/usb/lp0"} onChange={(event) => updateProfile(profile.id, { device_path: event.target.value })} /></label>
+                ) : (
+                  <>
+                    <label>IP 地址<input value={profile.host || ""} onChange={(event) => updateProfile(profile.id, { host: event.target.value })} /></label>
+                    <label>端口<input type="number" min="1" max="65535" value={profile.port || 9100} onChange={(event) => updateProfile(profile.id, { port: Number(event.target.value) })} /></label>
+                  </>
+                )}
                 <label className="checkbox"><input type="checkbox" checked={profile.enabled !== false} onChange={(event) => updateProfile(profile.id, { enabled: event.target.checked })} />启用</label>
                 <button type="button" onClick={() => run(async () => { await api("/print-jobs/test", { method: "POST", body: JSON.stringify({ printer_id: profile.id }) }); await onRefresh(); })}>测试</button>
                 <button type="button" onClick={() => removeProfile(profile.id)}><Trash2 size={15} /></button>

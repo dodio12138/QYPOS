@@ -7,6 +7,7 @@
     "start": "node src/worker.js"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.65",
     "@qypos/shared": "file:../../packages/shared",
     "ioredis": "^5.4.1",
     "pg": "^8.12.0"
