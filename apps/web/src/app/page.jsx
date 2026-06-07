@@ -128,7 +128,9 @@ export default function PosPage() {
       .finally(() => setAuthChecked(true));
     checkApiHealth();
     const healthTimer = window.setInterval(checkApiHealth, 15000);
-    const socket = new WebSocket(`${API_URL.replace(/^http/, "ws")}/ws`);
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const apiPort = process.env.NEXT_PUBLIC_API_PORT || "4000";
+    const socket = new WebSocket(`${wsProtocol}//${window.location.hostname}:${apiPort}/ws`);
     socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
