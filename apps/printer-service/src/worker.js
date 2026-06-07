@@ -219,11 +219,12 @@ async function sendToUsbPrinter(buffer, settings) {
 async function sendToNetworkPrinter(buffer, settings) {
   const host = settings.host || settings.printer_host;
   const port = Number(settings.port || settings.printer_port || 9100);
+  if (!host) throw new Error("Printer host is not configured");
   await new Promise((resolve, reject) => {
     const socket = net.createConnection({ host, port, timeout: 5000 }, () => {
       socket.write(buffer, () => socket.end());
     });
-    socket.on("close", resolve);
+    socket.on("close", (hadError) => { if (!hadError) resolve(); });
     socket.on("timeout", () => socket.destroy(new Error(`Printer timeout ${host}:${port}`)));
     socket.on("error", reject);
   });
@@ -248,14 +249,17 @@ async function updateJob(id, status, error = null) {
 
 async function processJob(id) {
   const job = await getJob(id);
-  if (!job) return;
+  if (!job) { console.warn(`[print] job ${id} not found in DB, skipping`); return; }
+  console.log(`[print] job ${id} type=${job.type} printer=${job.payload?.printer?.host ?? "unknown"}`);
   try {
     await pool.query("UPDATE print_jobs SET status = 'printing', updated_at = now() WHERE id = $1", [id]);
     const buffer = render(job);
     await sendToPrinter(buffer, job.payload.printer ?? job.payload.settings);
     await updateJob(id, "succeeded");
     await redis.publish("print_events", JSON.stringify({ event: "print.succeeded", data: { id } }));
+    console.log(`[print] job ${id} succeeded`);
   } catch (error) {
+    console.error(`[print] job ${id} failed: ${error.message}`);
     await updateJob(id, "failed", error.message);
     await redis.publish("print_events", JSON.stringify({ event: "print.failed", data: { id, error: error.message } }));
   }
@@ -263,6 +267,11 @@ async function processJob(id) {
 
 console.log("printer-service ready");
 while (true) {
-  const result = await redis.brpop("print_jobs", 0);
-  if (result?.[1]) await processJob(result[1]);
+  try {
+    const result = await redis.brpop("print_jobs", 0);
+    if (result?.[1]) await processJob(result[1]);
+  } catch (err) {
+    console.error("[print] worker error:", err.message);
+    await new Promise(r => setTimeout(r, 2000));
+  }
 }

@@ -207,7 +207,7 @@ INSERT INTO settings (
 ) VALUES (
   '00000000-0000-0000-0000-000000000001', 'zh-CN', 'en-GB', 'GBP', 0.2000, true,
   false, 0.0000, 'Granny Noodles', 'Thank you / 感谢光临',
-  '[{"id":"kitchen","name":"厨房打印机","role":"kitchen","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"cashier","name":"收银打印机","role":"receipt","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"bar","name":"吧台打印机","role":"bar","connection_type":"network","charset":"GBK","host":"192.168.1.102","port":9100,"enabled":false}]',
+  '[{"id":"kitchen","name":"厨房打印机","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"cashier","name":"收银打印机","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"bar","name":"吧台打印机","connection_type":"network","charset":"GBK","host":"192.168.1.102","port":9100,"enabled":false}]',
   'kitchen',
   'cashier'
 );

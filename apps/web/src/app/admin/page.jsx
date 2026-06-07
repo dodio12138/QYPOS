@@ -1148,7 +1148,7 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
 
   function addProfile() {
     const id = `printer-${Date.now().toString().slice(-5)}`;
-    setProfiles((current) => [...current, { id, name: "新打印机", role: "receipt", connection_type: "network", charset: "GBK", host: "192.168.1.251", port: 9100, enabled: true }]);
+    setProfiles((current) => [...current, { id, name: "新打印机", connection_type: "network", charset: "GBK", host: "192.168.1.251", port: 9100, enabled: true }]);
   }
 
   function removeProfile(id) {
@@ -1229,11 +1229,6 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
             {profiles.map((profile) => (
               <div className="printer-profile-row" key={profile.id}>
                 <label>名称<input value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
-                <label>用途<select value={profile.role} onChange={(event) => updateProfile(profile.id, { role: event.target.value })}>
-                  <option value="kitchen">厨房</option>
-                  <option value="receipt">收银</option>
-                  <option value="bar">吧台</option>
-                </select></label>
                 <label>连接方式<select value={profile.connection_type || "network"} onChange={(event) => updateProfile(profile.id, { connection_type: event.target.value })}>
                   <option value="network">网络 (TCP/IP)</option>
                   <option value="usb">USB</option>

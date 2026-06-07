@@ -53,8 +53,6 @@ services:
     environment:
       DATABASE_URL: ${PRINTER_DATABASE_URL:-postgres://qypos:qypos_password@localhost:5433/qypos}
       REDIS_URL: ${PRINTER_REDIS_URL:-redis://localhost:6379}
-      PRINTER_DEFAULT_HOST: ${PRINTER_DEFAULT_HOST:-192.168.1.100}
-      PRINTER_DEFAULT_PORT: ${PRINTER_DEFAULT_PORT:-9100}
     depends_on:
       postgres:
         condition: service_healthy
