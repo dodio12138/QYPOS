@@ -217,8 +217,8 @@ async function sendToUsbPrinter(buffer, settings) {
 }
 
 async function sendToNetworkPrinter(buffer, settings) {
-  const host = settings.host || settings.printer_host || process.env.PRINTER_DEFAULT_HOST;
-  const port = Number(settings.port || settings.printer_port || process.env.PRINTER_DEFAULT_PORT || 9100);
+  const host = settings.host || settings.printer_host;
+  const port = Number(settings.port || settings.printer_port || 9100);
   await new Promise((resolve, reject) => {
     const socket = net.createConnection({ host, port, timeout: 5000 }, () => {
       socket.write(buffer, () => socket.end());

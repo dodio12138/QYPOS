@@ -1148,7 +1148,7 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
 
   function addProfile() {
     const id = `printer-${Date.now().toString().slice(-5)}`;
-    setProfiles((current) => [...current, { id, name: "新打印机", role: "receipt", connection_type: "network", charset: "GBK", host: "192.168.1.100", port: 9100, enabled: true }]);
+    setProfiles((current) => [...current, { id, name: "新打印机", role: "receipt", connection_type: "network", charset: "GBK", host: "192.168.1.251", port: 9100, enabled: true }]);
   }
 
   function removeProfile(id) {
@@ -1297,9 +1297,8 @@ function SettingsView({ settings, setSettings, onSaved }) {
           </div>
         </div>
         <div className="settings-section">
-          <p className="settings-section-title">打印机 &amp; 小票</p>
+          <p className="settings-section-title">小票</p>
           <div className="settings-fields">
-            <label>打印机 IP<input value={settings.printer_host} onChange={(event) => setSettings({ ...settings, printer_host: event.target.value })} /></label>
             <label>小票页脚<input value={settings.receipt_footer} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
           </div>
         </div>

@@ -1,6 +1,6 @@
 export const defaultPrinterProfiles = [
-  { id: "kitchen", name: "厨房打印机", role: "kitchen", connection_type: "network", charset: "GBK", host: process.env.PRINTER_DEFAULT_HOST ?? "192.168.1.100", port: Number(process.env.PRINTER_DEFAULT_PORT ?? 9100), enabled: true },
-  { id: "cashier", name: "收银打印机", role: "receipt", connection_type: "network", charset: "GBK", host: process.env.PRINTER_DEFAULT_HOST ?? "192.168.1.100", port: Number(process.env.PRINTER_DEFAULT_PORT ?? 9100), enabled: true },
+  { id: "kitchen", name: "厨房打印机", role: "kitchen", connection_type: "network", charset: "GBK", host: "192.168.1.251", port: 9100, enabled: true },
+  { id: "cashier", name: "收银打印机", role: "receipt", connection_type: "network", charset: "GBK", host: "192.168.1.251", port: 9100, enabled: true },
   { id: "bar", name: "吧台打印机", role: "bar", connection_type: "network", charset: "GBK", host: "192.168.1.102", port: 9100, enabled: false }
 ];
 

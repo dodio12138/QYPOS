@@ -18,7 +18,7 @@ CREATE TABLE settings (
   service_charge_rate NUMERIC(8,4) NOT NULL DEFAULT 0.0000,
   receipt_header TEXT NOT NULL DEFAULT '',
   receipt_footer TEXT NOT NULL DEFAULT '',
-  printer_host TEXT NOT NULL DEFAULT '192.168.1.100',
+  printer_host TEXT NOT NULL DEFAULT '192.168.1.251',
   printer_port INTEGER NOT NULL DEFAULT 9100,
   printer_profiles JSONB NOT NULL DEFAULT '[]',
   kitchen_printer_id TEXT NOT NULL DEFAULT 'kitchen',
@@ -207,7 +207,7 @@ INSERT INTO settings (
 ) VALUES (
   '00000000-0000-0000-0000-000000000001', 'zh-CN', 'en-GB', 'GBP', 0.2000, true,
   false, 0.0000, 'Granny Noodles', 'Thank you / 感谢光临',
-  '[{"id":"kitchen","name":"厨房打印机","role":"kitchen","host":"192.168.1.100","port":9100,"enabled":true},{"id":"cashier","name":"收银打印机","role":"receipt","host":"192.168.1.101","port":9100,"enabled":true},{"id":"bar","name":"吧台打印机","role":"bar","host":"192.168.1.102","port":9100,"enabled":false}]',
+  '[{"id":"kitchen","name":"厨房打印机","role":"kitchen","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"cashier","name":"收银打印机","role":"receipt","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"bar","name":"吧台打印机","role":"bar","connection_type":"network","charset":"GBK","host":"192.168.1.102","port":9100,"enabled":false}]',
   'kitchen',
   'cashier'
 );
