@@ -51,8 +51,8 @@ services:
       dockerfile: apps/printer-service/Dockerfile
     network_mode: host
     environment:
-      DATABASE_URL: postgres://qypos:qypos_password@localhost:5432/qypos
-      REDIS_URL: redis://localhost:6379
+      DATABASE_URL: ${PRINTER_DATABASE_URL:-postgres://qypos:qypos_password@localhost:5432/qypos}
+      REDIS_URL: ${PRINTER_REDIS_URL:-redis://localhost:6379}
       PRINTER_DEFAULT_HOST: ${PRINTER_DEFAULT_HOST:-192.168.1.100}
       PRINTER_DEFAULT_PORT: ${PRINTER_DEFAULT_PORT:-9100}
     depends_on:
@@ -66,7 +66,8 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api-proxy}
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:4000}
     ports:
       - "3000:3000"
     depends_on:

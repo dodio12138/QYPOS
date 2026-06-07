@@ -1,4 +1,4 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
 export async function api(path, options = {}) {
   const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : null;
