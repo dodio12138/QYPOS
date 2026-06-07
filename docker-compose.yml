@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-qypos}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qypos_password}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
@@ -51,7 +51,7 @@ services:
       dockerfile: apps/printer-service/Dockerfile
     network_mode: host
     environment:
-      DATABASE_URL: ${PRINTER_DATABASE_URL:-postgres://qypos:qypos_password@localhost:5432/qypos}
+      DATABASE_URL: ${PRINTER_DATABASE_URL:-postgres://qypos:qypos_password@localhost:5433/qypos}
       REDIS_URL: ${PRINTER_REDIS_URL:-redis://localhost:6379}
       PRINTER_DEFAULT_HOST: ${PRINTER_DEFAULT_HOST:-192.168.1.100}
       PRINTER_DEFAULT_PORT: ${PRINTER_DEFAULT_PORT:-9100}

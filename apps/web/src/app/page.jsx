@@ -20,12 +20,12 @@ import {
   WifiOff,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../lib/api";
 
 const statusText = {
   available: "空桌",
-  opened: "已开台",
+  opened: "已下单",
   ordered: "已下单",
   preparing: "制作中",
   ready_to_serve: "待上菜",
@@ -58,6 +58,7 @@ export default function PosPage() {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
+  const kitchenPrintRef = useRef(true);
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
@@ -248,17 +249,32 @@ export default function PosPage() {
       setNotice("订单没有菜品，无法提交");
       return;
     }
+    kitchenPrintRef.current = true;
     setConfirmAction({
-      title: "厨房打印",
-      message: "确认把未打印的新菜品发送到厨房？已厨打的菜品不会重复打印。",
-      confirmLabel: "发送厨打",
+      title: "厨房下单",
+      message: "确认下单？新菜品将发送到厨房。",
+      confirmLabel: "确认下单",
       icon: <Printer size={22} />,
+      extra: (
+        <label className="modal-print-toggle">
+          <input
+            type="checkbox"
+            defaultChecked
+            onChange={(e) => { kitchenPrintRef.current = e.target.checked; }}
+          />
+          发送后厨打印
+        </label>
+      ),
       onConfirm: async () => {
+        const shouldPrint = kitchenPrintRef.current;
         await run(async () => {
-      await api(`/orders/${selectedOrder.id}/submit`, { method: "POST" });
-      setSelectedOrder(await api(`/orders/${selectedOrder.id}`));
-      await refresh(false);
-        }, "已发送厨房打印");
+          await api(`/orders/${selectedOrder.id}/submit`, {
+            method: "POST",
+            body: JSON.stringify({ print: shouldPrint })
+          });
+          setSelectedOrder(await api(`/orders/${selectedOrder.id}`));
+          await refresh(false);
+        }, shouldPrint ? "已下单，厨打已发送" : "已下单");
         setConfirmAction(null);
       }
     });
@@ -472,6 +488,7 @@ export default function PosPage() {
           message={confirmAction.message}
           confirmLabel={confirmAction.confirmLabel}
           icon={confirmAction.icon}
+          extra={confirmAction.extra}
           busy={busy}
           onCancel={() => setConfirmAction(null)}
           onConfirm={confirmAction.onConfirm}
@@ -658,7 +675,7 @@ function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, on
       {!order && (
         <>
           <div className="order-filter-bar">
-            <button className={orderFilter === "active" ? "selected" : ""} onClick={() => setOrderFilter("active")}>已开台</button>
+            <button className={orderFilter === "active" ? "selected" : ""} onClick={() => setOrderFilter("active")}>已下单</button>
             <button className={orderFilter === "paid" ? "selected" : ""} onClick={() => setOrderFilter("paid")}>已付款</button>
             <button className={orderFilter === "all" ? "selected" : ""} onClick={() => setOrderFilter("all")}>当日全部</button>
           </div>
@@ -732,7 +749,7 @@ function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, on
           <div className="action-row sticky-actions">
             <button onClick={onSubmit} disabled={busy || !(order.items || []).length}>
               <Printer size={18} />
-              <span>厨房打印</span>
+              <span>厨房下单</span>
             </button>
             <button onClick={onPrintBill} disabled={busy || !(order.items || []).length}>
               <ClipboardList size={18} />
@@ -793,7 +810,7 @@ function TableActionModal({ table, locale, currency, busy, isSelected, onClose, 
   );
 }
 
-function ConfirmModal({ title, message, confirmLabel, icon, busy, onCancel, onConfirm }) {
+function ConfirmModal({ title, message, confirmLabel, icon, extra, busy, onCancel, onConfirm }) {
   return (
     <div className="modal-backdrop">
       <section className="modal action-modal">
@@ -805,6 +822,7 @@ function ConfirmModal({ title, message, confirmLabel, icon, busy, onCancel, onCo
           </div>
           {icon}
         </header>
+        {extra && <div className="modal-extra">{extra}</div>}
         <footer className="modal-footer">
           <button onClick={onCancel}>取消</button>
           <button className="primary" onClick={onConfirm} disabled={busy}>

@@ -1035,15 +1035,25 @@ app.post("/orders/:id/submit", async (request, reply) => {
     reply.code(400);
     return { error: "Cannot submit an order with no items" };
   }
+  const body = request.body ?? {};
+  const shouldPrint = body.print !== false;
   const order = await recalculateOrder(request.params.id);
-  const job = await createPrintJob(order.id, "kitchen");
+  // 先更新状态，再尝试打印（打印失败不影响下单）
   const updated = await one("UPDATE orders SET status = 'submitted', updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
   if (updated.table_id) {
     await query("UPDATE tables SET status = 'ordered', updated_at = now() WHERE id = $1", [updated.table_id]);
     emit("table.status.updated", { table_id: updated.table_id, status: "ordered" });
   }
   emit("order.updated", updated);
-  await auditLog(request, "order.submit", "order", updated.id, { print_job_id: job.id });
+  let job = null;
+  if (shouldPrint) {
+    try {
+      job = await createPrintJob(order.id, "kitchen");
+    } catch (printErr) {
+      // 无新菜品可打或打印机未配置时不报错，仅跳过打印
+    }
+  }
+  await auditLog(request, "order.submit", "order", updated.id, { print_job_id: job?.id });
   return { order: updated, print_job: job };
 });
 

@@ -40,7 +40,8 @@ const tabs = [
   ["menu", ReceiptText, "菜单"],
   ["dashboard", BarChart3, "看板"],
   ["settings", Settings, "设置"],
-  ["ops", Wrench, "运维"]
+  ["ops", Wrench, "运维"],
+  ["layout", Armchair, "布局"]
 ];
 
 function money(value, currency = "CNY", locale = "zh-CN") {
@@ -272,7 +273,8 @@ export default function AdminPage() {
         }, "打印任务已重新入队")} />}
         {activeTab === "menu" && <MenuAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} />}
         {activeTab === "dashboard" && <Dashboard dashboard={dashboard} report={report} setReport={setReport} auditLogs={auditLogs} locale={locale} currency={currency} />}
-        {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} layout={layout} onSaved={refresh} />}
+        {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} onSaved={refresh} />}
+        {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
         {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} />}
       </section>
     </main>
@@ -1261,9 +1263,75 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
   );
 }
 
+function SettingsView({ settings, setSettings, onSaved }) {
+  async function save(event) {
+    event.preventDefault();
+    await api("/settings", { method: "PUT", body: JSON.stringify(settings) });
+    await onSaved();
+  }
+
+  async function printTest() {
+    await api("/print-jobs/test", { method: "POST" });
+    await onSaved();
+  }
+
+  return (
+    <div className="settings-top">
+      <form className="settings-form" onSubmit={save}>
+        <div className="settings-section">
+          <p className="settings-section-title">基本</p>
+          <div className="settings-fields">
+            <label>语言 / Locale<input value={settings.locale} onChange={(event) => setSettings({ ...settings, locale: event.target.value })} /></label>
+            <label>结算币种<input value={settings.currency} onChange={(event) => setSettings({ ...settings, currency: event.target.value })} /></label>
+          </div>
+        </div>
+        <div className="settings-section">
+          <p className="settings-section-title">税务 &amp; 费用</p>
+          <div className="settings-fields">
+            <label>税率<small className="label-hint">小数，0.08 = 8%</small><input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
+            <label>服务费率<small className="label-hint">小数，0.10 = 10%</small><input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
+          </div>
+          <div className="settings-checkboxes">
+            <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} />价格含税</label>
+            <label className="checkbox"><input type="checkbox" checked={settings.show_tax_on_receipt} onChange={(event) => setSettings({ ...settings, show_tax_on_receipt: event.target.checked })} />小票显示税额</label>
+          </div>
+        </div>
+        <div className="settings-section">
+          <p className="settings-section-title">打印机 &amp; 小票</p>
+          <div className="settings-fields">
+            <label>打印机 IP<input value={settings.printer_host} onChange={(event) => setSettings({ ...settings, printer_host: event.target.value })} /></label>
+            <label>小票页脚<input value={settings.receipt_footer} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
+          </div>
+        </div>
+        <div className="settings-actions">
+          <button className="primary" type="submit"><Save size={16} /><span>保存设置</span></button>
+          <button type="button" onClick={printTest}><Printer size={16} /><span>打印测试</span></button>
+        </div>
+      </form>
+      <section className="panel receipt-preview">
+        <div className="panel-title"><ReceiptText size={18} /><h2>Receipt 预览</h2></div>
+        <div className="receipt-paper">
+          <strong>{settings.receipt_header || "QY Restaurant"}</strong>
+          <span>Order: DEMO-001</span>
+          <span>Table: A1</span>
+          <hr />
+          <span>2 x Beef Noodles</span>
+          <span>1 x Lemon Tea</span>
+          <hr />
+          <span>Subtotal <b>{money(20, settings.currency, settings.locale)}</b></span>
+          {settings.show_tax_on_receipt && <span>Tax <b>{money(4, settings.currency, settings.locale)}</b></span>}
+          <span>Service <b>{money(3, settings.currency, settings.locale)}</b></span>
+          <strong>Total {money(27, settings.currency, settings.locale)}</strong>
+          <small>{settings.receipt_footer || "Thank you"}</small>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 const GRID_SIZE = 20;
 
-function SettingsView({ settings, setSettings, layout, onSaved }) {
+function LayoutView({ layout, onSaved }) {
   const [draftLayout, setDraftLayout] = useState(layout);
   const [dragging, setDragging] = useState(null);
   const [editMode, setEditMode] = useState(false);
@@ -1286,12 +1354,6 @@ function SettingsView({ settings, setSettings, layout, onSaved }) {
 
   const selectedTable = draftLayout.tables.find((table) => (table.id || table._client_id) === selectedTableId);
   const visibleTables = draftLayout.tables.filter((table) => !visibleAreaId || table.area_id === visibleAreaId);
-
-  async function save(event) {
-    event.preventDefault();
-    await api("/settings", { method: "PUT", body: JSON.stringify(settings) });
-    await onSaved();
-  }
 
   async function saveLayout() {
     const cleanLayout = {
@@ -1406,11 +1468,6 @@ function SettingsView({ settings, setSettings, layout, onSaved }) {
     await onSaved();
   }
 
-  async function printTest() {
-    await api("/print-jobs/test", { method: "POST" });
-    await onSaved();
-  }
-
   function getSnapshot() {
     return { tables: draftLayout.tables.map((t) => ({ ...t })), areas: draftLayout.areas.map((a) => ({ ...a })) };
   }
@@ -1453,161 +1510,106 @@ function SettingsView({ settings, setSettings, layout, onSaved }) {
   }, []);
 
   return (
-    <div className="settings-stack">
-      <div className="settings-top">
-        <form className="settings-form" onSubmit={save}>
-          <div className="settings-section">
-            <p className="settings-section-title">基本</p>
-            <div className="settings-fields">
-              <label>语言 / Locale<input value={settings.locale} onChange={(event) => setSettings({ ...settings, locale: event.target.value })} /></label>
-              <label>结算币种<input value={settings.currency} onChange={(event) => setSettings({ ...settings, currency: event.target.value })} /></label>
-            </div>
-          </div>
-          <div className="settings-section">
-            <p className="settings-section-title">税务 &amp; 费用</p>
-            <div className="settings-fields">
-              <label>税率<small className="label-hint">小数，0.08 = 8%</small><input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
-              <label>服务费率<small className="label-hint">小数，0.10 = 10%</small><input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
-            </div>
-            <div className="settings-checkboxes">
-              <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} />价格含税</label>
-              <label className="checkbox"><input type="checkbox" checked={settings.show_tax_on_receipt} onChange={(event) => setSettings({ ...settings, show_tax_on_receipt: event.target.checked })} />小票显示税额</label>
-            </div>
-          </div>
-          <div className="settings-section">
-            <p className="settings-section-title">打印机 &amp; 小票</p>
-            <div className="settings-fields">
-              <label>打印机 IP<input value={settings.printer_host} onChange={(event) => setSettings({ ...settings, printer_host: event.target.value })} /></label>
-              <label>小票页脚<input value={settings.receipt_footer} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
-            </div>
-          </div>
-          <div className="settings-actions">
-            <button className="primary" type="submit"><Save size={16} /><span>保存设置</span></button>
-            <button type="button" onClick={printTest}><Printer size={16} /><span>打印测试</span></button>
-          </div>
-        </form>
-
-      <section className="panel receipt-preview">
-        <div className="panel-title"><ReceiptText size={18} /><h2>Receipt 预览</h2></div>
-        <div className="receipt-paper">
-          <strong>{settings.receipt_header || "QY Restaurant"}</strong>
-          <span>Order: DEMO-001</span>
-          <span>Table: A1</span>
-          <hr />
-          <span>2 x Beef Noodles</span>
-          <span>1 x Lemon Tea</span>
-          <hr />
-          <span>Subtotal <b>{money(20, settings.currency, settings.locale)}</b></span>
-          {settings.show_tax_on_receipt && <span>Tax <b>{money(4, settings.currency, settings.locale)}</b></span>}
-          <span>Service <b>{money(3, settings.currency, settings.locale)}</b></span>
-          <strong>Total {money(27, settings.currency, settings.locale)}</strong>
-          <small>{settings.receipt_footer || "Thank you"}</small>
-        </div>
-      </section>
-      </div>
-
-      <section className="panel">
-        <div className="panel-title"><Armchair size={18} /><h2>餐桌布局编辑</h2></div>
-        <div className="area-toolbar">
-          {draftLayout.areas.map((area) => (
-            <button key={area.id} className={visibleAreaId === area.id ? "selected" : ""} onClick={() => setVisibleAreaId(area.id)} type="button">
-              {area.name}
-            </button>
-          ))}
-        </div>
-        <form className="inline-editor area-editor" onSubmit={addArea}>
-          <label>新区域<input value={newAreaName} onChange={(event) => setNewAreaName(event.target.value)} placeholder="Patio" /></label>
-          <button type="submit"><Plus size={16} /><span>添加区域</span></button>
-        </form>
-        <div className="inline-editor-list area-list">
-          {draftLayout.areas.map((area) => (
-            <div className="inline-editor" key={area.id}>
-              <label>区域名<input value={area.name} onChange={(event) => {
-                const name = event.target.value;
-                setDraftLayout((current) => ({ ...current, areas: current.areas.map((item) => item.id === area.id ? { ...item, name } : item) }));
-              }} /></label>
-              <label>排序<input type="number" value={area.sort_order ?? 0} onChange={(event) => {
-                const sortOrder = Number(event.target.value);
-                setDraftLayout((current) => ({ ...current, areas: current.areas.map((item) => item.id === area.id ? { ...item, sort_order: sortOrder } : item) }));
-              }} /></label>
-              <button type="button" onClick={() => updateArea(area, draftLayout.areas.find((item) => item.id === area.id))}><Save size={16} /><span>保存区域</span></button>
-              <button type="button" onClick={() => deleteArea(area)}><Trash2 size={16} /><span>删除区域</span></button>
-            </div>
-          ))}
-        </div>
-        <div className="layout-toolbar">
-          <button className={editMode ? "selected" : ""} onClick={() => setEditMode((current) => !current)} type="button">
-            <span>{editMode ? "退出编辑模式" : "进入编辑模式"}</span>
+    <div className="layout-view">
+      <div className="area-toolbar">
+        {draftLayout.areas.map((area) => (
+          <button key={area.id} className={visibleAreaId === area.id ? "selected" : ""} onClick={() => setVisibleAreaId(area.id)} type="button">
+            {area.name}
           </button>
-          {editMode && <>
-            <button onClick={undo} type="button" disabled={!undoStack.length} title="撤销 (⌘Z)"><Undo2 size={18} /><span>撤销</span></button>
-            <button onClick={redo} type="button" disabled={!redoStack.length} title="重做 (⌘⇧Z)"><Redo2 size={18} /><span>重做</span></button>
-            <button className={snapEnabled ? "selected" : ""} onClick={() => setSnapEnabled((v) => !v)} type="button" title="网格吸附"><Grid3X3 size={18} /><span>吸附</span></button>
-          </>}
-          <button onClick={addTable} type="button"><Plus size={18} /><span>添加桌台</span></button>
-          <button className="primary" onClick={saveLayout} type="button"><Save size={18} /><span>保存布局</span></button>
-        </div>
-        <div className="layout-editor-grid">
-          <div
-            className={`floor-canvas editor ${editMode ? "is-editing" : ""}`}
-            style={snapEnabled && editMode ? { backgroundImage: "radial-gradient(circle, #bbb 1.5px, transparent 1.5px)", backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px` } : undefined}
-            onPointerMove={(event) => {
-              if (!dragging) return;
-              moveTable(dragging.id, event.movementX, event.movementY);
-            }}
-            onPointerUp={() => setDragging(null)}
-            onPointerLeave={() => setDragging(null)}
-          >
-            {visibleTables.map((table) => {
-              const tableKey = table.id || table._client_id;
-              return (
-                <button
-                  key={tableKey}
-                  className={`table-shape ${table.shape} ${table.status} ${selectedTableId === tableKey ? "selected-table" : ""}`}
-                  style={{ left: Number(table.x), top: Number(table.y), width: Number(table.width), height: Number(table.height) }}
-                  onClick={() => setSelectedTableId(tableKey)}
-                  onPointerDown={(event) => {
-                    setSelectedTableId(tableKey);
-                    if (!editMode) return;
-                    pushHistory();
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    setDragging({ id: tableKey });
-                  }}
-                  type="button"
-                >
-                  <strong>{table.label}</strong>
-                  <span>{table.seats} seats</span>
-                </button>
-              );
-            })}
+        ))}
+      </div>
+      <form className="inline-editor area-editor" onSubmit={addArea}>
+        <label>新区域<input value={newAreaName} onChange={(event) => setNewAreaName(event.target.value)} placeholder="Patio" /></label>
+        <button type="submit"><Plus size={16} /><span>添加区域</span></button>
+      </form>
+      <div className="inline-editor-list area-list">
+        {draftLayout.areas.map((area) => (
+          <div className="inline-editor" key={area.id}>
+            <label>区域名<input value={area.name} onChange={(event) => {
+              const name = event.target.value;
+              setDraftLayout((current) => ({ ...current, areas: current.areas.map((item) => item.id === area.id ? { ...item, name } : item) }));
+            }} /></label>
+            <label>排序<input type="number" value={area.sort_order ?? 0} onChange={(event) => {
+              const sortOrder = Number(event.target.value);
+              setDraftLayout((current) => ({ ...current, areas: current.areas.map((item) => item.id === area.id ? { ...item, sort_order: sortOrder } : item) }));
+            }} /></label>
+            <button type="button" onClick={() => updateArea(area, draftLayout.areas.find((item) => item.id === area.id))}><Save size={16} /><span>保存区域</span></button>
+            <button type="button" onClick={() => deleteArea(area)}><Trash2 size={16} /><span>删除区域</span></button>
           </div>
-          <aside className="table-inspector">
-            <h3>桌台属性</h3>
-            {!selectedTable ? (
-              <p className="empty">选择一个桌台进行编辑</p>
-            ) : (
-              <>
-                <label>自定义编号<input value={selectedTable.label} onChange={(event) => updateSelectedTable("label", event.target.value)} disabled={!editMode} /></label>
-                <label>座位数<input type="number" min="1" value={selectedTable.seats} onChange={(event) => updateSelectedTable("seats", Number(event.target.value))} disabled={!editMode} /></label>
-                <label>形状<select value={selectedTable.shape} onChange={(event) => updateSelectedTable("shape", event.target.value)} disabled={!editMode}>
-                  <option value="rect">方桌</option>
-                  <option value="round">圆桌</option>
-                </select></label>
-                <label>宽度<input type="number" min="64" value={selectedTable.width} onChange={(event) => updateSelectedTable("width", Number(event.target.value))} disabled={!editMode} /></label>
-                <label>高度<input type="number" min="56" value={selectedTable.height} onChange={(event) => updateSelectedTable("height", Number(event.target.value))} disabled={!editMode} /></label>
-                <label>区域<select value={selectedTable.area_id} onChange={(event) => updateSelectedTable("area_id", event.target.value)} disabled={!editMode}>
-                  {draftLayout.areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
-                </select></label>
-                <div className="inspector-actions">
-                  <button type="button" onClick={copySelectedTable} disabled={!editMode}><Copy size={16} /><span>复制桌台</span></button>
-                  <button type="button" onClick={deleteSelectedTable} disabled={!editMode || selectedTable.current_order_id}><Trash2 size={16} /><span>删除桌台</span></button>
-                </div>
-                <p className="inspector-help">{editMode ? "拖拽桌台可调整位置，修改编号后点击保存布局。" : "进入编辑模式后可拖拽和修改桌台属性。"}</p>
-              </>
-            )}
-          </aside>
+        ))}
+      </div>
+      <div className="layout-toolbar">
+        <button className={editMode ? "selected" : ""} onClick={() => setEditMode((current) => !current)} type="button">
+          <span>{editMode ? "退出编辑模式" : "进入编辑模式"}</span>
+        </button>
+        {editMode && <>
+          <button onClick={undo} type="button" disabled={!undoStack.length} title="撤销 (⌘Z)"><Undo2 size={18} /><span>撤销</span></button>
+          <button onClick={redo} type="button" disabled={!redoStack.length} title="重做 (⌘⇧Z)"><Redo2 size={18} /><span>重做</span></button>
+          <button className={snapEnabled ? "selected" : ""} onClick={() => setSnapEnabled((v) => !v)} type="button" title="网格吸附"><Grid3X3 size={18} /><span>吸附</span></button>
+        </>}
+        <button onClick={addTable} type="button"><Plus size={18} /><span>添加桌台</span></button>
+        <button className="primary" onClick={saveLayout} type="button"><Save size={18} /><span>保存布局</span></button>
+      </div>
+      <div className="layout-editor-grid">
+        <div
+          className={`floor-canvas editor ${editMode ? "is-editing" : ""}`}
+          style={snapEnabled && editMode ? { backgroundImage: "radial-gradient(circle, #bbb 1.5px, transparent 1.5px)", backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px` } : undefined}
+          onPointerMove={(event) => {
+            if (!dragging) return;
+            moveTable(dragging.id, event.movementX, event.movementY);
+          }}
+          onPointerUp={() => setDragging(null)}
+          onPointerLeave={() => setDragging(null)}
+        >
+          {visibleTables.map((table) => {
+            const tableKey = table.id || table._client_id;
+            return (
+              <button
+                key={tableKey}
+                className={`table-shape ${table.shape} ${table.status} ${selectedTableId === tableKey ? "selected-table" : ""}`}
+                style={{ left: Number(table.x), top: Number(table.y), width: Number(table.width), height: Number(table.height) }}
+                onClick={() => setSelectedTableId(tableKey)}
+                onPointerDown={(event) => {
+                  setSelectedTableId(tableKey);
+                  if (!editMode) return;
+                  pushHistory();
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setDragging({ id: tableKey });
+                }}
+                type="button"
+              >
+                <strong>{table.label}</strong>
+                <span>{table.seats} seats</span>
+              </button>
+            );
+          })}
         </div>
-      </section>
+        <aside className="table-inspector">
+          <h3>桌台属性</h3>
+          {!selectedTable ? (
+            <p className="empty">选择一个桌台进行编辑</p>
+          ) : (
+            <>
+              <label>自定义编号<input value={selectedTable.label} onChange={(event) => updateSelectedTable("label", event.target.value)} disabled={!editMode} /></label>
+              <label>座位数<input type="number" min="1" value={selectedTable.seats} onChange={(event) => updateSelectedTable("seats", Number(event.target.value))} disabled={!editMode} /></label>
+              <label>形状<select value={selectedTable.shape} onChange={(event) => updateSelectedTable("shape", event.target.value)} disabled={!editMode}>
+                <option value="rect">方桌</option>
+                <option value="round">圆桌</option>
+              </select></label>
+              <label>宽度<input type="number" min="64" value={selectedTable.width} onChange={(event) => updateSelectedTable("width", Number(event.target.value))} disabled={!editMode} /></label>
+              <label>高度<input type="number" min="56" value={selectedTable.height} onChange={(event) => updateSelectedTable("height", Number(event.target.value))} disabled={!editMode} /></label>
+              <label>区域<select value={selectedTable.area_id} onChange={(event) => updateSelectedTable("area_id", event.target.value)} disabled={!editMode}>
+                {draftLayout.areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
+              </select></label>
+              <div className="inspector-actions">
+                <button type="button" onClick={copySelectedTable} disabled={!editMode}><Copy size={16} /><span>复制桌台</span></button>
+                <button type="button" onClick={deleteSelectedTable} disabled={!editMode || selectedTable.current_order_id}><Trash2 size={16} /><span>删除桌台</span></button>
+              </div>
+              <p className="inspector-help">{editMode ? "拖拽桌台可调整位置，修改编号后点击保存布局。" : "进入编辑模式后可拖拽和修改桌台属性。"}</p>
+            </>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

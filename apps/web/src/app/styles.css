@@ -2475,3 +2475,25 @@ button.danger:hover {
     height: 360px;
   }
 }
+
+.modal-extra {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.modal-print-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.layout-view {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.layout-view .floor-canvas {
+  min-height: 520px;
+}
