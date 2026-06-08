@@ -50,6 +50,9 @@ services:
       context: .
       dockerfile: apps/printer-service/Dockerfile
     network_mode: host
+    privileged: true
+    volumes:
+      - /dev:/dev
     environment:
       DATABASE_URL: ${PRINTER_DATABASE_URL:-postgres://qypos:qypos_password@localhost:5433/qypos}
       REDIS_URL: ${PRINTER_REDIS_URL:-redis://localhost:6379}

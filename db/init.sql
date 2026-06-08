@@ -17,6 +17,9 @@ CREATE TABLE settings (
   show_tax_on_receipt BOOLEAN NOT NULL DEFAULT true,
   service_charge_rate NUMERIC(8,4) NOT NULL DEFAULT 0.0000,
   receipt_header TEXT NOT NULL DEFAULT '',
+  receipt_header_zh TEXT NOT NULL DEFAULT '',
+  receipt_phone TEXT NOT NULL DEFAULT '',
+  receipt_address TEXT NOT NULL DEFAULT '',
   receipt_footer TEXT NOT NULL DEFAULT '',
   printer_host TEXT NOT NULL DEFAULT '192.168.1.251',
   printer_port INTEGER NOT NULL DEFAULT 9100,
@@ -202,11 +205,11 @@ INSERT INTO restaurants (id, name) VALUES ('00000000-0000-0000-0000-000000000001
 
 INSERT INTO settings (
   restaurant_id, locale, fallback_locale, currency, tax_rate, prices_include_tax,
-  show_tax_on_receipt, service_charge_rate, receipt_header, receipt_footer,
+  show_tax_on_receipt, service_charge_rate, receipt_header, receipt_header_zh, receipt_phone, receipt_address, receipt_footer,
   printer_profiles, kitchen_printer_id, receipt_printer_id
 ) VALUES (
   '00000000-0000-0000-0000-000000000001', 'zh-CN', 'en-GB', 'GBP', 0.2000, true,
-  false, 0.0000, 'Granny Noodles', 'Thank you / 感谢光临',
+  true, 0.0000, 'Granny Noodles', '秦云老太婆摊摊面', '07347 997926', '37, Centurion House, Jewry St, London EC3N 2ER', 'Thank you / 感谢光临',
   '[{"id":"kitchen","name":"厨房打印机","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"cashier","name":"收银打印机","connection_type":"network","charset":"GBK","host":"192.168.1.251","port":9100,"enabled":true},{"id":"bar","name":"吧台打印机","connection_type":"network","charset":"GBK","host":"192.168.1.102","port":9100,"enabled":false}]',
   'kitchen',
   'cashier'

@@ -403,6 +403,22 @@ h1 {
   overflow: hidden;
 }
 
+.misc-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.misc-button:hover:not(:disabled) { background: #dbeafe; }
+.misc-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .pos-grid {
   display: grid;
   grid-template-columns: minmax(420px, 1.2fr) minmax(320px, 0.9fr) minmax(320px, 0.8fr);
@@ -659,6 +675,14 @@ h1 {
   color: var(--ink);
 }
 
+.product-tile-en {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: normal;
+  line-height: 1.2;
+  margin-top: -2px;
+}
+
 .product-tile span {
   color: var(--muted);
   min-height: 18px;
@@ -732,6 +756,32 @@ h1 {
   border-radius: 999px;
   background: #fff7ed;
   color: var(--warn) !important;
+}
+
+.locked-line.warn {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: var(--danger, #b91c1c) !important;
+}
+
+.order-line.locked {
+  opacity: 0.78;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0,0,0,0.04) 6px 12px);
+  cursor: not-allowed;
+  user-select: none;
+  pointer-events: none;
+}
+
+.order-line.locked .qty-stepper button,
+.order-line.locked .icon-danger {
+  pointer-events: auto;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.order-line.void-mode {
+  background: #fef2f2;
+  border: 1px dashed #fca5a5;
 }
 
 .order-meta {

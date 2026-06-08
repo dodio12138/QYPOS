@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   CircleDollarSign,
   ClipboardList,
+  Coins,
   Minus,
   Plus,
   Printer,
@@ -47,6 +48,7 @@ export default function PosPage() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [pickerItem, setPickerItem] = useState(null);
+  const [customOpen, setCustomOpen] = useState(false);
   const [paying, setPaying] = useState(false);
   const [tableAction, setTableAction] = useState(null);
   const [confirmTakeaway, setConfirmTakeaway] = useState(false);
@@ -220,12 +222,29 @@ export default function PosPage() {
     }, "已加入订单");
   }
 
-  async function updateItem(item, quantity) {
-    if (!selectedOrder) return;
+  async function addCustomItem({ name, price, quantity, notes }) {
+    if (!selectedOrder) {
+      setNotice("请先选择餐桌或创建外带订单");
+      return;
+    }
     await run(async () => {
       const updated = await api(`/orders/${selectedOrder.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ update_item: { id: item.id, quantity } })
+        body: JSON.stringify({ add_item: { custom: { name, price }, quantity, notes } })
+      });
+      setSelectedOrder(await api(`/orders/${updated.id}`));
+      setCustomOpen(false);
+      await refresh(false);
+    }, "杂项已加入订单");
+  }
+
+  async function updateItem(item, quantity, options = {}) {
+    if (!selectedOrder) return;
+    await run(async () => {
+      const payload = { id: item.id, quantity, ...options };
+      const updated = await api(`/orders/${selectedOrder.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ update_item: payload })
       });
       setSelectedOrder(await api(`/orders/${updated.id}`));
       await refresh(false);
@@ -426,6 +445,7 @@ export default function PosPage() {
           hasOrder={Boolean(selectedOrder) && !["paid", "cancelled"].includes(selectedOrder?.status)}
           onNeedOrder={() => setNotice("请先点击餐桌或创建外带订单")}
           onPick={setPickerItem}
+          onCustom={() => (selectedOrder ? setCustomOpen(true) : setNotice("请先选择餐桌或创建外带订单"))}
         />
         <OrderPanel
           order={selectedOrder}
@@ -433,6 +453,7 @@ export default function PosPage() {
           currency={currency}
           orders={orders}
           tables={layout.tables}
+          user={user}
           onSelectOrder={async (id) => setSelectedOrder(await api(`/orders/${id}`))}
           onQuantity={updateItem}
           onSaveNotes={saveOrderNotes}
@@ -454,6 +475,15 @@ export default function PosPage() {
           currency={currency}
           onClose={() => setPickerItem(null)}
           onAdd={addConfiguredItem}
+        />
+      )}
+
+      {customOpen && (
+        <CustomItemModal
+          locale={locale}
+          currency={currency}
+          onClose={() => setCustomOpen(false)}
+          onAdd={addCustomItem}
         />
       )}
 
@@ -578,13 +608,16 @@ function PosLogin({ notice, online, apiOnline, busy, onLogin }) {
   );
 }
 
-function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, search, setSearch, locale, currency, hasOrder, onNeedOrder, onPick }) {
+function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, search, setSearch, locale, currency, hasOrder, onNeedOrder, onPick, onCustom }) {
   return (
     <section className="panel menu-panel">
       <div className="panel-title split">
         <div>
           <ReceiptTitle />
         </div>
+        <button type="button" className="misc-button" onClick={onCustom} disabled={!hasOrder} title="加入自定义价格的杂项代收">
+          <Coins size={16} /><span>杂项代收</span>
+        </button>
       </div>
       <div className="search-box">
         <Search size={18} />
@@ -601,6 +634,8 @@ function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, 
       <div className="menu-grid">
         {items.map((item) => {
           const minPrice = Math.min(...item.variants.filter((variant) => variant.active).map((variant) => Number(variant.price)));
+          const zhName = labelOf(item.name_i18n, "zh-CN");
+          const enName = item.name_i18n?.["en-GB"] || item.name_i18n?.["en"] || "";
           return (
             <button
               className="product-tile"
@@ -608,7 +643,8 @@ function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, 
               onClick={() => (hasOrder ? onPick(item) : onNeedOrder())}
               disabled={!hasOrder || !item.variants.some((variant) => variant.active)}
             >
-              <strong>{labelOf(item.name_i18n, locale)}</strong>
+              <strong>{zhName}</strong>
+              {enName && enName !== zhName && <em className="product-tile-en">{enName}</em>}
               <span>{labelOf(item.description_i18n, locale) || item.kitchen_group}</span>
               <b>{Number.isFinite(minPrice) ? money(minPrice, currency, locale) : "未定价"}</b>
             </button>
@@ -628,12 +664,17 @@ function ReceiptTitle() {
   );
 }
 
-function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, onQuantity, onSaveNotes, onSubmit, onPrintBill, onPay, onAdjustService, onDiscount, onCancelOrder, onExit, busy }) {
+function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrder, onQuantity, onSaveNotes, onSubmit, onPrintBill, onPay, onAdjustService, onDiscount, onCancelOrder, onExit, busy }) {
   const [notes, setNotes] = useState("");
   const [discount, setDiscount] = useState("0");
   const [serviceRate, setServiceRate] = useState("0.15");
   const [cancelReason, setCancelReason] = useState("");
   const [orderFilter, setOrderFilter] = useState("active");
+  const [voidMode, setVoidMode] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const canVoid = Boolean(user?.permissions?.includes("manage_orders"));
+
+  useEffect(() => { setVoidMode(false); setVoidReason(""); }, [order?.id]);
 
   useEffect(() => setNotes(order?.notes || ""), [order?.id, order?.notes]);
   useEffect(() => {
@@ -704,24 +745,37 @@ function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, on
             <span>{order.status}</span>
           </div>
           <div className="order-lines">
-            {(order.items || []).map((item) => (
-              <div className="order-line rich" key={item.id}>
+            {(order.items || []).map((item) => {
+              const locked = Boolean(item.kitchen_printed_at);
+              const canVoidThis = locked && voidMode && canVoid;
+              return (
+              <div className={`order-line rich${locked && !voidMode ? " locked" : ""}${canVoidThis ? " void-mode" : ""}`} key={item.id}>
                 <div>
                   <strong>{labelOf(item.name_i18n, locale)}</strong>
                   <span>{labelOf(item.variant_name_i18n, locale)}</span>
-                  {item.kitchen_printed_at && <small className="locked-line">已厨打锁定</small>}
+                  {locked && !voidMode && <small className="locked-line">已下单制作中</small>}
+                  {canVoidThis && <small className="locked-line warn">点击删除进行退菜</small>}
                   {(item.modifiers || []).map((modifier) => (
                     <small key={modifier.id}>+ {labelOf(modifier.name_i18n, locale)} {Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : ""}</small>
                   ))}
                 </div>
                 <div className="qty-stepper">
-                  <button onClick={() => onQuantity(item, Number(item.quantity) - 1)} disabled={Boolean(item.kitchen_printed_at)} title="减少"><Minus size={16} /></button>
+                  <button onClick={() => onQuantity(item, Number(item.quantity) - 1)} disabled={locked} title="减少"><Minus size={16} /></button>
                   <b>{item.quantity}</b>
-                  <button onClick={() => onQuantity(item, Number(item.quantity) + 1)} disabled={Boolean(item.kitchen_printed_at)} title="增加"><Plus size={16} /></button>
+                  <button onClick={() => onQuantity(item, Number(item.quantity) + 1)} disabled={locked} title="增加"><Plus size={16} /></button>
                 </div>
-                <button className="icon-danger" onClick={() => onQuantity(item, 0)} disabled={Boolean(item.kitchen_printed_at)} title="删除"><Trash2 size={16} /></button>
+                {canVoidThis ? (
+                  <button className="icon-danger" onClick={async () => {
+                    await onQuantity(item, 0, { void: true, reason: voidReason || "front desk void" });
+                    setVoidMode(false);
+                    setVoidReason("");
+                  }} title="退菜"><Trash2 size={16} /></button>
+                ) : (
+                  <button className="icon-danger" onClick={() => onQuantity(item, 0)} disabled={locked} title="删除"><Trash2 size={16} /></button>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
           <label className="notes-box">
             订单备注
@@ -744,6 +798,14 @@ function OrderPanel({ order, orders, tables, locale, currency, onSelectOrder, on
               <button type="button" onClick={() => onAdjustService({ service_charge_exempt: true, reason: "front desk exempt" })}>豁免服务费</button>
               <label>取消原因<input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="客人取消、输错单等" /></label>
               <button type="button" onClick={() => onCancelOrder(cancelReason || "front desk cancel")}>取消订单</button>
+              {canVoid && (
+                <>
+                  <label>退菜原因<input value={voidReason} onChange={(event) => setVoidReason(event.target.value)} placeholder="客人退菜、制作错误等" /></label>
+                  <button type="button" className={voidMode ? "primary" : ""} onClick={() => setVoidMode((v) => !v)}>
+                    {voidMode ? "退出退菜模式" : "退菜模式"}
+                  </button>
+                </>
+              )}
             </div>
           </details>
           <div className="action-row sticky-actions">
@@ -831,6 +893,65 @@ function ConfirmModal({ title, message, confirmLabel, icon, extra, busy, onCance
           </button>
         </footer>
       </section>
+    </div>
+  );
+}
+
+function CustomItemModal({ locale, currency, onClose, onAdd }) {
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [quantity, setQuantity] = useState(1);
+  const [notes, setNotes] = useState("");
+  const priceNum = Number(price);
+  const valid = name.trim().length > 0 && Number.isFinite(priceNum) && priceNum >= 0 && quantity >= 1;
+  const total = valid ? priceNum * quantity : 0;
+
+  function submit(event) {
+    event.preventDefault();
+    if (!valid) return;
+    onAdd({ name: name.trim(), price: priceNum, quantity, notes });
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <header className="modal-header">
+          <button type="button" onClick={onClose} title="关闭"><X size={20} /></button>
+          <div>
+            <h2>杂项代收</h2>
+            <p>自定义名称与价格，记入当前订单</p>
+          </div>
+        </header>
+        <div className="modal-body" style={{display:"grid",gap:12,padding:"16px 20px"}}>
+          <label>
+            名称 <small className="label-hint">如 "塑料袋"、"打包盒"、"代收押金" 等</small>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="杂项名称" autoFocus />
+          </label>
+          <label>
+            单价（{currency}）
+            <input type="number" inputMode="decimal" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
+          </label>
+          <label>
+            数量
+            <div className="qty-stepper" style={{justifySelf:"start"}}>
+              <button type="button" onClick={() => setQuantity((q) => Math.max(1, q - 1))}><Minus size={16} /></button>
+              <b>{quantity}</b>
+              <button type="button" onClick={() => setQuantity((q) => q + 1)}><Plus size={16} /></button>
+            </div>
+          </label>
+          <label>
+            备注（可选）
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="备注信息" />
+          </label>
+          {valid && <div className="totals" style={{borderTop:"1px solid var(--border)",paddingTop:8}}><strong>小计 <b>{new Intl.NumberFormat(locale, { style: "currency", currency }).format(total)}</b></strong></div>}
+        </div>
+        <footer className="modal-footer">
+          <button type="button" onClick={onClose}>取消</button>
+          <button type="submit" className="primary" disabled={!valid}>
+            <Plus size={18} /><span>加入订单</span>
+          </button>
+        </footer>
+      </form>
     </div>
   );
 }

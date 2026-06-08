@@ -1143,12 +1143,35 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
   }
 
   function updateProfile(id, patch) {
-    setProfiles((current) => current.map((profile) => profile.id === id ? { ...profile, ...patch } : profile));
+    setProfiles((current) => current.map((profile) => {
+      if (profile.id !== id) return profile;
+      const next = { ...profile, ...patch };
+      // Auto-fill defaults when switching transport so the profile is immediately valid.
+      if (patch.connection_type === "usb" && !next.device_path) next.device_path = "/dev/usb/lp0";
+      if (patch.connection_type === "bluetooth") {
+        if (!next.device_path) next.device_path = "/dev/rfcomm0";
+        if (!next.channel) next.channel = 1;
+      }
+      if (patch.connection_type === "network") {
+        if (!next.host) next.host = "192.168.1.251";
+        if (!next.port) next.port = 9100;
+      }
+      return next;
+    }));
   }
 
-  function addProfile() {
+  function addProfile(type = "network") {
     const id = `printer-${Date.now().toString().slice(-5)}`;
-    setProfiles((current) => [...current, { id, name: "新打印机", connection_type: "network", charset: "GBK", host: "192.168.1.251", port: 9100, enabled: true }]);
+    const base = { id, charset: "GBK", enabled: true };
+    let profile;
+    if (type === "usb") {
+      profile = { ...base, name: "USB 打印机", connection_type: "usb", device_path: "/dev/usb/lp0" };
+    } else if (type === "bluetooth") {
+      profile = { ...base, name: "蓝牙打印机", connection_type: "bluetooth", device_path: "/dev/rfcomm0", mac: "", channel: 1 };
+    } else {
+      profile = { ...base, name: "网络打印机", connection_type: "network", host: "192.168.1.251", port: 9100 };
+    }
+    setProfiles((current) => [...current, profile]);
   }
 
   function removeProfile(id) {
@@ -1209,7 +1232,11 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
       <section className="panel">
         <div className="panel-title split">
           <div className="inline-title"><Printer size={18} /><h2>多打印机配置</h2></div>
-          <button type="button" onClick={addProfile}><Plus size={16} /><span>添加打印机</span></button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => addProfile("network")}><Plus size={16} /><span>添加网络打印机</span></button>
+            <button type="button" onClick={() => addProfile("usb")}><Plus size={16} /><span>添加 USB 打印机</span></button>
+            <button type="button" onClick={() => addProfile("bluetooth")}><Plus size={16} /><span>添加蓝牙打印机</span></button>
+          </div>
         </div>
         <form className="printer-config" onSubmit={saveOpsSettings}>
           <div className="printer-route-row">
@@ -1232,15 +1259,24 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
                 <label>连接方式<select value={profile.connection_type || "network"} onChange={(event) => updateProfile(profile.id, { connection_type: event.target.value })}>
                   <option value="network">网络 (TCP/IP)</option>
                   <option value="usb">USB</option>
+                  <option value="bluetooth">蓝牙 (rfcomm)</option>
                 </select></label>
                 <label>字符集<select value={profile.charset || "GBK"} onChange={(event) => updateProfile(profile.id, { charset: event.target.value })}>
                   <option value="GBK">GBK（常用）</option>
                   <option value="GB18030">GB18030（延伸GBK）</option>
                   <option value="UTF-8">UTF-8（新型打印机）</option>
                 </select></label>
-                {(profile.connection_type || "network") === "usb" ? (
+                {(profile.connection_type === "usb") && (
                   <label>设备路径<input value={profile.device_path || "/dev/usb/lp0"} onChange={(event) => updateProfile(profile.id, { device_path: event.target.value })} /></label>
-                ) : (
+                )}
+                {(profile.connection_type === "bluetooth") && (
+                  <>
+                    <label>蓝牙 MAC<input placeholder="00:11:22:33:44:55" value={profile.mac || ""} onChange={(event) => updateProfile(profile.id, { mac: event.target.value })} /></label>
+                    <label>RFCOMM 通道<input type="number" min="1" max="30" value={profile.channel || 1} onChange={(event) => updateProfile(profile.id, { channel: Number(event.target.value) })} /></label>
+                    <label>设备路径<input value={profile.device_path || "/dev/rfcomm0"} onChange={(event) => updateProfile(profile.id, { device_path: event.target.value })} /></label>
+                  </>
+                )}
+                {(!profile.connection_type || profile.connection_type === "network") && (
                   <>
                     <label>IP 地址<input value={profile.host || ""} onChange={(event) => updateProfile(profile.id, { host: event.target.value })} /></label>
                     <label>端口<input type="number" min="1" max="65535" value={profile.port || 9100} onChange={(event) => updateProfile(profile.id, { port: Number(event.target.value) })} /></label>
@@ -1249,6 +1285,19 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
                 <label className="checkbox"><input type="checkbox" checked={profile.enabled !== false} onChange={(event) => updateProfile(profile.id, { enabled: event.target.checked })} />启用</label>
                 <button type="button" onClick={() => run(async () => { await api("/print-jobs/test", { method: "POST", body: JSON.stringify({ printer_id: profile.id }) }); await onRefresh(); })}>测试</button>
                 <button type="button" onClick={() => removeProfile(profile.id)}><Trash2 size={15} /></button>
+                {profile.connection_type === "bluetooth" && (
+                  <pre className="bt-guide" style={{ gridColumn: "1 / -1", margin: "4px 0 0", padding: "8px 10px", background: "#f1f5f9", borderRadius: 6, fontSize: 12, lineHeight: 1.5, color: "#334155", whiteSpace: "pre-wrap" }}>
+{`# 在 Linux 服务器（宿主机，不是容器）一次性配对 + 绑定：
+sudo bluetoothctl
+  scan on            # 看到 ${profile.name || "打印机"}（${profile.mac || "MAC"}）后 scan off
+  pair ${profile.mac || "<MAC>"}        # 输入 PIN（Rongta 多为 0000）
+  trust ${profile.mac || "<MAC>"}
+  exit
+sudo rfcomm bind ${profile.device_path || "/dev/rfcomm0"} ${profile.mac || "<MAC>"} ${profile.channel || 1}
+ls -l ${profile.device_path || "/dev/rfcomm0"}   # 出现 crw-rw---- 即成功
+echo HELLO > ${profile.device_path || "/dev/rfcomm0"}   # 打印机出纸即可用`}
+                  </pre>
+                )}
               </div>
             ))}
           </div>
@@ -1283,18 +1332,22 @@ function SettingsView({ settings, setSettings, onSaved }) {
         <div className="settings-section">
           <p className="settings-section-title">税务 &amp; 费用</p>
           <div className="settings-fields">
-            <label>税率<small className="label-hint">小数，0.08 = 8%</small><input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
-            <label>服务费率<small className="label-hint">小数，0.10 = 10%</small><input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
+            <label>VAT 税率<small className="label-hint">小数，0.20 = 20%</small><input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
+            <label>服务费率<small className="label-hint">小数，0.10 = 10%；0 = 不收取</small><input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
           </div>
           <div className="settings-checkboxes">
-            <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} />价格含税</label>
-            <label className="checkbox"><input type="checkbox" checked={settings.show_tax_on_receipt} onChange={(event) => setSettings({ ...settings, show_tax_on_receipt: event.target.checked })} />小票显示税额</label>
+            <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} /><b>VAT 包含在标价中（默认 20%）</b></label>
+            <label className="checkbox"><input type="checkbox" checked={settings.show_tax_on_receipt} onChange={(event) => setSettings({ ...settings, show_tax_on_receipt: event.target.checked })} />小票显示 VAT 金额</label>
           </div>
         </div>
         <div className="settings-section">
-          <p className="settings-section-title">小票</p>
+          <p className="settings-section-title">小票抬头</p>
           <div className="settings-fields">
-            <label>小票页脚<input value={settings.receipt_footer} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
+            <label>店铺名称（英文）<small className="label-hint">第一行，加大加粗，例：Granny Noodles</small><input value={settings.receipt_header || ""} onChange={(event) => setSettings({ ...settings, receipt_header: event.target.value })} /></label>
+            <label>店铺名称（中文）<small className="label-hint">第二行，例：秦云老太婆摊摊面</small><input value={settings.receipt_header_zh || ""} onChange={(event) => setSettings({ ...settings, receipt_header_zh: event.target.value })} /></label>
+            <label>联系电话<input value={settings.receipt_phone || ""} onChange={(event) => setSettings({ ...settings, receipt_phone: event.target.value })} placeholder="07347 997926" /></label>
+            <label>店铺地址<input value={settings.receipt_address || ""} onChange={(event) => setSettings({ ...settings, receipt_address: event.target.value })} /></label>
+            <label>小票页脚<input value={settings.receipt_footer || ""} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
           </div>
         </div>
         <div className="settings-actions">
@@ -1305,18 +1358,28 @@ function SettingsView({ settings, setSettings, onSaved }) {
       <section className="panel receipt-preview">
         <div className="panel-title"><ReceiptText size={18} /><h2>Receipt 预览</h2></div>
         <div className="receipt-paper">
-          <strong>{settings.receipt_header || "QY Restaurant"}</strong>
-          <span>Order: DEMO-001</span>
-          <span>Table: A1</span>
+          <strong>{settings.receipt_header || "Granny Noodles"}</strong>
+          {settings.receipt_header_zh && <span style={{textAlign:"center",fontWeight:600}}>{settings.receipt_header_zh}</span>}
+          {settings.receipt_phone && <span style={{textAlign:"center"}}>Tel 电话: {settings.receipt_phone}</span>}
+          {settings.receipt_address && <span style={{textAlign:"center"}}>{settings.receipt_address}</span>}
           <hr />
-          <span>2 x Beef Noodles</span>
-          <span>1 x Lemon Tea</span>
+          <span>Order: DEMO-001 · Table: A1</span>
           <hr />
-          <span>Subtotal <b>{money(20, settings.currency, settings.locale)}</b></span>
-          {settings.show_tax_on_receipt && <span>Tax <b>{money(4, settings.currency, settings.locale)}</b></span>}
-          <span>Service <b>{money(3, settings.currency, settings.locale)}</b></span>
-          <strong>Total {money(27, settings.currency, settings.locale)}</strong>
-          <small>{settings.receipt_footer || "Thank you"}</small>
+          <span style={{display:"grid",gridTemplateColumns:"1fr 30px 50px 50px",fontWeight:600}}>
+            <span>Item 菜品</span><span style={{textAlign:"right"}}>Qty</span><span style={{textAlign:"right"}}>Unit</span><span style={{textAlign:"right"}}>Amt</span>
+          </span>
+          <span style={{display:"grid",gridTemplateColumns:"1fr 30px 50px 50px"}}>
+            <span>重庆小面<br /><small>Chongqing Noodles</small></span>
+            <span style={{textAlign:"right"}}>2</span>
+            <span style={{textAlign:"right"}}>{money(10, settings.currency, settings.locale)}</span>
+            <span style={{textAlign:"right"}}>{money(20, settings.currency, settings.locale)}</span>
+          </span>
+          <hr />
+          <span>小计 Subtotal <b>{money(20, settings.currency, settings.locale)}</b></span>
+          {settings.show_tax_on_receipt && <span>VAT {settings.prices_include_tax ? `(含 incl. ${Math.round((settings.tax_rate||0)*100)}%)` : `(${Math.round((settings.tax_rate||0)*100)}%)`} <b>{money(20 * (settings.tax_rate||0) / (settings.prices_include_tax ? (1+(settings.tax_rate||0)) : 1), settings.currency, settings.locale)}</b></span>}
+          {Number(settings.service_charge_rate) > 0 && <span>服务费 Service ({Math.round((settings.service_charge_rate||0)*100)}%) <b>{money(20 * (settings.service_charge_rate||0), settings.currency, settings.locale)}</b></span>}
+          <strong>合计 TOTAL {money(20 + 20 * (settings.service_charge_rate||0) + (settings.prices_include_tax ? 0 : 20 * (settings.tax_rate||0)), settings.currency, settings.locale)}</strong>
+          <small>{settings.receipt_footer || "Thank you / 感谢光临"}</small>
         </div>
       </section>
     </div>

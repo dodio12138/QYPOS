@@ -26,6 +26,13 @@ let backupTimer = null;
 async function ensureSchema() {
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_reason TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_address TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_header_zh TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_phone TEXT NOT NULL DEFAULT ''");
+  await pool.query(`UPDATE settings
+    SET receipt_header = 'Granny Noodles',
+        receipt_header_zh = '秦云老太婆摊摊面'
+    WHERE receipt_header_zh = '' AND receipt_header LIKE '%秦云老太婆%'`);
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_profiles JSONB NOT NULL DEFAULT '[]'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_printer_id TEXT NOT NULL DEFAULT 'kitchen'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_printer_id TEXT NOT NULL DEFAULT 'cashier'");
@@ -93,9 +100,36 @@ async function auditLog(request, action, entityType, entityId = null, metadata =
   );
 }
 
-function orderNo() {
-  const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  return `${stamp}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+function datePrefix(d = new Date()) {
+  const y = String(d.getFullYear()).slice(-2);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}${m}${day}`;
+}
+
+async function nextOrderNo(serviceType, suffix = "") {
+  const stem = `${serviceType === "dine_in" ? "D" : "T"}${datePrefix()}`;
+  const row = await one(
+    `SELECT COALESCE(MAX(CAST(SPLIT_PART(order_no, '-', 2) AS INTEGER)), 0) AS max_seq
+     FROM orders WHERE order_no LIKE $1`,
+    [`${stem}-%`]
+  );
+  const next = Number(row?.max_seq ?? 0) + 1;
+  const seq = String(next).padStart(3, "0");
+  const tag = String(suffix || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
+  return tag ? `${stem}-${seq}-${tag}` : `${stem}-${seq}`;
+}
+
+async function insertOrderWithRetry(serviceType, suffix, build) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const no = await nextOrderNo(serviceType, suffix);
+    try {
+      return await build(no);
+    } catch (e) {
+      if (e?.code !== "23505") throw e;
+    }
+  }
+  throw new Error("Failed to allocate order number after retries");
 }
 
 async function getSettings() {
@@ -337,6 +371,9 @@ app.put("/settings", async (request, reply) => {
       receipt_printer_id = COALESCE($14, receipt_printer_id),
       backup_enabled = COALESCE($15::boolean, backup_enabled),
       backup_interval_hours = COALESCE($16::integer, backup_interval_hours),
+      receipt_address = COALESCE($17, receipt_address),
+      receipt_header_zh = COALESCE($18, receipt_header_zh),
+      receipt_phone = COALESCE($19, receipt_phone),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -356,9 +393,32 @@ app.put("/settings", async (request, reply) => {
       body.kitchen_printer_id,
       body.receipt_printer_id,
       body.backup_enabled,
-      body.backup_interval_hours
+      body.backup_interval_hours,
+      body.receipt_address,
+      body.receipt_header_zh,
+      body.receipt_phone
     ]
   );
+  // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing
+  // from the saved profiles entirely, fall back to the first enabled profile so the route
+  // still resolves. We deliberately do NOT re-route based on isValidPrinter() (which checks
+  // host/device_path), so a freshly-added USB printer with a not-yet-filled device_path
+  // keeps the user's selection; print-time selectPrinter() handles the runtime fallback.
+  const profiles = printerProfiles(settings);
+  const firstEnabled = profiles.find((p) => p.enabled !== false) ?? profiles[0];
+  const patches = {};
+  if (firstEnabled && !profiles.some((p) => p.id === settings.kitchen_printer_id)) {
+    patches.kitchen_printer_id = firstEnabled.id;
+  }
+  if (firstEnabled && !profiles.some((p) => p.id === settings.receipt_printer_id)) {
+    patches.receipt_printer_id = firstEnabled.id;
+  }
+  if (Object.keys(patches).length) {
+    Object.assign(settings, await one(
+      "UPDATE settings SET kitchen_printer_id = COALESCE($2, kitchen_printer_id), receipt_printer_id = COALESCE($3, receipt_printer_id), updated_at = now() WHERE id = $1 RETURNING *",
+      [settings.id, patches.kitchen_printer_id ?? null, patches.receipt_printer_id ?? null]
+    ));
+  }
   emit("settings.updated", settings);
   scheduleAutoBackup();
   await auditLog(request, "settings.update", "settings", settings.id, { currency: settings.currency, tax_rate: settings.tax_rate, service_charge_rate: settings.service_charge_rate });
@@ -810,10 +870,10 @@ app.post("/tables/:id/open", async (request, reply) => {
     const existing = await one("SELECT * FROM orders WHERE id = $1", [table.current_order_id]);
     if (existing && existing.status !== 'paid' && existing.status !== 'cancelled') return existing;
   }
-  const order = await one(
+  const order = await insertOrderWithRetry("dine_in", table.label, (no) => one(
     "INSERT INTO orders (order_no, service_type, table_id, guests, status) VALUES ($1, 'dine_in', $2, $3, 'draft') RETURNING *",
-    [orderNo(), table.id, request.body?.guests ?? 1]
-  );
+    [no, table.id, request.body?.guests ?? 1]
+  ));
   await query(
     "UPDATE tables SET current_order_id = $1, status = 'opened', opened_at = now(), updated_at = now() WHERE id = $2",
     [order.id, table.id]
@@ -855,11 +915,19 @@ app.post("/tables/:id/clear", async (request, reply) => {
 app.post("/orders", async (request, reply) => {
   if (!await requirePermission(request, reply, "create_order")) return;
   const body = request.body ?? {};
-  const order = await one(
+  const serviceType = body.service_type ?? "takeaway";
+  let suffix = "";
+  if (serviceType === "dine_in" && body.table_id) {
+    const t = await one("SELECT label FROM tables WHERE id = $1", [body.table_id]);
+    suffix = t?.label ?? "";
+  } else if (body.pickup_no) {
+    suffix = String(body.pickup_no);
+  }
+  const order = await insertOrderWithRetry(serviceType, suffix, (no) => one(
     `INSERT INTO orders (order_no, service_type, table_id, pickup_no, guests, notes, status)
      VALUES ($1, $2, $3, $4, COALESCE($5, 1), COALESCE($6, ''), 'draft') RETURNING *`,
-    [orderNo(), body.service_type ?? "takeaway", body.table_id, body.pickup_no, body.guests, body.notes]
-  );
+    [no, serviceType, body.table_id, body.pickup_no, body.guests, body.notes]
+  ));
   emit("order.created", order);
   await auditLog(request, "order.create", "order", order.id, { service_type: order.service_type });
   return order;
@@ -905,19 +973,28 @@ app.patch("/orders/:id", async (request, reply) => {
     if (!existingItem) {
       return recalculateOrder(request.params.id);
     }
-    if (existingItem.kitchen_printed_at) {
+    const isVoid = item.void === true || item.remove === true || Number(item.quantity) <= 0;
+    if (existingItem.kitchen_printed_at && !item.void) {
       const error = new Error("Kitchen printed items are locked");
       error.statusCode = 409;
       throw error;
     }
-    if (existingItem.status === "served") {
+    if (item.void) {
+      const actor = await userFromToken(request);
+      if (!actor?.permissions?.includes("manage_orders")) {
+        reply.code(403);
+        return { error: "void requires manage_orders permission" };
+      }
+    }
+    if (existingItem.status === "served" && !item.void) {
       const error = new Error("Served items cannot be modified");
       error.statusCode = 409;
       throw error;
     }
-    if (Number(item.quantity) <= 0 || item.remove) {
+    if (isVoid) {
       await query("DELETE FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
-      await auditLog(request, "order.item.remove", "order_item", item.id, { order_id: request.params.id });
+      const action = item.void ? "order.item.void" : "order.item.remove";
+      await auditLog(request, action, "order_item", item.id, { order_id: request.params.id, reason: item.reason ?? null });
     } else {
       await query(
         `UPDATE order_items
@@ -931,6 +1008,34 @@ app.patch("/orders/:id", async (request, reply) => {
   }
 
   if (body.add_item) {
+    // Custom / miscellaneous line item: free-form name and price, no menu reference
+    if (body.add_item.custom) {
+      const c = body.add_item.custom;
+      const name = String(c.name ?? "").trim();
+      const price = Number(c.price);
+      if (!name) {
+        const error = new Error("Custom item name is required");
+        error.statusCode = 400;
+        throw error;
+      }
+      if (!Number.isFinite(price) || price < 0) {
+        const error = new Error("Custom item price must be a non-negative number");
+        error.statusCode = 400;
+        throw error;
+      }
+      const qty = Number(body.add_item.quantity ?? 1);
+      const nameI18n = { "zh-CN": name, "en-GB": name };
+      const variantI18n = { "zh-CN": "杂项 / Misc", "en-GB": "Misc" };
+      // Custom items don't need kitchen printing — mark as already printed to skip kitchen queue
+      const item = await one(
+        `INSERT INTO order_items (order_id, name_i18n, variant_name_i18n, quantity, unit_price, notes, kitchen_printed_at)
+         VALUES ($1, $2, $3, $4, $5, COALESCE($6, ''), now()) RETURNING *`,
+        [request.params.id, nameI18n, variantI18n, qty, price, body.add_item.notes]
+      );
+      await auditLog(request, "order.item.add_custom", "order_item", item.id, { order_id: request.params.id, name, price, quantity: qty });
+      return recalculateOrder(request.params.id);
+    }
+
     const variant = await one(
       `SELECT v.*, i.name_i18n AS item_name_i18n, i.id AS item_id
        FROM menu_item_variants v JOIN menu_items i ON i.id = v.item_id WHERE v.id = $1`,

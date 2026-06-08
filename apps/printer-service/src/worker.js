@@ -51,11 +51,55 @@ const C = (text, opts = {}) => T(text, { ...opts, align: "center" });
 const R = () => ({ type: "rule" });
 const F = () => ({ type: "feed" });
 
+// Pixel-anchored column row: each column is drawn at an exact X using ctx.textAlign.
+// Avoids the visual misalignment caused by mixing CJK (full-width) and ASCII glyphs
+// with space-padding.
+const COL_X = {
+  name: PAD,                     // left edge
+  qty:  Math.round(PAPER_W * 0.66),
+  unit: Math.round(PAPER_W * 0.83),
+  amt:  PAPER_W - PAD,           // right edge
+};
+const ROW = (name, qty, unit, amt, opts = {}) => ({
+  type: "row",
+  bold: !!opts.bold,
+  large: !!opts.large,
+  cols: [
+    { text: String(name ?? ""), x: COL_X.name, align: "left"  },
+    { text: String(qty  ?? ""), x: COL_X.qty,  align: "right" },
+    { text: String(unit ?? ""), x: COL_X.unit, align: "right" },
+    { text: String(amt  ?? ""), x: COL_X.amt,  align: "right" },
+  ],
+});
+const KV = (label, value, opts = {}) => ({
+  type: "row",
+  bold: !!opts.bold,
+  large: !!opts.large,
+  cols: [
+    { text: String(label ?? ""), x: COL_X.name, align: "left"  },
+    { text: String(value ?? ""), x: COL_X.amt,  align: "right" },
+  ],
+});
+
 // ── Text helpers ──────────────────────────────────────────────────────────────
 function textOf(value, locale = "zh-CN") {
   if (!value) return "";
   if (typeof value === "string") return value;
   return value[locale] ?? value["zh-CN"] ?? value["en-GB"] ?? Object.values(value)[0] ?? "";
+}
+function bilingualName(value) {
+  if (!value) return { zh: "", en: "" };
+  if (typeof value === "string") return { zh: value, en: "" };
+  const zh = value["zh-CN"] ?? value["zh"] ?? "";
+  const en = value["en-GB"] ?? value["en"] ?? "";
+  return { zh: zh || en, en: en && en !== zh ? en : "" };
+}
+function itemNameBilingual(item) {
+  const base = bilingualName(item.name_i18n);
+  const variant = bilingualName(item.variant_name_i18n);
+  const zh = variant.zh ? `${base.zh} (${variant.zh})` : base.zh;
+  const en = variant.en ? `${base.en} (${variant.en})` : base.en;
+  return { zh, en };
 }
 function itemName(item, locale) {
   const base = textOf(item.name_i18n, locale);
@@ -66,61 +110,104 @@ function itemName(item, locale) {
 // ── Document builders ─────────────────────────────────────────────────────────
 function buildKitchenDoc({ order, items, table, settings }) {
   const locale = settings.locale ?? "zh-CN";
-  const title  = order.service_type === "dine_in" ? `桌号: ${table?.label ?? ""}` : `外带: ${order.pickup_no ?? ""}`;
+  const titleZh = order.service_type === "dine_in" ? `桌号: ${table?.label ?? ""}` : `外带: ${order.pickup_no ?? ""}`;
+  const titleEn = order.service_type === "dine_in" ? `Table: ${table?.label ?? ""}` : `Takeaway: ${order.pickup_no ?? ""}`;
   const doc = [
-    C("后 厨 单", { bold: true, large: true }),
+    C("后 厨 单 / KITCHEN", { bold: true, large: true }),
     R(),
-    T(title, { bold: true }),
-    T(`单号: ${order.order_no}`),
-    T(`时间: ${new Date(order.created_at).toLocaleString(locale)}`),
+    T(`${titleZh}  |  ${titleEn}`, { bold: true }),
+    T(`单号 Order: ${order.order_no}`),
+    T(`时间 Time : ${new Date(order.created_at).toLocaleString(locale)}`),
     R(),
   ];
   for (const item of items) {
-    doc.push(T(`${item.quantity} × ${itemName(item, locale)}`, { bold: true }));
-    for (const mod of item.modifiers ?? []) doc.push(T(`  + ${textOf(mod.name_i18n, locale)}`));
+    const name = itemNameBilingual(item);
+    doc.push(T(`${item.quantity} × ${name.zh}`, { bold: true }));
+    if (name.en) doc.push(T(`    ${name.en}`));
+    for (const mod of item.modifiers ?? []) {
+      const m = bilingualName(mod.name_i18n);
+      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`));
+    }
     if (item.notes) doc.push(T(`  ※ ${item.notes}`));
   }
-  if (order.notes) { doc.push(R()); doc.push(T(`备注: ${order.notes}`)); }
+  if (order.notes) { doc.push(R()); doc.push(T(`备注 Notes: ${order.notes}`)); }
   doc.push(R()); doc.push(F());
   return doc;
 }
 
+// 80mm 576px raster; columns are anchored by pixel via ROW(), not space-padding.
+function moneyShort(value, currency) {
+  // Compact: "£9.50" instead of "£9.50 GBP". Locale "en-GB" keeps it predictable for the receipt column.
+  return formatMoney(value, currency, "en-GB");
+}
+
 function buildReceiptDoc({ order, items, payments, settings, table }) {
   const locale   = settings.locale   ?? "zh-CN";
-  const currency = settings.currency ?? "CNY";
+  const currency = settings.currency ?? "GBP";
+  const taxRate  = Number(settings.tax_rate ?? 0);
+  const svcRate  = Number(order.service_charge_rate ?? settings.service_charge_rate ?? 0);
+  const pricesIncludeTax = !!settings.prices_include_tax;
+  const headerEn = settings.receipt_header || "Granny Noodles";
+  const headerZh = settings.receipt_header_zh || "";
+  const phone   = settings.receipt_phone || "";
+  const address = settings.receipt_address || "";
+
   const doc = [
-    C(settings.receipt_header || "QY Restaurant", { bold: true }),
-    R(),
-    T(`单号: ${order.order_no}`),
-    order.service_type === "dine_in" ? T(`桌号: ${table?.label ?? ""}`) : T(`取餐号: ${order.pickup_no ?? ""}`),
-    T(`时间: ${new Date(order.created_at).toLocaleString(locale)}`),
-    R(),
+    C(headerEn, { bold: true, large: true }),
   ];
+  if (headerZh) doc.push(C(headerZh, { bold: true }));
+  if (phone)    doc.push(C(`Tel 电话: ${phone}`));
+  if (address)  doc.push(C(address));
+  doc.push(R());
+  doc.push(T(`单号 Order : ${order.order_no}`));
+  if (order.service_type === "dine_in") doc.push(T(`桌号 Table : ${table?.label ?? ""}`));
+  else doc.push(T(`取餐号 Pickup: ${order.pickup_no ?? ""}`));
+  doc.push(T(`时间 Time  : ${new Date(order.created_at).toLocaleString(locale)}`));
+  doc.push(R());
+  // Header row
+  doc.push(ROW("Item 菜品", "Qty", "Unit", "Amt", { bold: true }));
   for (const item of items) {
-    const mods  = (item.modifiers ?? []).reduce((s, m) => s + Number(m.price_delta), 0);
-    const total = (Number(item.unit_price) + mods) * Number(item.quantity);
-    doc.push(T(`${item.quantity} × ${itemName(item, locale)}`));
+    const name = itemNameBilingual(item);
+    const mods = (item.modifiers ?? []).reduce((s, m) => s + Number(m.price_delta), 0);
+    const unit = Number(item.unit_price) + mods;
+    const amount = unit * Number(item.quantity);
+    doc.push(ROW(name.zh, item.quantity, moneyShort(unit, currency), moneyShort(amount, currency)));
+    if (name.en) doc.push(T(`  ${name.en}`));
     for (const mod of item.modifiers ?? []) {
-      const sfx = Number(mod.price_delta) ? ` ${formatMoney(mod.price_delta, currency, locale)}` : "";
-      doc.push(T(`  + ${textOf(mod.name_i18n, locale)}${sfx}`));
+      const m = bilingualName(mod.name_i18n);
+      const sfx = Number(mod.price_delta) ? ` ${moneyShort(mod.price_delta, currency)}` : "";
+      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}${sfx}`));
     }
-    doc.push(T(`  ${formatMoney(total, currency, locale)}`));
   }
   doc.push(R());
-  doc.push(T(`小计: ${formatMoney(order.subtotal, currency, locale)}`));
-  if (settings.show_tax_on_receipt) doc.push(T(`税额: ${formatMoney(order.tax, currency, locale)}`));
-  doc.push(T(`服务费: ${formatMoney(order.service_charge, currency, locale)}`));
-  doc.push(T(`合计: ${formatMoney(order.total, currency, locale)}`, { bold: true }));
+  const subtotal = Number(order.subtotal ?? 0);
+  doc.push(KV("小计 Subtotal", moneyShort(subtotal, currency)));
+  if (settings.show_tax_on_receipt) {
+    const taxPct = (taxRate * 100).toFixed(taxRate * 100 % 1 ? 1 : 0);
+    const taxLabel = pricesIncludeTax
+      ? `VAT (含 incl. ${taxPct}%)`
+      : `VAT (${taxPct}%)`;
+    doc.push(KV(taxLabel, moneyShort(order.tax ?? 0, currency)));
+  }
+  if (Number(order.service_charge) > 0 || svcRate > 0) {
+    const svcPct = (svcRate * 100).toFixed(svcRate * 100 % 1 ? 1 : 0);
+    doc.push(KV(`服务费 Service (${svcPct}%)`, moneyShort(order.service_charge ?? 0, currency)));
+  }
+  if (Number(order.discount) > 0) {
+    doc.push(KV("折扣 Discount", `-${moneyShort(order.discount, currency)}`));
+  }
+  doc.push(KV("合计 TOTAL", moneyShort(order.total, currency), { bold: true, large: true }));
+
   if (payments?.length) {
-    doc.push(R()); doc.push(T("付款明细"));
+    doc.push(R()); doc.push(T("付款明细 / Payments"));
     for (const p of payments) {
-      doc.push(T(`${p.method}: ${formatMoney(p.amount, currency, locale)}`));
-      if (Number(p.change_due)) doc.push(T(`找零: ${formatMoney(p.change_due, currency, locale)}`));
+      doc.push(T(`${p.method}: ${moneyShort(p.amount, currency)}`));
+      if (Number(p.change_due)) doc.push(T(`找零 Change: ${moneyShort(p.change_due, currency)}`));
     }
   }
-  if (order.notes) { doc.push(R()); doc.push(T(`备注: ${order.notes}`)); }
+  if (order.notes) { doc.push(R()); doc.push(T(`备注 Notes: ${order.notes}`)); }
   doc.push(R());
-  doc.push(C(settings.receipt_footer || "谢谢惠顾"));
+  doc.push(C(settings.receipt_footer || "Thank you / 感谢光临"));
   doc.push(F());
   return doc;
 }
@@ -129,7 +216,9 @@ function buildTestDoc({ settings, printer, created_at }) {
   const locale = settings.locale ?? "zh-CN";
   const addr   = printer?.connection_type === "usb"
     ? `设备: ${printer.device_path ?? "/dev/usb/lp0"}`
-    : `地址: ${printer?.host ?? settings.printer_host}:${printer?.port ?? settings.printer_port}`;
+    : printer?.connection_type === "bluetooth"
+      ? `蓝牙: ${printer.device_path ?? "/dev/rfcomm0"}${printer.mac ? ` (${printer.mac})` : ""}`
+      : `地址: ${printer?.host ?? settings.printer_host}:${printer?.port ?? settings.printer_port}`;
   return [
     C("QYPOS 打印测试", { bold: true }),
     R(),
@@ -171,7 +260,12 @@ function docToBuffer(doc) {
     const lh = item.large ? LH_L : LH_N;
     ctx.font = `${item.bold ? "bold " : ""}${fs}px '${FONT}'`;
     ctx.textBaseline = "middle";
-    if (item.align === "center") {
+    if (item.type === "row") {
+      for (const col of item.cols) {
+        ctx.textAlign = col.align || "left";
+        ctx.fillText(col.text, col.x, y + lh / 2);
+      }
+    } else if (item.align === "center") {
       ctx.textAlign = "center";
       ctx.fillText(item.text, PAPER_W / 2, y + lh / 2);
     } else {
@@ -212,8 +306,31 @@ function render(job) {
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────
-async function sendToUsbPrinter(buffer, settings) {
-  await fs.writeFile(settings.device_path || "/dev/usb/lp0", buffer);
+async function sendToCharDevice(buffer, settings, kind) {
+  const isBT = kind === "bluetooth";
+  const defaultPath = isBT ? "/dev/rfcomm0" : "/dev/usb/lp0";
+  const devPath = settings.device_path || defaultPath;
+  try {
+    await fs.access(devPath);
+  } catch {
+    if (isBT) {
+      throw new Error(`Bluetooth device not found: ${devPath}. ` +
+        `Pair the printer first and bind it on the host: ` +
+        `sudo bluetoothctl (pair + trust), then sudo rfcomm bind ${devPath} <MAC> ${settings.channel || 1}. ` +
+        `Ensure docker-compose has /dev mounted.`);
+    }
+    throw new Error(`USB device not found: ${devPath}. ` +
+      `Make sure the printer is plugged in and the printer-service container has /dev mounted ` +
+      `(privileged: true + volumes: ["/dev:/dev"]). On macOS Docker Desktop USB passthrough is unsupported — run on the Linux host.`);
+  }
+  try {
+    await fs.writeFile(devPath, buffer);
+  } catch (e) {
+    if (e.code === "EACCES") {
+      throw new Error(`Permission denied writing to ${devPath}. Container needs privileged mode. Quick test: sudo chmod a+rw ${devPath} on the host.`);
+    }
+    throw e;
+  }
 }
 
 async function sendToNetworkPrinter(buffer, settings) {
@@ -231,7 +348,8 @@ async function sendToNetworkPrinter(buffer, settings) {
 }
 
 async function sendToPrinter(buffer, settings) {
-  if (settings.connection_type === "usb") await sendToUsbPrinter(buffer, settings);
+  if (settings.connection_type === "usb") await sendToCharDevice(buffer, settings, "usb");
+  else if (settings.connection_type === "bluetooth") await sendToCharDevice(buffer, settings, "bluetooth");
   else await sendToNetworkPrinter(buffer, settings);
 }
 

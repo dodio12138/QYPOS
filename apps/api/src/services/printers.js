@@ -21,6 +21,7 @@ export function printerProfiles(settings) {
 export function isValidPrinter(profile) {
   if (!profile || profile.enabled === false) return false;
   if (profile.connection_type === "usb") return Boolean(profile.device_path);
+  if (profile.connection_type === "bluetooth") return Boolean(profile.device_path);
   return Boolean(profile.host) && Boolean(Number(profile.port));
 }
 
@@ -28,6 +29,8 @@ export function selectPrinter(settings, type) {
   const profiles = printerProfiles(settings);
   const preferredId = type === "kitchen" ? settings?.kitchen_printer_id : settings?.receipt_printer_id;
   const selected = profiles.find((profile) => profile.id === preferredId);
-  if (!isValidPrinter(selected)) return null;
-  return selected;
+  if (isValidPrinter(selected)) return selected;
+  // Fallback: first enabled printer so single-printer setups still work even if IDs drift
+  const fallback = profiles.find(isValidPrinter);
+  return fallback ?? null;
 }
