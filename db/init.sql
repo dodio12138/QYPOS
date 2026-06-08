@@ -228,20 +228,27 @@ INSERT INTO users (role_id, name, pin)
 SELECT id, 'Kitchen', '2222' FROM roles WHERE name = 'kitchen';
 
 INSERT INTO floor_areas (id, name, sort_order) VALUES
-  ('10000000-0000-0000-0000-000000000001', '大厅', 1),
-  ('10000000-0000-0000-0000-000000000002', '包间', 2);
+  ('10000000-0000-0000-0000-000000000001', '大厅', 1);
 
-INSERT INTO tables (id, area_id, label, seats, status) VALUES
-  ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'A1', 2, 'available'),
-  ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'A2', 4, 'available'),
-  ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'A3', 4, 'available'),
-  ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000002', 'B1', 6, 'available');
+-- 30 round tables labelled 1..30, generated as a 5-col × 6-row grid (72×72, gap 24, pad 24).
+INSERT INTO tables (id, area_id, label, seats, status)
+SELECT
+  ('20000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid,
+  '10000000-0000-0000-0000-000000000001',
+  n::text,
+  4,
+  'available'
+FROM generate_series(1, 30) AS s(n);
 
-INSERT INTO table_layouts (table_id, x, y, width, height, shape) VALUES
-  ('20000000-0000-0000-0000-000000000001', 40, 40, 92, 72, 'round'),
-  ('20000000-0000-0000-0000-000000000002', 170, 40, 120, 76, 'rect'),
-  ('20000000-0000-0000-0000-000000000003', 330, 40, 120, 76, 'rect'),
-  ('20000000-0000-0000-0000-000000000004', 40, 170, 148, 88, 'rect');
+INSERT INTO table_layouts (table_id, x, y, width, height, shape)
+SELECT
+  ('20000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid,
+  24 + ((n - 1) % 5) * (72 + 24),
+  24 + ((n - 1) / 5) * (72 + 24),
+  72,
+  72,
+  'round'
+FROM generate_series(1, 30) AS s(n);
 
 INSERT INTO menu_categories (id, name_i18n, sort_order) VALUES
   ('30000000-0000-0000-0000-000000000001', '{"zh-CN":"重庆小面","en-GB":"Wheat Noodles"}',            1),
