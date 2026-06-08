@@ -202,7 +202,11 @@ async function recalculateOrder(orderId, overrides = {}) {
   }
   const totals = calculateTotals(items, settings, {
     service_charge_rate: overrides.service_charge_rate ?? current?.service_charge_rate,
-    service_charge_exempt: overrides.service_charge_exempt ?? current?.service_charge_exempt,
+    // Takeaway/delivery default to no service charge; dine-in follows the global rate
+    // unless explicitly toggled per-order. Explicit overrides (incl. false) still win.
+    service_charge_exempt: overrides.service_charge_exempt
+      ?? current?.service_charge_exempt
+      ?? (current?.service_type !== "dine_in"),
     discount: overrides.discount ?? overrides.discount_amount ?? current?.discount
   });
 
@@ -924,9 +928,9 @@ app.post("/orders", async (request, reply) => {
     suffix = String(body.pickup_no);
   }
   const order = await insertOrderWithRetry(serviceType, suffix, (no) => one(
-    `INSERT INTO orders (order_no, service_type, table_id, pickup_no, guests, notes, status)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 1), COALESCE($6, ''), 'draft') RETURNING *`,
-    [no, serviceType, body.table_id, body.pickup_no, body.guests, body.notes]
+    `INSERT INTO orders (order_no, service_type, table_id, pickup_no, guests, notes, status, service_charge_exempt)
+     VALUES ($1, $2, $3, $4, COALESCE($5, 1), COALESCE($6, ''), 'draft', $7) RETURNING *`,
+    [no, serviceType, body.table_id, body.pickup_no, body.guests, body.notes, serviceType !== "dine_in"]
   ));
   emit("order.created", order);
   await auditLog(request, "order.create", "order", order.id, { service_type: order.service_type });
