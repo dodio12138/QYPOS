@@ -131,6 +131,8 @@ CREATE TABLE orders (
   notes TEXT NOT NULL DEFAULT '',
   subtotal NUMERIC(10,2) NOT NULL DEFAULT 0,
   discount NUMERIC(10,2) NOT NULL DEFAULT 0,
+  discount_fixed NUMERIC(10,2) NOT NULL DEFAULT 0,
+  discount_rate NUMERIC(5,2),
   discount_reason TEXT NOT NULL DEFAULT '',
   net_sales NUMERIC(10,2) NOT NULL DEFAULT 0,
   tax NUMERIC(10,2) NOT NULL DEFAULT 0,
@@ -138,6 +140,7 @@ CREATE TABLE orders (
   total NUMERIC(10,2) NOT NULL DEFAULT 0,
   service_charge_rate NUMERIC(8,4),
   service_charge_exempt BOOLEAN NOT NULL DEFAULT false,
+  parent_order_id UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   paid_at TIMESTAMPTZ
@@ -201,6 +204,14 @@ CREATE TABLE audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE note_presets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- =========================================================================
 -- Seed data (regenerated from live DB via pg_dump --data-only --column-inserts)
 -- =========================================================================
@@ -211,6 +222,12 @@ CREATE TABLE audit_logs (
 -- Data for Name: floor_areas; Type: TABLE DATA; Schema: public; Owner: -
 --
 INSERT INTO floor_areas (id, name, sort_order) VALUES ('10000000-0000-0000-0000-000000000001', '大厅', 1);
+--
+-- Data for Name: note_presets; Type: TABLE DATA; Schema: public; Owner: -
+--
+INSERT INTO note_presets (label, sort_order) VALUES ('白人辣', 1);
+INSERT INTO note_presets (label, sort_order) VALUES ('重庆人辣', 2);
+INSERT INTO note_presets (label, sort_order) VALUES ('去葱', 3);
 --
 -- Data for Name: menu_categories; Type: TABLE DATA; Schema: public; Owner: -
 --

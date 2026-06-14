@@ -9,7 +9,7 @@ export const tableStatuses = [
   "needs_cleaning"
 ];
 
-export const orderStatuses = ["draft", "submitted", "preparing", "ready", "paid", "cancelled"];
+export const orderStatuses = ["draft", "submitted", "preparing", "ready", "paid", "cancelled", "split"];
 
 export function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -33,8 +33,13 @@ export function calculateTotals(items, settings, overrides = {}) {
     }, 0)
   );
 
-  const requestedDiscount = roundMoney(overrides.discount ?? overrides.discount_amount ?? 0);
-  const discount = Math.min(subtotal, Math.max(0, requestedDiscount));
+  let rateDiscount = 0;
+  if (overrides.discount_rate != null) {
+    const rate = Number(overrides.discount_rate);
+    rateDiscount = roundMoney(subtotal * (1 - rate / 10));
+  }
+  const fixedDiscount = roundMoney(Math.max(0, Number(overrides.discount_fixed ?? overrides.discount_amount ?? overrides.discount ?? 0)));
+  const discount = Math.min(subtotal, Math.max(0, roundMoney(rateDiscount + fixedDiscount)));
   const discountedSubtotal = Math.max(0, roundMoney(subtotal - discount));
   const netSales = pricesIncludeTax ? roundMoney(discountedSubtotal / (1 + taxRate)) : discountedSubtotal;
   const tax = pricesIncludeTax ? roundMoney(discountedSubtotal - netSales) : roundMoney(discountedSubtotal * taxRate);

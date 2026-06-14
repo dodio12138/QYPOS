@@ -76,7 +76,7 @@ function AdminLogin({ onLogin }) {
     <main className="login-shell">
       <form className="login-panel" onSubmit={submit}>
         <div className="brand login-brand">
-          <CircleDollarSign size={28} />
+          <img src="/qypos-logo.png" alt="QYPOS" style={{ height: 40, width: 'auto' }} />
           <span>QYPOS</span>
         </div>
         <h1>后台登录</h1>
@@ -223,7 +223,7 @@ export default function AdminPage() {
     <main>
       <aside className="sidebar">
         <div className="brand">
-          <CircleDollarSign size={24} />
+          <img src="/qypos-logo.png" alt="QYPOS" style={{ height: 28, width: 'auto' }} />
           <span>QYPOS</span>
         </div>
         <nav>
@@ -658,6 +658,7 @@ function MenuAdmin({ menu, locale, currency, onSaved }) {
         {selectedCat && (
           <CategoryEditor key={selectedCat.id} category={selectedCat} locale={locale} onSaved={onSaved} />
         )}
+        <NotePresetsAdmin presets={menu.note_presets ?? []} onSaved={onSaved} />
       </aside>
 
       <div className="menu-items-pane">
@@ -790,6 +791,112 @@ function CategoryEditor({ category, locale, onSaved }) {
       <label>排序<input type="number" value={draft.sort_order} onChange={(event) => setDraft({ ...draft, sort_order: event.target.value })} /></label>
       <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} />启用</label>
       <button className="primary" type="button" onClick={save}><Save size={16} /><span>保存分类</span></button>
+    </div>
+  );
+}
+
+function NotePresetsAdmin({ presets, onSaved }) {
+  const [showForm, setShowForm] = useState(false);
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function addPreset(event) {
+    event.preventDefault();
+    const value = label.trim();
+    if (!value) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("/note-presets", {
+        method: "POST",
+        body: JSON.stringify({ label: value, sort_order: presets.length })
+      });
+      setLabel("");
+      setShowForm(false);
+      await onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function togglePreset(preset) {
+    try {
+      await api(`/note-presets/${preset.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: !preset.active })
+      });
+      await onSaved();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function destroyPreset(preset) {
+    if (!window.confirm(`删除备注词条"${preset.label}"？`)) return;
+    try {
+      await api(`/note-presets/${preset.id}`, { method: "DELETE" });
+      await onSaved();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  return (
+    <div className="cat-editor-panel" style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <p className="muted cat-editor-title" style={{ margin: 0 }}>备注词条管理</p>
+        <button type="button" title="新建词条" onClick={() => setShowForm((v) => !v)}>
+          <Plus size={14} />
+        </button>
+      </div>
+      <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+        点菜时可一键加到菜品备注，仅在厨房打印单上显示。
+      </p>
+      {showForm && (
+        <form onSubmit={addPreset} style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="例如：白人辣、去葱"
+            autoFocus
+            required
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="primary" type="submit" disabled={busy}>保存</button>
+            <button type="button" onClick={() => { setShowForm(false); setLabel(""); setError(""); }}>取消</button>
+          </div>
+          {error && <div className="inline-error">{error}</div>}
+        </form>
+      )}
+      {!presets.length && <div className="empty" style={{ padding: "8px 0" }}>暂无词条</div>}
+      {presets.map((preset) => (
+        <div
+          key={preset.id}
+          className={`menu-sidebar-item${!preset.active ? " cat-inactive" : ""}`}
+          style={{ paddingRight: 6 }}
+        >
+          <button
+            type="button"
+            className="cat-select-btn"
+            title={preset.active ? "点击停用" : "点击启用"}
+            onClick={() => togglePreset(preset)}
+          >
+            <span>{preset.label}</span>
+            <span className="cat-count">{preset.active ? "启用" : "停用"}</span>
+          </button>
+          <button
+            type="button"
+            className="cat-delete-btn"
+            title="删除词条"
+            onClick={() => destroyPreset(preset)}
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1042,6 +1149,7 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
   const today = new Date().toISOString().slice(0, 10);
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
+  const [auditCollapsed, setAuditCollapsed] = useState(true);
 
   async function loadReport(event) {
     event.preventDefault();
@@ -1068,15 +1176,22 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
           <strong>{money(value, currency, locale)}</strong>
         </section>
       ))}
-      <section className="wide-list dashboard-list">
-        <h2>热销菜品</h2>
-        {(dashboard?.hotItems || []).map((item) => (
-          <div className="list-row" key={labelOf(item.name_i18n, locale)}>
-            <span>{labelOf(item.name_i18n, locale)}</span>
-            <span>{item.quantity}</span>
-            <strong>{money(item.sales, currency, locale)}</strong>
-          </div>
-        ))}
+      <section className="wide-list dashboard-list report-hot-items">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>热销菜品</h2>
+          <small className="muted">顶部为今日热销</small>
+        </div>
+        <div className="hot-items-grid" style={{ marginTop: 10 }}>
+          {(dashboard?.hotItems || []).map((item) => (
+            <div className="hot-item-card" key={labelOf(item.name_i18n, locale)}>
+              <strong style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#000' }}>{labelOf(item.name_i18n, locale)}</strong>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                <span className="muted">销量 {item.quantity}</span>
+                <strong style={{ fontSize: 14, color: '#000' }}>{money(item.sales, currency, locale)}</strong>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
       <section className="panel dashboard-list">
         <div className="panel-title"><h2>历史报表</h2></div>
@@ -1092,6 +1207,8 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
             <section className="metric"><span>营业额</span><strong>{money(report.summary.revenue, currency, locale)}</strong></section>
             <section className="metric"><span>折扣</span><strong>{money(report.summary.discount, currency, locale)}</strong></section>
             <section className="metric"><span>Tax</span><strong>{money(report.summary.tax, currency, locale)}</strong></section>
+            <section className="metric"><span>服务费</span><strong>{money(report.summary.service_charge || 0, currency, locale)}</strong></section>
+            <section className="metric"><span>客单价</span><strong>{money(report.summary.average_ticket ?? (report.summary.orders ? report.summary.revenue / report.summary.orders : 0), currency, locale)}</strong></section>
             <section className="wide-list report-lines">
               {report.byDay.map((row) => (
                 <div className="list-row" key={row.day}>
@@ -1101,12 +1218,68 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
                 </div>
               ))}
             </section>
+            <section className="panel report-hot-collection" style={{marginTop:12}}>
+              <div className="panel-title"><h3>该期间热销统计</h3></div>
+              <div className="report-hot-collection-grid">
+                <div className="panel report-hot-items-col">
+                  <div className="panel-title"><h4>热销菜品</h4></div>
+                  {(report.hotItems || []).map((it) => (
+                    <div className="list-row" key={labelOf(it.name_i18n, locale)}>
+                      <div className="hot-item-name" style={{overflow:'hidden', textOverflow:'ellipsis'}}>{labelOf(it.name_i18n, locale)}</div>
+                      <div className="hot-item-stats"><span>{it.quantity} 份</span><strong>{money(it.sales, currency, locale)}</strong></div>
+                    </div>
+                  ))}
+                  {!report.hotItems?.length && <div className="empty">无数据</div>}
+                </div>
+
+                <div className="panel report-hot-modifiers-col">
+                  <div className="panel-title"><h4>热销小料</h4></div>
+                  {(report.hotModifiers || []).map((m) => (
+                    <div className="list-row" key={m.id || m.name}>
+                      <div className="hot-item-name">{m.label && typeof m.label === 'object' ? labelOf(m.label, locale) : (m.label || m.name)}</div>
+                      <div className="hot-item-stats"><span>{m.quantity || m.count || 0}</span><strong>{money(m.sales || 0, currency, locale)}</strong></div>
+                    </div>
+                  ))}
+                  {!report.hotModifiers?.length && <div className="empty">无数据</div>}
+                </div>
+
+                <div className="panel report-hot-notes-col">
+                  <div className="panel-title"><h4>常用备注频率</h4></div>
+                  {(report.notePresets || report.common_notes || []).map((n) => (
+                    <div className="list-row" key={n.label || n.name}>
+                      <div className="hot-item-name">{n.label || n.name}</div>
+                      <div className="hot-item-stats"><span>{n.count || n.frequency || ''}</span></div>
+                    </div>
+                  ))}
+                  {!((report.notePresets || report.common_notes || []).length) && <div className="empty">无数据</div>}
+                </div>
+              </div>
+            </section>
+            <section className="panel report-chart" style={{marginTop:12}}>
+              <div className="panel-title"><h3>按日单量与营业额</h3></div>
+              {report.byDay && report.byDay.length ? (
+                <div style={{padding:12}}>
+                  <CanvasDualChart data={report.byDay} locale={locale} currency={currency} />
+                </div>
+              ) : <div className="empty">无数据</div>}
+            </section>
+            <section className="panel report-time-chart" style={{marginTop:12}}>
+              <div className="panel-title"><h3>按时段（30 分钟）单量与营业额</h3></div>
+              {report.byTime && report.byTime.length ? (
+                <div style={{padding:12}}>
+                  <CanvasTimeChart data={report.byTime} locale={locale} currency={currency} />
+                </div>
+              ) : <div className="empty">无数据</div>}
+            </section>
           </div>
         )}
       </section>
       <section className="wide-list dashboard-list">
-        <h2>审计日志</h2>
-        {(auditLogs || []).slice(0, 12).map((log) => (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>审计日志</h2>
+          <button className="link-button" onClick={() => setAuditCollapsed((s) => !s)}>{auditCollapsed ? '显示更多' : '收起'}</button>
+        </div>
+        {(auditLogs || []).slice(0, auditCollapsed ? 6 : 100).map((log) => (
           <div className="list-row audit-row" key={log.id}>
             <span>{log.action}</span>
             <span>{log.actor_name || "System"}</span>
@@ -1114,7 +1287,243 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
             <small>{new Date(log.created_at).toLocaleString(locale)}</small>
           </div>
         ))}
+        {!(auditLogs || []).length && <div className="empty">暂无审计记录</div>}
       </section>
+    </div>
+  );
+}
+
+function CanvasDualChart({ data, locale, currency }) {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const tipRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    function draw() {
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(300, Math.floor(rect.width));
+      const h = 200;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+      const pad = 30;
+      const days = (data || []).slice().sort((a, b) => new Date(a.day) - new Date(b.day));
+      if (!days.length) return;
+      const maxOrders = Math.max(...days.map((d) => d.orders));
+      const maxRevenue = Math.max(...days.map((d) => Number(d.revenue || 0)));
+      const plotW = w - pad * 2;
+      const plotH = h - pad * 2;
+      const step = plotW / Math.max(1, days.length - 1);
+
+      // draw order bars
+      ctx.fillStyle = "#60a5fa";
+      days.forEach((d, i) => {
+        const bw = Math.max(8, step * 0.6);
+        const barH = maxOrders ? (d.orders / maxOrders) * plotH : 0;
+        const x = pad + i * step - bw / 2;
+        const y = pad + (plotH - barH);
+        ctx.fillRect(x, y, bw, barH);
+      });
+
+      // draw revenue line
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      days.forEach((d, i) => {
+        const rv = Number(d.revenue || 0);
+        const x = pad + i * step;
+        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.fillStyle = "#10b981";
+      days.forEach((d, i) => {
+        const rv = Number(d.revenue || 0);
+        const x = pad + i * step;
+        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+      });
+
+      // x labels
+      ctx.fillStyle = "#334155";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      days.forEach((d, i) => {
+        const label = new Date(d.day).toLocaleDateString(locale, { month: '2-digit', day: '2-digit' });
+        const x = pad + i * step;
+        ctx.fillText(label, x, h - 8);
+      });
+    }
+
+    draw();
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(container);
+    window.addEventListener("orientationchange", draw);
+    return () => { ro.disconnect(); window.removeEventListener("orientationchange", draw); };
+  }, [data, locale]);
+
+  return (
+    <div ref={containerRef} style={{ width: "100%", height: 200, position: 'relative' }}
+      onMouseMove={(e) => {
+        const container = containerRef.current;
+        const canvas = canvasRef.current;
+        const tip = tipRef.current;
+        if (!container || !canvas || !tip) return;
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const pad = 30;
+        const w = Math.max(300, Math.floor(rect.width));
+        const h = 200;
+        const days = (data || []).slice().sort((a, b) => new Date(a.day) - new Date(b.day));
+        if (!days.length) { tip.style.display = 'none'; return; }
+        const plotW = w - pad * 2;
+        const step = plotW / Math.max(1, days.length - 1);
+        const idx = Math.round((x - pad) / step);
+        if (idx < 0 || idx >= days.length) { tip.style.display = 'none'; return; }
+        const d = days[idx];
+        tip.innerHTML = `<div style="font-weight:600">${new Date(d.day).toLocaleDateString(locale, { month: '2-digit', day: '2-digit' })}</div><div>单量: ${d.orders || 0}</div><div>营业额: ${money(d.revenue||0, currency, locale)}</div>`;
+        tip.style.display = 'block';
+        const tipRect = tip.getBoundingClientRect();
+        let left = x + 12;
+        if (left + tipRect.width > rect.width) left = x - tipRect.width - 12;
+        if (left < 6) left = 6;
+        let top = y - tipRect.height - 8;
+        if (top < 6) top = y + 8;
+        tip.style.left = `${left}px`;
+        tip.style.top = `${top}px`;
+      }}
+      onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = 'none'; }}
+    >
+      <canvas ref={canvasRef} />
+      <div ref={tipRef} style={{ display: 'none', position: 'absolute', pointerEvents: 'none', background: 'rgba(0,0,0,0.85)', color: '#fff', padding: '6px 8px', borderRadius: 6, fontSize: 12, zIndex: 50 }} />
+    </div>
+  );
+}
+
+function CanvasTimeChart({ data, locale, currency }) {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const tipRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    function draw() {
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(300, Math.floor(rect.width));
+      const h = 220;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+      const pad = 36;
+      const slots = (data || []).slice();
+      if (!slots.length) return;
+      const maxOrders = Math.max(...slots.map((s) => s.orders || 0));
+      const maxRevenue = Math.max(...slots.map((s) => Number(s.revenue || 0)));
+      const plotW = w - pad * 2;
+      const plotH = h - pad * 2;
+      const step = plotW / Math.max(1, slots.length - 1);
+
+      // bars for orders
+      ctx.fillStyle = "#60a5fa";
+      slots.forEach((s, i) => {
+        const bw = Math.max(2, step * 0.6);
+        const barH = maxOrders ? (s.orders / maxOrders) * plotH : 0;
+        const x = pad + i * step - bw / 2;
+        const y = pad + (plotH - barH);
+        ctx.fillRect(x, y, bw, barH);
+      });
+
+      // revenue line
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      slots.forEach((s, i) => {
+        const rv = Number(s.revenue || 0);
+        const x = pad + i * step;
+        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.fillStyle = "#10b981";
+      slots.forEach((s, i) => {
+        const rv = Number(s.revenue || 0);
+        const x = pad + i * step;
+        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
+        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+      });
+
+      // x labels (every 2 ticks show label to avoid overlap)
+      ctx.fillStyle = "#334155";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      slots.forEach((s, i) => {
+        if (i % 2 !== 0) return; // show every 1 hour to reduce clutter
+        const label = s.slot || s.time || s.label || '';
+        const x = pad + i * step;
+        ctx.fillText(label, x, h - 8);
+      });
+    }
+
+    draw();
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(container);
+    window.addEventListener("orientationchange", draw);
+    return () => { ro.disconnect(); window.removeEventListener("orientationchange", draw); };
+  }, [data, locale]);
+
+  return (
+    <div ref={containerRef} style={{ width: "100%", height: 220, position: 'relative' }}
+      onMouseMove={(e) => {
+        const container = containerRef.current;
+        const canvas = canvasRef.current;
+        const tip = tipRef.current;
+        if (!container || !canvas || !tip) return;
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const pad = 36;
+        const w = Math.max(300, Math.floor(rect.width));
+        const h = 220;
+        const slots = (data || []).slice();
+        if (!slots.length) { tip.style.display = 'none'; return; }
+        const plotW = w - pad * 2;
+        const step = plotW / Math.max(1, slots.length - 1);
+        const idx = Math.round((x - pad) / step);
+        if (idx < 0 || idx >= slots.length) { tip.style.display = 'none'; return; }
+        const s = slots[idx];
+        tip.innerHTML = `<div style="font-weight:600">${s.slot || s.label || ''}</div><div>单量: ${s.orders || 0}</div><div>营业额: ${money(s.revenue||0, currency, locale)}</div>`;
+        tip.style.display = 'block';
+        const tipRect = tip.getBoundingClientRect();
+        let left = x + 12;
+        if (left + tipRect.width > rect.width) left = x - tipRect.width - 12;
+        if (left < 6) left = 6;
+        let top = y - tipRect.height - 8;
+        if (top < 6) top = y + 8;
+        tip.style.left = `${left}px`;
+        tip.style.top = `${top}px`;
+      }}
+      onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = 'none'; }}
+    >
+      <canvas ref={canvasRef} />
+      <div ref={tipRef} style={{ display: 'none', position: 'absolute', pointerEvents: 'none', background: 'rgba(0,0,0,0.85)', color: '#fff', padding: '6px 8px', borderRadius: 6, fontSize: 12, zIndex: 50 }} />
     </div>
   );
 }

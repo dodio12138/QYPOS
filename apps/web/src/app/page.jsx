@@ -16,6 +16,7 @@ import {
   Loader2,
   LogOut,
   Trash2,
+  Users,
   Utensils,
   UserRound,
   WifiOff,
@@ -48,8 +49,10 @@ export default function PosPage() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [pickerItem, setPickerItem] = useState(null);
+  const [editingOrderItem, setEditingOrderItem] = useState(null); // { orderItem, menuItem }
   const [customOpen, setCustomOpen] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [splitting, setSplitting] = useState(false); // 'items' | 'even' | false
   const [tableAction, setTableAction] = useState(null);
   const [confirmTakeaway, setConfirmTakeaway] = useState(false);
   const [notice, setNotice] = useState("");
@@ -222,6 +225,32 @@ export default function PosPage() {
     }, "已加入订单");
   }
 
+  async function replaceOrderItem(oldOrderItem, { variantId, modifierIds, quantity, notes }) {
+    if (!selectedOrder) return;
+    await run(async () => {
+      // Try to update the existing order item in place to preserve ordering
+      const updated = await api(`/orders/${selectedOrder.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ update_item: { id: oldOrderItem.id, variant_id: variantId, modifier_ids: modifierIds, quantity, notes } })
+      });
+      // Fallback: if API returns no updated id, refresh anyway
+      if (updated && updated.id) {
+        setSelectedOrder(await api(`/orders/${updated.id}`));
+      } else {
+        setSelectedOrder(await api(`/orders/${selectedOrder.id}`));
+      }
+      setEditingOrderItem(null);
+      await refresh(false);
+    }, "已更新菜品");
+  }
+
+  function openEditForOrderItem(orderItem) {
+    if (!orderItem.item_id) return; // custom item, can't reopen menu modal
+    const menuItem = (menu.items || []).find((mi) => mi.id === orderItem.item_id);
+    if (!menuItem) return;
+    setEditingOrderItem({ orderItem, menuItem });
+  }
+
   async function addCustomItem({ name, price, quantity, notes }) {
     if (!selectedOrder) {
       setNotice("请先选择餐桌或创建外带订单");
@@ -249,6 +278,18 @@ export default function PosPage() {
       setSelectedOrder(await api(`/orders/${updated.id}`));
       await refresh(false);
     });
+  }
+
+  async function updateItemNotes(item, notes) {
+    if (!selectedOrder) return;
+    await run(async () => {
+      const updated = await api(`/orders/${selectedOrder.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ update_item: { id: item.id, quantity: Number(item.quantity), notes } })
+      });
+      setSelectedOrder(await api(`/orders/${updated.id}`));
+      await refresh(false);
+    }, "备注已保存");
   }
 
   async function saveOrderNotes(notes) {
@@ -327,6 +368,42 @@ export default function PosPage() {
       setPaying(false);
       await refresh(false);
     }, "已收款");
+  }
+
+  async function payOrderPartial(payment) {
+    if (!selectedOrder) return null;
+    let result = null;
+    await run(async () => {
+      result = await api(`/orders/${selectedOrder.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify(payment)
+      });
+      setSelectedOrder(await api(`/orders/${result.order.id}`));
+      await refresh(false);
+    }, `已收 ${money(payment.amount, currency, locale)}`);
+    return result;
+  }
+
+  async function splitOrderByItems(splits) {
+    if (!selectedOrder) return;
+    await run(async () => {
+      await api(`/orders/${selectedOrder.id}/split`, {
+        method: "POST",
+        body: JSON.stringify({ splits })
+      });
+      setSplitting(false);
+      setSelectedOrder(null);
+      await refresh(false);
+    }, "分单完成");
+  }
+
+  async function mergeOrder() {
+    if (!selectedOrder) return;
+    await run(async () => {
+      const merged = await api(`/orders/${selectedOrder.id}/merge`, { method: "POST" });
+      setSelectedOrder(await api(`/orders/${merged.id}`));
+      await refresh(false);
+    }, "已合单");
   }
 
   async function adjustServiceCharge(patch) {
@@ -456,10 +533,13 @@ export default function PosPage() {
           user={user}
           onSelectOrder={async (id) => setSelectedOrder(await api(`/orders/${id}`))}
           onQuantity={updateItem}
+          onEditItem={openEditForOrderItem}
           onSaveNotes={saveOrderNotes}
           onSubmit={submitOrder}
           onPrintBill={printBill}
           onPay={() => setPaying(true)}
+          onSplit={(mode) => setSplitting(mode)}
+          onMerge={mergeOrder}
           onAdjustService={adjustServiceCharge}
           onDiscount={applyDiscount}
           onCancelOrder={cancelOrder}
@@ -473,8 +553,25 @@ export default function PosPage() {
           item={pickerItem}
           locale={locale}
           currency={currency}
+          notePresets={(menu.note_presets ?? []).filter((p) => p.active !== false)}
           onClose={() => setPickerItem(null)}
           onAdd={addConfiguredItem}
+        />
+      )}
+
+      {editingOrderItem && (
+        <ItemModal
+          item={editingOrderItem.menuItem}
+          locale={locale}
+          currency={currency}
+          notePresets={(menu.note_presets ?? []).filter((p) => p.active !== false)}
+          initialVariantId={editingOrderItem.orderItem.variant_id}
+          initialModifierIds={(editingOrderItem.orderItem.modifiers ?? []).map((m) => m.modifier_id).filter(Boolean)}
+          initialNotes={editingOrderItem.orderItem.notes || ""}
+          initialQuantity={Number(editingOrderItem.orderItem.quantity)}
+          editMode
+          onClose={() => setEditingOrderItem(null)}
+          onAdd={(cfg) => replaceOrderItem(editingOrderItem.orderItem, cfg)}
         />
       )}
 
@@ -532,6 +629,31 @@ export default function PosPage() {
           currency={currency}
           onClose={() => setPaying(false)}
           onPay={payOrder}
+        />
+      )}
+
+      {splitting === "even" && selectedOrder && (
+        <EvenSplitModal
+          order={selectedOrder}
+          locale={locale}
+          currency={currency}
+          busy={busy}
+          onClose={(fullyPaid) => {
+            setSplitting(false);
+            if (fullyPaid) setSelectedOrder(null);
+          }}
+          onPayPartial={payOrderPartial}
+        />
+      )}
+
+      {splitting === "items" && selectedOrder && (
+        <SplitByItemsModal
+          order={selectedOrder}
+          locale={locale}
+          currency={currency}
+          busy={busy}
+          onClose={() => setSplitting(false)}
+          onSplit={splitOrderByItems}
         />
       )}
     </main>
@@ -664,9 +786,10 @@ function ReceiptTitle() {
   );
 }
 
-function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrder, onQuantity, onSaveNotes, onSubmit, onPrintBill, onPay, onAdjustService, onDiscount, onCancelOrder, onExit, busy }) {
+function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrder, onQuantity, onEditItem, onSaveNotes, onSubmit, onPrintBill, onPay, onSplit, onMerge, onAdjustService, onDiscount, onCancelOrder, onExit, busy }) {
   const [notes, setNotes] = useState("");
-  const [discount, setDiscount] = useState("0");
+  const [discountRate, setDiscountRate] = useState("");
+  const [discountAmt, setDiscountAmt] = useState("");
   const [serviceRate, setServiceRate] = useState("0.15");
   const [cancelReason, setCancelReason] = useState("");
   const [orderFilter, setOrderFilter] = useState("active");
@@ -678,18 +801,19 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
 
   useEffect(() => setNotes(order?.notes || ""), [order?.id, order?.notes]);
   useEffect(() => {
-    setDiscount(String(order?.discount || 0));
+    setDiscountRate(order?.discount_rate != null ? String(order.discount_rate) : "");
+    setDiscountAmt(Number(order?.discount_fixed) > 0 ? String(order.discount_fixed) : "");
     setServiceRate(String(order?.service_charge_rate ?? 0.15));
-  }, [order?.id, order?.discount, order?.service_charge_rate]);
+  }, [order?.id, order?.discount_rate, order?.discount_fixed, order?.service_charge_rate]);
 
   const today = new Date().toDateString();
   const todayOrders = orders.filter(
     (item) => new Date(item.created_at).toDateString() === today
   );
   const filteredOrders = todayOrders.filter((item) => {
-    if (orderFilter === "active") return !["paid", "cancelled"].includes(item.status);
+    if (orderFilter === "active") return !["paid", "cancelled", "split"].includes(item.status);
     if (orderFilter === "paid") return item.status === "paid";
-    return true; // "all"
+    return item.status !== "split"; // "all" — split parent orders are historical noise
   });
   const tableById = new Map(tables.map((table) => [table.id, table]));
 
@@ -699,6 +823,10 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
     }
     return `外带 ${targetOrder.pickup_no || "-"}`;
   }
+
+  const rateDiscAmt = order?.discount_rate != null
+    ? Math.min(Number(order.subtotal ?? 0), Math.max(0, Math.round((Number(order.subtotal ?? 0) * (1 - Number(order.discount_rate) / 10) + 1e-10) * 100) / 100))
+    : 0;
 
   return (
     <section className="panel order-panel">
@@ -722,12 +850,12 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
           </div>
           <div className="quick-orders">
             {filteredOrders.length === 0 && <div className="empty" style={{fontSize:13}}>暂无订单</div>}
-            {filteredOrders.slice(0, 12).map((item) => (
+            {filteredOrders.map((item) => (
               <button key={item.id} onClick={() => onSelectOrder(item.id)}
                 className={["paid","cancelled"].includes(item.status) ? "order-done" : ""}>
                 <span>
-                  <strong>{orderLocation(item)}</strong>
-                  <small>{item.order_no}</small>
+                  <strong>{item.order_no}</strong>
+                  <small>{orderLocation(item)}</small>
                 </span>
                 <em className={`status-chip status-${item.status}`}>{item.status}</em>
                 <b>{money(item.total, currency, locale)}</b>
@@ -749,32 +877,18 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
               const locked = Boolean(item.kitchen_printed_at);
               const canVoidThis = locked && voidMode && canVoid;
               return (
-              <div className={`order-line rich${locked && !voidMode ? " locked" : ""}${canVoidThis ? " void-mode" : ""}`} key={item.id}>
-                <div>
-                  <strong>{labelOf(item.name_i18n, locale)}</strong>
-                  <span>{labelOf(item.variant_name_i18n, locale)}</span>
-                  {locked && !voidMode && <small className="locked-line">已下单制作中</small>}
-                  {canVoidThis && <small className="locked-line warn">点击删除进行退菜</small>}
-                  {(item.modifiers || []).map((modifier) => (
-                    <small key={modifier.id}>+ {labelOf(modifier.name_i18n, locale)} {Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : ""}</small>
-                  ))}
-                </div>
-                <div className="qty-stepper">
-                  <button onClick={() => onQuantity(item, Number(item.quantity) - 1)} disabled={locked} title="减少"><Minus size={16} /></button>
-                  <b>{item.quantity}</b>
-                  <button onClick={() => onQuantity(item, Number(item.quantity) + 1)} disabled={locked} title="增加"><Plus size={16} /></button>
-                </div>
-                {canVoidThis ? (
-                  <button className="icon-danger" onClick={async () => {
-                    await onQuantity(item, 0, { void: true, reason: voidReason || "front desk void" });
-                    setVoidMode(false);
-                    setVoidReason("");
-                  }} title="退菜"><Trash2 size={16} /></button>
-                ) : (
-                  <button className="icon-danger" onClick={() => onQuantity(item, 0)} disabled={locked} title="删除"><Trash2 size={16} /></button>
-                )}
-              </div>
-              );
+              <VoidableOrderLine
+                key={item.id}
+                item={item}
+                locale={locale}
+                currency={currency}
+                locked={locked}
+                canVoidThis={canVoidThis}
+                voidReason={voidReason}
+                onQuantity={onQuantity}
+                onEditItem={onEditItem}
+                onVoidDone={() => { setVoidMode(false); setVoidReason(""); }}
+              />);
             })}
           </div>
           <label className="notes-box">
@@ -783,7 +897,18 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
           </label>
           <div className="totals">
             <span>Subtotal <b>{money(order.subtotal, currency, locale)}</b></span>
-            {Number(order.discount) > 0 && <span>Discount <b>-{money(order.discount, currency, locale)}</b></span>}
+            {order.discount_rate != null && (
+              <span>
+                折扣 {order.discount_rate}折<b> -{money(rateDiscAmt, currency, locale)}</b>
+                <button type="button" style={{marginLeft:"6px",fontSize:"11px",padding:"1px 6px",cursor:"pointer"}} onClick={() => onDiscount({ discount_rate: null })}>撤销</button>
+              </span>
+            )}
+            {Number(order.discount_fixed) > 0 && (
+              <span>
+                优惠减额<b> -{money(order.discount_fixed, currency, locale)}</b>
+                <button type="button" style={{marginLeft:"6px",fontSize:"11px",padding:"1px 6px",cursor:"pointer"}} onClick={() => onDiscount({ discount_fixed: 0 })}>撤销</button>
+              </span>
+            )}
             <span>Tax <b>{money(order.tax, currency, locale)}</b></span>
             <span>Service <b>{money(order.service_charge, currency, locale)}</b></span>
             <strong>Total <b>{money(order.total, currency, locale)}</b></strong>
@@ -791,36 +916,90 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
           <details className="admin-adjustments">
             <summary>权限操作</summary>
             <div className="adjustment-grid">
-              <label>折扣金额<input type="number" step="0.01" value={discount} onChange={(event) => setDiscount(event.target.value)} /></label>
-              <button type="button" onClick={() => onDiscount({ discount: Number(discount), reason: "front desk adjustment" })}>应用折扣</button>
-              <label>服务费率<input type="number" step="0.001" value={serviceRate} onChange={(event) => setServiceRate(event.target.value)} /></label>
-              <button type="button" onClick={() => onAdjustService({ service_charge_rate: Number(serviceRate), service_charge_exempt: false, reason: "front desk adjustment" })}>更新服务费</button>
-              <button type="button" onClick={() => onAdjustService({ service_charge_exempt: true, reason: "front desk exempt" })}>豁免服务费</button>
-              <label>取消原因<input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="客人取消、输错单等" /></label>
-              <button type="button" onClick={() => onCancelOrder(cancelReason || "front desk cancel")}>取消订单</button>
+              <div className="adjust-row">
+                <label>折扣率（折）
+                  <input type="number" min="0" max="10" step="0.1" value={discountRate} onChange={(event) => setDiscountRate(event.target.value)} placeholder="如 8.8" />
+                </label>
+                <button type="button" onClick={() => {
+                  const rate = parseFloat(discountRate);
+                  if (isNaN(rate) || rate < 0 || rate > 10) return;
+                  onDiscount({ discount_rate: rate, reason: "front desk adjustment" });
+                }}>应用折扣</button>
+              </div>
+
+              <div className="adjust-row">
+                <label>优惠金额
+                  <input type="number" min="0" step="0.01" value={discountAmt} onChange={(event) => setDiscountAmt(event.target.value)} placeholder="减免金额" />
+                </label>
+                <button type="button" onClick={() => {
+                  const amt = parseFloat(discountAmt);
+                  if (isNaN(amt) || amt < 0) return;
+                  onDiscount({ discount_fixed: amt, reason: "front desk adjustment" });
+                }}>减免优惠</button>
+              </div>
+
+              <div className="adjust-row">
+                <label>服务费率
+                  <input type="number" step="0.001" value={serviceRate} onChange={(event) => setServiceRate(event.target.value)} />
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => onAdjustService({ service_charge_rate: Number(serviceRate), service_charge_exempt: false, reason: "front desk adjustment" })}>更新服务费</button>
+                  <button type="button" onClick={() => onAdjustService({ service_charge_exempt: true, reason: "front desk exempt" })}>豁免服务费</button>
+                </div>
+              </div>
+
+              <div className="adjust-row">
+                <label>取消原因
+                  <input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="客人取消、输错单等" />
+                </label>
+                <button type="button" onClick={() => onCancelOrder(cancelReason || "front desk cancel")}>取消订单</button>
+              </div>
+
               {canVoid && (
-                <>
-                  <label>退菜原因<input value={voidReason} onChange={(event) => setVoidReason(event.target.value)} placeholder="客人退菜、制作错误等" /></label>
+                <div className="adjust-row">
+                  <label>退菜原因
+                    <input value={voidReason} onChange={(event) => setVoidReason(event.target.value)} placeholder="客人退菜、制作错误等" />
+                  </label>
                   <button type="button" className={voidMode ? "primary" : ""} onClick={() => setVoidMode((v) => !v)}>
                     {voidMode ? "退出退菜模式" : "退菜模式"}
                   </button>
-                </>
+                </div>
               )}
             </div>
           </details>
           <div className="action-row sticky-actions">
-            <button onClick={onSubmit} disabled={busy || !(order.items || []).length}>
+            <button onClick={onSubmit} disabled={busy || !(order.items || []).length || order.status === "split"}>
               <Printer size={18} />
               <span>厨房下单</span>
             </button>
             <button onClick={onPrintBill} disabled={busy || !(order.items || []).length}>
               <ClipboardList size={18} />
-              <span>账单打印</span>
+              <span>账单</span>
             </button>
-            <button className="primary" onClick={onPay} disabled={busy || !(order.items || []).length}>
-              <CircleDollarSign size={18} />
-              <span>收款</span>
-            </button>
+            {order.parent_order_id && (
+              <button onClick={onMerge} disabled={busy}>
+                <Users size={18} />
+                <span>合单</span>
+              </button>
+            )}
+            {!order.parent_order_id && order.status !== "split" && (
+              <button onClick={() => onSplit("items")} disabled={busy || !(order.items || []).length}>
+                <Users size={18} />
+                <span>分单</span>
+              </button>
+            )}
+            {order.status !== "split" && (
+              <>
+                <button onClick={() => onSplit("even")} disabled={busy || !(order.items || []).length}>
+                  <Coins size={18} />
+                  <span>均摔</span>
+                </button>
+                <button className="primary" onClick={onPay} disabled={busy || !(order.items || []).length}>
+                  <CircleDollarSign size={18} />
+                  <span>收款</span>
+                </button>
+              </>
+            )}
           </div>
         </>
       )}
@@ -897,6 +1076,68 @@ function ConfirmModal({ title, message, confirmLabel, icon, extra, busy, onCance
   );
 }
 
+function VoidableOrderLine({ item, locale, currency, locked, canVoidThis, voidReason, onQuantity, onEditItem, onVoidDone }) {
+  const maxQty = Number(item.quantity);
+  const [pendingVoid, setPendingVoid] = useState(false);
+  const [voidQty, setVoidQty] = useState(maxQty);
+
+  useEffect(() => {
+    setPendingVoid(false);
+    setVoidQty(maxQty);
+  }, [item.id, canVoidThis, maxQty]);
+
+  async function commitVoid() {
+    await onQuantity(item, 0, { void: true, void_qty: voidQty, reason: voidReason || "front desk void" });
+    onVoidDone();
+  }
+
+  const canEdit = !locked && !canVoidThis && item.item_id;
+
+  return (
+    <div className={`order-line rich${locked && !canVoidThis ? " locked" : ""}${canVoidThis ? " void-mode" : ""}`}>
+      <div>
+        <strong
+          className={canEdit ? "item-name-editable" : ""}
+          onClick={canEdit ? () => onEditItem(item) : undefined}
+          title={canEdit ? "点击修改规格/备注" : undefined}
+        >{labelOf(item.name_i18n, locale)}</strong>
+        <span>{labelOf(item.variant_name_i18n, locale)}</span>
+        {locked && !canVoidThis && <small className="locked-line">已下单制作中</small>}
+        {canVoidThis && !pendingVoid && <small className="locked-line warn">点击删除进行退菜</small>}
+        {canVoidThis && pendingVoid && (
+          <small className="locked-line warn">退菜数量：
+            <button type="button" style={{padding:"0 4px"}} onClick={() => setVoidQty((q) => Math.max(1, q - 1))}>-</button>
+            <b style={{margin:"0 4px"}}>{voidQty}</b>
+            <button type="button" style={{padding:"0 4px"}} onClick={() => setVoidQty((q) => Math.min(maxQty, q + 1))}>+</button>
+            &nbsp;/ {maxQty}
+          </small>
+        )}
+        {(item.modifiers || []).map((modifier) => (
+          <small key={modifier.id}>+ {labelOf(modifier.name_i18n, locale)} {Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : ""}</small>
+        ))}
+        {item.notes && <small className="item-notes">备注：{item.notes}</small>}
+      </div>
+      <div className="qty-stepper">
+        <button onClick={() => onQuantity(item, Number(item.quantity) - 1)} disabled={locked} title="减少"><Minus size={16} /></button>
+        <b>{item.quantity}</b>
+        <button onClick={() => onQuantity(item, Number(item.quantity) + 1)} disabled={locked} title="增加"><Plus size={16} /></button>
+      </div>
+      {canVoidThis ? (
+        pendingVoid ? (
+          <button className="icon-danger" onClick={commitVoid} title="确认退菜"><Check size={16} /></button>
+        ) : (
+          <button className="icon-danger" onClick={() => {
+            if (maxQty > 1) { setVoidQty(maxQty); setPendingVoid(true); }
+            else commitVoid();
+          }} title="退菜"><Trash2 size={16} /></button>
+        )
+      ) : (
+        <button className="icon-danger" onClick={() => onQuantity(item, 0)} disabled={locked} title="删除"><Trash2 size={16} /></button>
+      )}
+    </div>
+  );
+}
+
 function CustomItemModal({ locale, currency, onClose, onAdd }) {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -956,14 +1197,48 @@ function CustomItemModal({ locale, currency, onClose, onAdd }) {
   );
 }
 
-function ItemModal({ item, locale, currency, onClose, onAdd }) {
+function ItemModal({ item, locale, currency, notePresets = [], initialVariantId, initialModifierIds, initialNotes, initialQuantity, editMode, onClose, onAdd }) {
   const activeVariants = item.variants.filter((variant) => variant.active);
-  const [variantId, setVariantId] = useState(activeVariants[0]?.id || "");
-  const [modifierIds, setModifierIds] = useState([]);
-  const [quantity, setQuantity] = useState(1);
-  const [notes, setNotes] = useState("");
+  const [variantId, setVariantId] = useState(initialVariantId || activeVariants[0]?.id || "");
+  const [modifierIds, setModifierIds] = useState(initialModifierIds || []);
+  const [quantity, setQuantity] = useState(initialQuantity || 1);
+  const [selectedPresetIds, setSelectedPresetIds] = useState([]);
+  const [notes, setNotes] = useState(initialNotes || "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!initialNotes) return;
+    // 尝试把已保存的备注拆成预设 labels + 自由文本，格式示例："少辣、不要香菜；去汤"
+    const parts = initialNotes.split("；").map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) {
+      setNotes("");
+      return;
+    }
+    // 第一段可能是用逗号式 '、' 连接的预设标签
+    const candidateLabels = parts[0].split("、").map((s) => s.trim()).filter(Boolean);
+    const matchedIds = candidateLabels.map((lbl) => (notePresets.find((p) => p.label === lbl) || {}).id).filter(Boolean);
+    if (matchedIds.length > 0) {
+      setSelectedPresetIds(matchedIds);
+      const free = parts.slice(1).join("；").trim();
+      setNotes(free);
+    } else {
+      // 未匹配到任何预设标签，则将整个 initialNotes 视为自由文本
+      setNotes(initialNotes);
+    }
+  }, [initialNotes, notePresets]);
+
+  function togglePreset(id) {
+    setSelectedPresetIds((curr) => curr.includes(id) ? curr.filter((x) => x !== id) : [...curr, id]);
+  }
+
+  function composedNotes() {
+    const labels = selectedPresetIds
+      .map((id) => notePresets.find((p) => p.id === id)?.label)
+      .filter(Boolean);
+    const free = notes.trim();
+    return [labels.join("、"), free].filter(Boolean).join("；");
+  }
 
   function toggleModifier(group, modifierId) {
     setModifierIds((current) => {
@@ -1016,6 +1291,24 @@ function ItemModal({ item, locale, currency, onClose, onAdd }) {
           </div>
         ))}
 
+        {notePresets.length > 0 && (
+          <div className="choice-group">
+            <h3>常用备注 <small className="muted" style={{fontWeight:"normal"}}>（只打印到厨房单）</small></h3>
+            <div className="choice-grid">
+              {notePresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={selectedPresetIds.includes(preset.id) ? "selected" : ""}
+                  onClick={() => togglePreset(preset.id)}
+                >
+                  <span>{preset.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <label className="notes-box">
           菜品备注
           <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="不要香菜、汤分开等" />
@@ -1033,7 +1326,7 @@ function ItemModal({ item, locale, currency, onClose, onAdd }) {
               setSubmitting(true);
               setError("");
               try {
-                await onAdd({ variantId, modifierIds, quantity, notes });
+                await onAdd({ variantId, modifierIds, quantity, notes: composedNotes() });
               } catch (caught) {
                 setError(caught.message);
               } finally {
@@ -1043,7 +1336,7 @@ function ItemModal({ item, locale, currency, onClose, onAdd }) {
             disabled={!variantId || submitting}
           >
             {submitting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-            <span>{submitting ? "加入中" : "加入订单"}</span>
+            <span>{submitting ? (editMode ? "更新中" : "加入中") : (editMode ? "更新菜品" : "加入订单")}</span>
           </button>
         </footer>
         {error && <div className="inline-error">{error}</div>}
@@ -1052,8 +1345,248 @@ function ItemModal({ item, locale, currency, onClose, onAdd }) {
   );
 }
 
+function SplitByItemsModal({ order, locale, currency, busy, onClose, onSplit }) {
+  const [personCount, setPersonCount] = useState(2);
+  const [assignments, setAssignments] = useState(() => {
+    const init = {};
+    for (const item of order.items ?? []) init[item.id] = {};
+    return init;
+  });
+
+  const personLabels = ["客人A", "客人B", "客人C", "客人D", "客人E", "客人F", "客人G", "客人H", "客人I", "客人J"];
+
+  function getA(itemId, pi) { return assignments[itemId]?.[pi] ?? 0; }
+
+  function togglePerson(itemId, pi) {
+    setAssignments(prev => {
+      const cur = prev[itemId]?.[pi] ?? 0;
+      return { ...prev, [itemId]: cur ? {} : { [pi]: 1 } };
+    });
+  }
+
+  function setQty(itemId, pi, val, item) {
+    const qty = Number(item.quantity);
+    setAssignments(prev => {
+      const itemA = { ...(prev[itemId] ?? {}) };
+      itemA[pi] = Math.max(0, Math.min(val, qty));
+      return { ...prev, [itemId]: itemA };
+    });
+  }
+
+  function itemUnit(item) {
+    return Number(item.unit_price ?? 0) + (item.modifiers ?? []).reduce((s, m) => s + Number(m.price_delta ?? 0), 0);
+  }
+
+  const personTotals = Array.from({ length: personCount }, (_, pi) =>
+    (order.items ?? []).reduce((s, item) => s + getA(item.id, pi) * itemUnit(item), 0)
+  );
+
+  const unassigned = (order.items ?? []).filter(item => {
+    const tot = Object.values(assignments[item.id] ?? {}).reduce((s, q) => s + q, 0);
+    return tot < Number(item.quantity);
+  });
+
+  function handleConfirm() {
+    const splits = Array.from({ length: personCount }, (_, pi) => ({
+      label: personLabels[pi],
+      items: (order.items ?? [])
+        .filter(item => (assignments[item.id]?.[pi] ?? 0) > 0)
+        .map(item => ({ id: item.id, quantity: assignments[item.id][pi] }))
+    })).filter(s => s.items.length > 0);
+    if (splits.length < 2) return;
+    onSplit(splits);
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal split-items-modal">
+        <header className="modal-header">
+          <button onClick={onClose}><ChevronLeft size={20} /></button>
+          <div><h2>分单—按菜品分配</h2><p>{order.order_no}</p></div>
+          <button onClick={onClose}><X size={20} /></button>
+        </header>
+
+        <div className="split-person-bar">
+          <span>人数</span>
+          {[2,3,4,5,6,7,8,9,10].map(n => (
+            <button key={n} className={personCount === n ? "selected" : ""}
+              onClick={() => setPersonCount(n)}>{n}人</button>
+          ))}
+        </div>
+
+        <div className="split-items-list">
+          {(order.items ?? []).map(item => {
+            const qty = Number(item.quantity);
+            const unit = itemUnit(item);
+            const totAssigned = Object.values(assignments[item.id] ?? {}).reduce((s, q) => s + q, 0);
+            const remain = qty - totAssigned;
+            return (
+              <div key={item.id} className={`split-item-row${remain > 0 ? " unassigned" : ""}`}>
+                <div className="split-item-name">
+                  <span>{labelOf(item.name_i18n, locale)}</span>
+                  <span className="split-item-price">{money(unit, currency, locale)}{qty > 1 ? ` ×${qty}` : ""}</span>
+                </div>
+                {qty === 1 ? (
+                  <div className="split-person-btns">
+                    {Array.from({ length: personCount }, (_, pi) => (
+                      <button key={pi}
+                        className={`split-person-btn${getA(item.id, pi) ? " selected" : ""}`}
+                        onClick={() => togglePerson(item.id, pi)}>
+                        {personLabels[pi].slice(-1)}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="split-qty-controls">
+                    {Array.from({ length: personCount }, (_, pi) => {
+                      const a = getA(item.id, pi);
+                      return (
+                        <div key={pi} className="split-qty-person">
+                          <span>{personLabels[pi].slice(-1)}</span>
+                          <button onClick={() => setQty(item.id, pi, a - 1, item)} disabled={a <= 0}>−</button>
+                          <span className="split-qty-num">{a}</span>
+                          <button onClick={() => setQty(item.id, pi, a + 1, item)} disabled={remain <= 0 && a < qty}>+</button>
+                        </div>
+                      );
+                    })}
+                    {remain > 0 && <span className="split-unassigned-badge">剩{remain}</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="split-person-totals">
+          {Array.from({ length: personCount }, (_, pi) => (
+            <div key={pi} className="split-person-total-row">
+              <span>{personLabels[pi]}</span>
+              <b>{money(personTotals[pi], currency, locale)}</b>
+            </div>
+          ))}
+        </div>
+
+        {unassigned.length > 0 && (
+          <div className="split-warning">还有 {unassigned.length} 项未分配完毕</div>
+        )}
+
+        <footer className="modal-footer">
+          <button onClick={onClose}>取消</button>
+          <button className="primary" onClick={handleConfirm} disabled={unassigned.length > 0 || busy}>
+            <Users size={18} /><span>确认分单</span>
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function EvenSplitModal({ order, locale, currency, busy, onClose, onPayPartial }) {
+  const [splitN, setSplitN] = useState(2);
+  const [method, setMethod] = useState("card");
+  const [amount, setAmount] = useState("");
+  const [perPersonAmt, setPerPersonAmt] = useState(null);
+
+  const total = Number(order.total ?? 0);
+  const paidSoFar = (order.payments ?? []).reduce(
+    (s, p) => s + Number(p.amount) - Number(p.change_due ?? 0), 0
+  );
+  const remaining = Math.max(0, Math.round((total - paidSoFar) * 100) / 100);
+  const perPerson = splitN > 0 ? Math.round((remaining / splitN) * 100) / 100 : remaining;
+  const isFullyPaid = remaining <= 0;
+
+  useEffect(() => {
+    if (perPersonAmt != null) {
+      // Last person pays the exact remainder to avoid 0.01 rounding gaps
+      const amt = remaining <= perPersonAmt + 0.05 ? remaining : perPersonAmt;
+      setAmount(amt.toFixed(2));
+    } else {
+      setAmount(remaining > 0 ? remaining.toFixed(2) : "0");
+    }
+  }, [remaining, perPersonAmt]);
+
+  const paid = Number(amount || 0);
+  const change = Math.max(0, Math.round((paid - remaining) * 100) / 100);
+
+  async function handlePay() {
+    const amt = Number(amount || 0);
+    if (isNaN(amt) || amt <= 0 || remaining <= 0) return;
+    const result = await onPayPartial({ method, amount: amt, change_due: change });
+    if (result?.order?.status === "paid") {
+      onClose(true);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="modal payment-modal">
+        <header className="modal-header">
+          <button onClick={() => onClose(false)} title="返回"><ChevronLeft size={20} /></button>
+          <div><h2>拆单收款</h2><p>{order.order_no}</p></div>
+          <button onClick={() => onClose(false)} title="关闭"><X size={20} /></button>
+        </header>
+
+        <div className="split-summary">
+          <div><span>订单总额</span><b>{money(total, currency, locale)}</b></div>
+          {paidSoFar > 0 && <div><span>已收</span><b className="split-paid-amt">{money(paidSoFar, currency, locale)}</b></div>}
+          <div className="split-remaining-row"><span>待收</span><b>{money(remaining, currency, locale)}</b></div>
+        </div>
+
+        {isFullyPaid ? (
+          <div className="pay-total" style={{ color: "#16a34a", fontSize: "22px" }}>已全额付清 ✓</div>
+        ) : (
+          <>
+            <div className="split-n-bar">
+              <span>均分</span>
+              {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                <button key={n}
+                  className={splitN === n ? "selected" : ""}
+                  onClick={() => {
+                    const per = Math.round((remaining / n) * 100) / 100;
+                    setSplitN(n);
+                    setPerPersonAmt(per);
+                    setAmount(per.toFixed(2));
+                  }}
+                >{n}人</button>
+              ))}
+              <button onClick={() => { setPerPersonAmt(null); setAmount(remaining.toFixed(2)); }}>全额</button>
+            </div>
+            {perPerson > 0 && (
+              <div className="split-per-person">每份约 <b>{money(perPerson, currency, locale)}</b></div>
+            )}
+            <div className="choice-grid" style={{ margin: "12px 0" }}>
+              {["cash", "card", "qr", "other"].map((m) => (
+                <button key={m} className={method === m ? "selected" : ""} onClick={() => setMethod(m)}>{m}</button>
+              ))}
+            </div>
+            <label className="notes-box">
+              收款金额
+              <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </label>
+            <div className="totals">
+              <span>应收 <b>{money(remaining, currency, locale)}</b></span>
+              <span>实收 <b>{money(paid, currency, locale)}</b></span>
+              {change > 0 && <strong>找零 <b>{money(change, currency, locale)}</b></strong>}
+            </div>
+          </>
+        )}
+
+        <footer className="modal-footer">
+          <button onClick={() => onClose(false)}>{isFullyPaid ? "关闭" : "稍后"}</button>
+          {!isFullyPaid && (
+            <button className="primary" onClick={handlePay} disabled={busy || paid <= 0}>
+              <CircleDollarSign size={18} />
+              <span>收款 {money(paid, currency, locale)}</span>
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function PaymentModal({ order, locale, currency, onClose, onPay }) {
-  const [method, setMethod] = useState("cash");
+  const [method, setMethod] = useState("card");
   const [amount, setAmount] = useState(String(order.total));
   const paid = Number(amount || 0);
   const total = Number(order.total || 0);

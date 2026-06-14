@@ -25,7 +25,10 @@ let backupTimer = null;
 
 async function ensureSchema() {
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_fixed NUMERIC(10,2) NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_rate NUMERIC(5,2)");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_reason TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS parent_order_id UUID REFERENCES orders(id)");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_address TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_header_zh TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_phone TEXT NOT NULL DEFAULT ''");
@@ -40,6 +43,19 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_interval_hours INTEGER NOT NULL DEFAULT 24");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
   await pool.query("UPDATE settings SET printer_profiles = $1 WHERE printer_profiles = '[]'::jsonb", [JSON.stringify(defaultPrinterProfiles)]);
+  await pool.query(`CREATE TABLE IF NOT EXISTS note_presets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    label TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  const presetCount = await pool.query("SELECT COUNT(*)::int AS n FROM note_presets");
+  if (presetCount.rows[0].n === 0) {
+    await pool.query(
+      `INSERT INTO note_presets (label, sort_order) VALUES ('白人辣', 1), ('重庆人辣', 2), ('去葱', 3)`
+    );
+  }
   await pool.query(
     `UPDATE roles SET permissions = '["manage_settings","manage_menu","manage_tables","manage_orders","adjust_service_charge","view_dashboard","view_reports","export_reports","view_audit_logs","view_kitchen","update_item_status","create_order","take_payment","print_receipt"]'
      WHERE name = 'owner'`
@@ -207,7 +223,8 @@ async function recalculateOrder(orderId, overrides = {}) {
     service_charge_exempt: overrides.service_charge_exempt
       ?? current?.service_charge_exempt
       ?? (current?.service_type !== "dine_in"),
-    discount: overrides.discount ?? overrides.discount_amount ?? current?.discount
+    discount_rate: overrides.discount_rate !== undefined ? overrides.discount_rate : (current?.discount_rate != null ? Number(current.discount_rate) : null),
+    discount_fixed: overrides.discount_fixed !== undefined ? overrides.discount_fixed : Number(current?.discount_fixed ?? 0),
   });
 
   const updated = await one(
@@ -435,8 +452,10 @@ app.get("/menu", async () => {
   const variants = await query("SELECT * FROM menu_item_variants ORDER BY sort_order");
   const groups = await query("SELECT * FROM modifier_groups ORDER BY sort_order");
   const modifiers = await query("SELECT * FROM modifiers ORDER BY sort_order");
+  const notePresets = await query("SELECT * FROM note_presets ORDER BY sort_order, created_at");
   return {
     categories,
+    note_presets: notePresets,
     items: items.map((item) => ({
       ...item,
       variants: variants.filter((variant) => variant.item_id === item.id),
@@ -701,6 +720,47 @@ app.delete("/menu/modifiers/:id", async (request, reply) => {
   }
   await auditLog(request, "menu.modifier.disable", "modifier", modifier.id);
   return modifier;
+});
+
+app.get("/note-presets", async () => {
+  return query("SELECT * FROM note_presets ORDER BY sort_order, created_at");
+});
+
+app.post("/note-presets", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_menu")) return;
+  const body = request.body ?? {};
+  const label = String(body.label ?? "").trim();
+  if (!label) { reply.code(400); return { error: "label is required" }; }
+  const preset = await one(
+    "INSERT INTO note_presets (label, sort_order, active) VALUES ($1, COALESCE($2, 0), COALESCE($3, true)) RETURNING *",
+    [label, body.sort_order, body.active]
+  );
+  await auditLog(request, "note_preset.create", "note_preset", preset.id, { label });
+  return preset;
+});
+
+app.patch("/note-presets/:id", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_menu")) return;
+  const body = request.body ?? {};
+  const preset = await one(
+    `UPDATE note_presets SET
+      label = COALESCE($2, label),
+      sort_order = COALESCE($3, sort_order),
+      active = COALESCE($4, active)
+     WHERE id = $1 RETURNING *`,
+    [request.params.id, body.label, body.sort_order, body.active]
+  );
+  if (!preset) { reply.code(404); return { error: "Note preset not found" }; }
+  await auditLog(request, "note_preset.update", "note_preset", preset.id, body);
+  return preset;
+});
+
+app.delete("/note-presets/:id", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_menu")) return;
+  const preset = await one("DELETE FROM note_presets WHERE id = $1 RETURNING *", [request.params.id]);
+  if (!preset) { reply.code(404); return { error: "Note preset not found" }; }
+  await auditLog(request, "note_preset.destroy", "note_preset", preset.id, { label: preset.label });
+  return preset;
 });
 
 app.get("/floor-layouts", async () => {
@@ -973,7 +1033,7 @@ app.patch("/orders/:id", async (request, reply) => {
   }
   if (body.update_item) {
     const item = body.update_item;
-    const existingItem = await one("SELECT id, kitchen_printed_at, status FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
+    const existingItem = await one("SELECT id, quantity, kitchen_printed_at, status FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
     if (!existingItem) {
       return recalculateOrder(request.params.id);
     }
@@ -996,17 +1056,75 @@ app.patch("/orders/:id", async (request, reply) => {
       throw error;
     }
     if (isVoid) {
-      await query("DELETE FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
-      const action = item.void ? "order.item.void" : "order.item.remove";
-      await auditLog(request, action, "order_item", item.id, { order_id: request.params.id, reason: item.reason ?? null });
+      // Partial void: void_qty < current quantity → reduce instead of delete
+      const voidQty = item.void_qty != null ? Number(item.void_qty) : null;
+      if (item.void && voidQty != null && Number.isFinite(voidQty) && voidQty > 0 && voidQty < Number(existingItem.quantity ?? 0)) {
+        await query(
+          "UPDATE order_items SET quantity = quantity - $3 WHERE id = $1 AND order_id = $2",
+          [item.id, request.params.id, voidQty]
+        );
+        await auditLog(request, "order.item.partial_void", "order_item", item.id, { order_id: request.params.id, void_qty: voidQty, reason: item.reason ?? null });
+      } else {
+        await query("DELETE FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
+        const action = item.void ? "order.item.void" : "order.item.remove";
+        await auditLog(request, action, "order_item", item.id, { order_id: request.params.id, reason: item.reason ?? null });
+      }
     } else {
-      await query(
-        `UPDATE order_items
-         SET quantity = COALESCE($3, quantity), notes = COALESCE($4, notes), status = COALESCE($5, status)
-         WHERE id = $1 AND order_id = $2`,
-        [item.id, request.params.id, item.quantity, item.notes, item.status]
-      );
-      await auditLog(request, "order.item.update", "order_item", item.id, { order_id: request.params.id, quantity: item.quantity });
+      // Support updating variant and modifiers in-place
+      let variant = null;
+      if (item.variant_id) {
+        variant = await one(
+          `SELECT v.*, i.name_i18n AS item_name_i18n, i.id AS item_id FROM menu_item_variants v JOIN menu_items i ON i.id = v.item_id WHERE v.id = $1`,
+          [item.variant_id]
+        );
+        if (!variant) {
+          reply.code(404);
+          return { error: "Variant not found" };
+        }
+        // Ensure variant belongs to the same menu item as the original order item
+        const orig = await one("SELECT item_id FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
+        if (orig && variant.item_id !== orig.item_id) {
+          reply.code(400);
+          return { error: "Variant does not belong to the same item" };
+        }
+      }
+
+      // Update the order_items row; if variant provided, also update variant_name_i18n and unit_price
+      if (variant) {
+        await query(
+          `UPDATE order_items
+           SET variant_id = COALESCE($3, variant_id), variant_name_i18n = COALESCE($4, variant_name_i18n), unit_price = COALESCE($5, unit_price),
+               quantity = COALESCE($6, quantity), notes = COALESCE($7, notes), status = COALESCE($8, status)
+           WHERE id = $1 AND order_id = $2`,
+          [item.id, request.params.id, item.variant_id, variant.name_i18n, variant.price, item.quantity, item.notes, item.status]
+        );
+      } else {
+        await query(
+          `UPDATE order_items
+           SET quantity = COALESCE($3, quantity), notes = COALESCE($4, notes), status = COALESCE($5, status)
+           WHERE id = $1 AND order_id = $2`,
+          [item.id, request.params.id, item.quantity, item.notes, item.status]
+        );
+      }
+
+      // If modifier_ids provided, replace modifiers for the order item
+      if (Array.isArray(item.modifier_ids)) {
+        await query("DELETE FROM order_item_modifiers WHERE order_item_id = $1", [item.id]);
+        for (const modifierId of item.modifier_ids) {
+          const modifier = await one(
+            `SELECT m.*, g.name_i18n AS group_name_i18n FROM modifiers m JOIN modifier_groups g ON g.id = m.group_id WHERE m.id = $1`,
+            [modifierId]
+          );
+          if (!modifier) continue;
+          await query(
+            `INSERT INTO order_item_modifiers (order_item_id, modifier_id, group_name_i18n, name_i18n, price_delta)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [item.id, modifier.id, modifier.group_name_i18n, modifier.name_i18n, modifier.price_delta]
+          );
+        }
+      }
+
+      await auditLog(request, "order.item.update", "order_item", item.id, { order_id: request.params.id, quantity: item.quantity, variant_id: item.variant_id, modifiers: item.modifier_ids });
     }
     return recalculateOrder(request.params.id);
   }
@@ -1108,17 +1226,148 @@ app.post("/orders/:id/service-charge", async (request, reply) => {
 app.post("/orders/:id/discount", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_orders")) return;
   const body = request.body ?? {};
-  await query("UPDATE orders SET discount = GREATEST(0, COALESCE($2::numeric, discount)), discount_reason = COALESCE($3, discount_reason) WHERE id = $1", [
-    request.params.id,
-    body.discount ?? body.discount_amount,
-    body.reason
-  ]);
-  const order = await recalculateOrder(request.params.id);
-  if (Number(order.discount) !== Number(body.discount ?? body.discount_amount ?? order.discount)) {
-    await query("UPDATE orders SET discount = $2 WHERE id = $1", [order.id, order.discount]);
+  if ("discount_rate" in body) {
+    await query(
+      "UPDATE orders SET discount_rate = $2, discount_reason = COALESCE($3, discount_reason) WHERE id = $1",
+      [request.params.id, body.discount_rate, body.reason]
+    );
   }
-  await auditLog(request, "order.discount.adjust", "order", order.id, { discount: order.discount, reason: body.reason ?? "" });
+  if ("discount_fixed" in body || "discount" in body || "discount_amount" in body) {
+    const fixed = Math.max(0, Number(body.discount_fixed ?? body.discount ?? body.discount_amount ?? 0));
+    await query(
+      "UPDATE orders SET discount_fixed = $2, discount_reason = COALESCE($3, discount_reason) WHERE id = $1",
+      [request.params.id, fixed, body.reason]
+    );
+  }
+  const order = await recalculateOrder(request.params.id);
+  await auditLog(request, "order.discount.adjust", "order", order.id, { discount: order.discount, discount_rate: order.discount_rate, discount_fixed: order.discount_fixed, reason: body.reason ?? "" });
   return order;
+});
+
+// POST /orders/:id/split
+// body: { splits: [{ label, items: [{ id, quantity }] }] }
+app.post("/orders/:id/split", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_orders")) return;
+  const { splits } = request.body ?? {};
+  if (!Array.isArray(splits) || splits.length < 2) {
+    reply.code(400); return { error: "Need at least 2 splits" };
+  }
+  const parent = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
+  if (!parent) { reply.code(404); return { error: "Order not found" }; }
+  if (["paid", "cancelled", "split"].includes(parent.status)) {
+    reply.code(409); return { error: "Cannot split this order" };
+  }
+  const items = await getOrderItems(parent.id);
+  if (!items.length) { reply.code(400); return { error: "Order has no items" }; }
+
+  // Validate quantities
+  const qtySums = {};
+  for (const split of splits) {
+    for (const si of split.items ?? []) {
+      qtySums[si.id] = (qtySums[si.id] ?? 0) + Number(si.quantity);
+    }
+  }
+  for (const item of items) {
+    if ((qtySums[item.id] ?? 0) !== Number(item.quantity)) {
+      reply.code(400); return { error: `Quantity mismatch for item ${item.id}` };
+    }
+  }
+
+  const labels = ["A", "B", "C", "D", "E", "F"];
+  const newOrderIds = [];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (let i = 0; i < splits.length; i++) {
+      const split = splits[i];
+      if (!(split.items ?? []).length) continue;
+      const subOrderNo = `${parent.order_no}-${labels[i]}`;
+      const subStatus = ["draft", "submitted"].includes(parent.status) ? parent.status : "submitted";
+      const subRes = await client.query(
+        `INSERT INTO orders (order_no, service_type, table_id, pickup_no, guests, status, notes,
+           subtotal, net_sales, tax, service_charge, total, discount, discount_fixed,
+           discount_reason, service_charge_rate, service_charge_exempt, parent_order_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, 0,0,0,0,0, 0,0, '', $8,$9,$10) RETURNING *`,
+        [subOrderNo, parent.service_type, parent.table_id, parent.pickup_no,
+         parent.guests, subStatus, parent.notes,
+         parent.service_charge_rate, parent.service_charge_exempt, parent.id]
+      );
+      const subId = subRes.rows[0].id;
+      newOrderIds.push(subId);
+
+      for (const si of split.items) {
+        const orig = items.find(it => it.id === si.id);
+        const splitQty = Number(si.quantity);
+        const origQty = Number(orig.quantity);
+        if (splitQty === origQty) {
+          await client.query("UPDATE order_items SET order_id = $1 WHERE id = $2", [subId, si.id]);
+        } else {
+          // reduce original
+          await client.query("UPDATE order_items SET quantity = quantity - $2 WHERE id = $1", [si.id, splitQty]);
+          // create partial item in sub-order
+          const newItemRes = await client.query(
+            `INSERT INTO order_items (order_id, item_id, variant_id, name_i18n, variant_name_i18n, unit_price, quantity, notes, status, kitchen_printed_at)
+             SELECT $1, item_id, variant_id, name_i18n, variant_name_i18n, unit_price, $2, notes, status, kitchen_printed_at
+             FROM order_items WHERE id = $3 RETURNING id`,
+            [subId, splitQty, si.id]
+          );
+          await client.query(
+            `INSERT INTO order_item_modifiers (order_item_id, modifier_id, group_name_i18n, name_i18n, price_delta)
+             SELECT $1, modifier_id, group_name_i18n, name_i18n, price_delta FROM order_item_modifiers WHERE order_item_id = $2`,
+            [newItemRes.rows[0].id, si.id]
+          );
+        }
+      }
+    }
+    await client.query("UPDATE orders SET status = 'split', updated_at = now() WHERE id = $1", [parent.id]);
+    // Clean up zero-quantity items left on parent after partial moves
+    await client.query("DELETE FROM order_items WHERE order_id = $1 AND quantity <= 0", [parent.id]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  const recalculated = [];
+  for (const id of newOrderIds) recalculated.push(await recalculateOrder(id));
+  emit("order.updated", { id: parent.id, status: "split" });
+  for (const o of recalculated) emit("order.updated", o);
+  await auditLog(request, "order.split", "order", parent.id, { sub_orders: newOrderIds });
+  return { parent: await one("SELECT * FROM orders WHERE id = $1", [parent.id]), orders: recalculated };
+});
+
+// POST /orders/:id/merge — merge all non-paid children back to this order (or its parent)
+app.post("/orders/:id/merge", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_orders")) return;
+  const order = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
+  if (!order) { reply.code(404); return { error: "Order not found" }; }
+  const targetId = order.parent_order_id ?? order.id;
+  const children = await query(
+    "SELECT * FROM orders WHERE parent_order_id = $1 AND status NOT IN ('paid','cancelled')",
+    [targetId]
+  );
+  if (!children.length) { reply.code(400); return { error: "No split orders to merge" }; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const child of children) {
+      await client.query("UPDATE order_items SET order_id = $1 WHERE order_id = $2", [targetId, child.id]);
+      await client.query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [child.id]);
+    }
+    await client.query("UPDATE orders SET status = 'draft', parent_order_id = NULL, updated_at = now() WHERE id = $1", [targetId]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+  const merged = await recalculateOrder(targetId);
+  emit("order.updated", merged);
+  await auditLog(request, "order.merge", "order", targetId, { merged_from: children.map(c => c.id) });
+  return merged;
 });
 
 app.post("/orders/:id/cancel", async (request, reply) => {
@@ -1329,12 +1578,12 @@ app.get("/dashboard/today", async () => {
     `SELECT oi.name_i18n, SUM(oi.quantity)::integer AS quantity, SUM((oi.unit_price * oi.quantity))::numeric AS sales
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at::date = CURRENT_DATE AND o.status <> 'cancelled'
+     WHERE o.created_at::date = CURRENT_DATE AND o.status NOT IN ('cancelled', 'split')
      GROUP BY oi.name_i18n
      ORDER BY quantity DESC
      LIMIT 8`
   );
-  const openOrders = await query("SELECT * FROM orders WHERE status NOT IN ('paid','cancelled') ORDER BY created_at DESC LIMIT 20");
+  const openOrders = await query("SELECT * FROM orders WHERE status NOT IN ('paid','cancelled','split') ORDER BY created_at DESC LIMIT 20");
   const printer = await one("SELECT status, COUNT(*)::integer FROM print_jobs GROUP BY status ORDER BY status LIMIT 1");
   return { summary, hotItems, openOrders, printer };
 });
@@ -1369,13 +1618,72 @@ async function buildSalesReport(from, to) {
     `SELECT oi.name_i18n, SUM(oi.quantity)::integer AS quantity, SUM((oi.unit_price * oi.quantity))::numeric AS sales
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status <> 'cancelled'
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
      GROUP BY oi.name_i18n
      ORDER BY quantity DESC
      LIMIT 20`,
     params
   );
-  return { from, to, summary, byDay, hotItems };
+  const hotModifiers = await query(
+    `SELECT oim.name_i18n AS label, COUNT(*)::integer AS quantity, COALESCE(SUM(oim.price_delta),0)::numeric AS sales
+     FROM order_item_modifiers oim
+     JOIN order_items oi ON oi.id = oim.order_item_id
+     JOIN orders o ON o.id = oi.order_id
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
+     GROUP BY oim.name_i18n
+     ORDER BY quantity DESC
+     LIMIT 20`,
+    params
+  );
+
+  // common note presets (match preset label anywhere in notes) and free-form notes frequency
+  const notePresets = await query(
+    `SELECT np.label, COALESCE(SUM((oi.notes ILIKE ('%' || np.label || '%'))::int), 0)::integer AS count
+     FROM note_presets np
+     LEFT JOIN order_items oi ON oi.notes IS NOT NULL AND oi.notes <> ''
+     LEFT JOIN orders o ON o.id = oi.order_id
+       AND o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
+     GROUP BY np.label
+     ORDER BY count DESC
+     LIMIT 20`,
+    params
+  );
+
+  const commonNotes = await query(
+    `SELECT oi.notes AS label, COUNT(*)::integer AS count
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE oi.notes IS NOT NULL AND oi.notes <> '' AND o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
+     GROUP BY oi.notes
+     ORDER BY count DESC
+     LIMIT 20`,
+    params
+  );
+
+  // byTime: aggregate orders into 30-min slots across the day (0..47)
+  const slotRows = await query(
+    `SELECT floor(((EXTRACT(HOUR FROM o.created_at) * 60) + EXTRACT(MINUTE FROM o.created_at)) / 30)::int AS slot_index,
+      COUNT(*)::int AS orders, COALESCE(SUM(o.total),0)::numeric AS revenue
+     FROM orders o
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status IN ('submitted','preparing','ready','paid')
+     GROUP BY slot_index
+     ORDER BY slot_index`,
+    params
+  );
+  // build full 48-slot array with labels 00:00 .. 23:30
+  const byTime = Array.from({ length: 48 }).map((_, idx) => {
+    const hh = String(Math.floor((idx * 30) / 60)).padStart(2, '0');
+    const mm = String((idx * 30) % 60).padStart(2, '0');
+    return { slot: `${hh}:${mm}`, orders: 0, revenue: 0 };
+  });
+  for (const r of slotRows) {
+    const i = Number(r.slot_index);
+    if (i >= 0 && i < byTime.length) {
+      byTime[i].orders = Number(r.orders || 0);
+      byTime[i].revenue = Number(r.revenue || 0);
+    }
+  }
+  return { from, to, summary, byDay, hotItems, hotModifiers, notePresets, common_notes: commonNotes, byTime };
 }
 
 app.get("/reports/sales", async (request, reply) => {
