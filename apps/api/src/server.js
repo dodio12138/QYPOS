@@ -72,6 +72,46 @@ async function ensureSchema() {
   );
 }
 
+async function runMigrations() {
+  const migrationsDir = path.resolve(process.cwd(), '..', '..', 'db', 'migrations');
+  try {
+    await fs.access(migrationsDir);
+  } catch (err) {
+    app.log.info({ migrationsDir }, 'migrations directory not present, skipping');
+    return;
+  }
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+
+  const appliedRes = await pool.query('SELECT name FROM migrations');
+  const applied = new Set(appliedRes.rows.map((r) => r.name));
+
+  const files = (await fs.readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
+  for (const file of files) {
+    if (applied.has(file)) continue;
+    const full = path.join(migrationsDir, file);
+    app.log.info({ file }, 'applying migration');
+    const sql = await fs.readFile(full, 'utf8');
+    await pool.query('BEGIN');
+    try {
+      // execute SQL script (may contain multiple statements)
+      await pool.query(sql);
+      await pool.query('INSERT INTO migrations (name) VALUES ($1)', [file]);
+      await pool.query('COMMIT');
+      app.log.info({ file }, 'migration applied');
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      app.log.error({ err, file }, 'migration failed');
+      throw err;
+    }
+  }
+}
+
+// Run migrations first, then ensure compatible schema
+await runMigrations();
 await ensureSchema();
 
 await app.register(cors, { origin: true });
