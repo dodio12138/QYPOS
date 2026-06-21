@@ -41,6 +41,7 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_printer_id TEXT NOT NULL DEFAULT 'cashier'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_interval_hours INTEGER NOT NULL DEFAULT 24");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
   await pool.query("UPDATE settings SET printer_profiles = $1 WHERE printer_profiles = '[]'::jsonb", [JSON.stringify(defaultPrinterProfiles)]);
   await pool.query(`CREATE TABLE IF NOT EXISTS note_presets (
@@ -435,6 +436,7 @@ app.put("/settings", async (request, reply) => {
       receipt_address = COALESCE($17, receipt_address),
       receipt_header_zh = COALESCE($18, receipt_header_zh),
       receipt_phone = COALESCE($19, receipt_phone),
+      auto_clear_tables_after_payment = COALESCE($20::boolean, auto_clear_tables_after_payment),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -457,7 +459,8 @@ app.put("/settings", async (request, reply) => {
       body.backup_interval_hours,
       body.receipt_address,
       body.receipt_header_zh,
-      body.receipt_phone
+      body.receipt_phone,
+      body.auto_clear_tables_after_payment
     ]
   );
   // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing
@@ -1448,7 +1451,11 @@ app.post("/orders/:id/submit", async (request, reply) => {
     try {
       job = await createPrintJob(order.id, "kitchen");
     } catch (printErr) {
-      // 无新菜品可打或打印机未配置时不报错，仅跳过打印
+      if (printErr?.message === "No new items to print to kitchen") {
+        reply.code(printErr.statusCode ?? 409);
+        return { error: printErr.message };
+      }
+      // 打印机未配置时不报错，仅跳过打印
     }
   }
   await auditLog(request, "order.submit", "order", updated.id, { print_job_id: job?.id });
@@ -1474,6 +1481,7 @@ app.post("/orders/:id/payments", async (request, reply) => {
   let payment;
   let updated;
   let paid;
+  let tableStatus;
   try {
     await client.query("BEGIN");
     const paymentResult = await client.query(
@@ -1490,7 +1498,15 @@ app.post("/orders/:id/payments", async (request, reply) => {
       const updatedResult = await client.query("UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
       updated = updatedResult.rows[0];
       if (updated.table_id) {
-        await client.query("UPDATE tables SET status = 'needs_cleaning', updated_at = now() WHERE id = $1", [updated.table_id]);
+        const settingsResult = await client.query("SELECT auto_clear_tables_after_payment FROM settings ORDER BY updated_at DESC LIMIT 1");
+        const autoClear = Boolean(settingsResult.rows[0]?.auto_clear_tables_after_payment);
+        if (autoClear) {
+          await client.query("UPDATE tables SET current_order_id = NULL, status = 'available', opened_at = NULL, updated_at = now() WHERE id = $1", [updated.table_id]);
+          tableStatus = "available";
+        } else {
+          await client.query("UPDATE tables SET status = 'needs_cleaning', updated_at = now() WHERE id = $1", [updated.table_id]);
+          tableStatus = "needs_cleaning";
+        }
       }
     }
     await client.query("COMMIT");
@@ -1501,7 +1517,7 @@ app.post("/orders/:id/payments", async (request, reply) => {
     client.release();
   }
   if (updated?.table_id && updated.status === "paid") {
-    emit("table.status.updated", { table_id: updated.table_id, status: "needs_cleaning" });
+    emit("table.status.updated", { table_id: updated.table_id, status: tableStatus ?? "needs_cleaning" });
     emit("order.paid", updated);
   }
   await auditLog(request, "payment.create", "payment", payment.id, { order_id: request.params.id, method: payment.method, amount: payment.amount });

@@ -1750,6 +1750,12 @@ function SettingsView({ settings, setSettings, onSaved }) {
           </div>
         </div>
         <div className="settings-section">
+          <p className="settings-section-title">桌台</p>
+          <div className="settings-checkboxes">
+            <label className="checkbox"><input type="checkbox" checked={Boolean(settings.auto_clear_tables_after_payment)} onChange={(event) => setSettings({ ...settings, auto_clear_tables_after_payment: event.target.checked })} />付款完成后自动清台</label>
+          </div>
+        </div>
+        <div className="settings-section">
           <p className="settings-section-title">小票抬头</p>
           <div className="settings-fields">
             <label>店铺名称（英文）<small className="label-hint">第一行，加大加粗，例：Granny Noodles</small><input value={settings.receipt_header || ""} onChange={(event) => setSettings({ ...settings, receipt_header: event.target.value })} /></label>

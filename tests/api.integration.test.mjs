@@ -131,7 +131,41 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
     body: JSON.stringify({ label: `IT-COPY-${Date.now().toString().slice(-4)}` })
   }));
   assert.ok(copiedTable.id);
-  await request(`/tables/${copiedTable.id}`, authed(token, { method: "DELETE" }));
+
+  await request("/settings", authed(token, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ auto_clear_tables_after_payment: true })
+  }));
+  const autoClearSettings = await request("/settings");
+  assert.equal(autoClearSettings.auto_clear_tables_after_payment, true);
+
+  const dineInOrder = await request(`/tables/${copiedTable.id}/open`, authed(token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ guests: 1 })
+  }));
+  const dineInUpdated = await request(`/orders/${dineInOrder.id}`, authed(token, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } })
+  }));
+  assert.ok(Number(dineInUpdated.total) > 0);
+  await request(`/orders/${dineInOrder.id}/payments`, authed(token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ method: "cash", amount: Number(dineInUpdated.total), change_due: 0 })
+  }));
+  const layoutAfterAutoClear = await request("/floor-layouts");
+  const autoClearedTable = layoutAfterAutoClear.tables.find((item) => item.id === copiedTable.id);
+  assert.equal(autoClearedTable.status, "available");
+  assert.equal(autoClearedTable.current_order_id, null);
+
+  await request("/settings", authed(token, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ auto_clear_tables_after_payment: false })
+  }));
 
   const testJob = await request("/print-jobs/test", authed(token, { method: "POST" }));
   assert.equal(testJob.type, "test");
@@ -220,10 +254,17 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
   );
 
   const settingsBeforeBadPrinter = await request("/settings");
+  const disabledProfiles = (settingsBeforeBadPrinter.printer_profiles || []).map((profile) => ({
+    ...profile,
+    enabled: false
+  }));
   await request("/settings", authed(token, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ receipt_printer_id: "missing-printer" })
+    body: JSON.stringify({
+      printer_profiles: disabledProfiles,
+      receipt_printer_id: disabledProfiles[0]?.id || settingsBeforeBadPrinter.receipt_printer_id
+    })
   }));
   await assert.rejects(
     request(`/orders/${order.id}/print`, authed(token, {
@@ -236,7 +277,10 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
   await request("/settings", authed(token, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ receipt_printer_id: settingsBeforeBadPrinter.receipt_printer_id })
+    body: JSON.stringify({
+      printer_profiles: settingsBeforeBadPrinter.printer_profiles,
+      receipt_printer_id: settingsBeforeBadPrinter.receipt_printer_id
+    })
   }));
 
   await request(`/orders/${order.id}/print`, authed(token, {
