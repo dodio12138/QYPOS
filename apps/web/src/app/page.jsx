@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   ShoppingBag,
+  TabletSmartphone,
   Loader2,
   LogOut,
   Trash2,
@@ -59,10 +60,14 @@ export default function PosPage() {
   const [online, setOnline] = useState(true);
   const [apiOnline, setApiOnline] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [busyTableId, setBusyTableId] = useState(null);
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [mobileStep, setMobileStep] = useState("tables");
+  const [mobileStepHistory, setMobileStepHistory] = useState([]);
+  const [tabletMode, setTabletMode] = useState(false);
   const kitchenPrintRef = useRef(true);
 
   const locale = settings?.locale || "zh-CN";
@@ -116,7 +121,21 @@ export default function PosPage() {
     }
   }
 
+  async function manualRefresh() {
+    setRefreshing(true);
+    setNotice("");
+    try {
+      await refresh();
+      setNotice("已刷新");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   useEffect(() => {
+    setTabletMode(window.localStorage.getItem("qypos_tablet_mode") === "1");
     setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
     const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
@@ -154,6 +173,20 @@ export default function PosPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(""), 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  function toggleTabletMode() {
+    setTabletMode((current) => {
+      const next = !current;
+      window.localStorage.setItem("qypos_tablet_mode", next ? "1" : "0");
+      return next;
+    });
+  }
+
   async function login(credentials) {
     await run(async () => {
       const result = await api("/auth/login", {
@@ -178,6 +211,7 @@ export default function PosPage() {
     await run(async () => {
       const order = await api(`/tables/${table.id}/open`, { method: "POST", body: JSON.stringify({ guests: table.seats }) });
       setSelectedOrder(await api(`/orders/${order.id}`));
+      navigateMobileStep("menu");
       setNotice(`${table.label} 已选中`);
       await refresh(false);
     });
@@ -190,6 +224,7 @@ export default function PosPage() {
     await run(async () => {
       await api(`/tables/${table.id}/clear`, { method: "POST" });
       if (selectedOrder?.table_id === table.id) setSelectedOrder(null);
+      navigateMobileStep("tables");
       setNotice(`${table.label} 已清台`);
       await refresh(false);
     });
@@ -204,6 +239,7 @@ export default function PosPage() {
         body: JSON.stringify({ service_type: "takeaway", pickup_no: `T${Math.floor(Math.random() * 900 + 100)}` })
       });
       setSelectedOrder(await api(`/orders/${order.id}`));
+      navigateMobileStep("menu");
       await refresh(false);
     }, "外带订单已创建");
     setConfirmTakeaway(false);
@@ -221,6 +257,7 @@ export default function PosPage() {
       });
       setSelectedOrder(await api(`/orders/${updated.id}`));
       setPickerItem(null);
+      navigateMobileStep("menu");
       await refresh(false);
     }, "已加入订单");
   }
@@ -263,8 +300,29 @@ export default function PosPage() {
       });
       setSelectedOrder(await api(`/orders/${updated.id}`));
       setCustomOpen(false);
+      navigateMobileStep("menu");
       await refresh(false);
     }, "杂项已加入订单");
+  }
+
+  function navigateMobileStep(step) {
+    setMobileStep((current) => {
+      if (current === step) return current;
+      setMobileStepHistory((history) => [...history.slice(-4), current]);
+      return step;
+    });
+  }
+
+  function backMobileStep() {
+    setMobileStepHistory((history) => {
+      const previous = history.at(-1);
+      if (previous) {
+        setMobileStep(previous);
+        return history.slice(0, -1);
+      }
+      setMobileStep((current) => current === "order" ? "menu" : "tables");
+      return history;
+    });
   }
 
   async function updateItem(item, quantity, options = {}) {
@@ -366,6 +424,7 @@ export default function PosPage() {
       });
       setSelectedOrder(null);
       setPaying(false);
+      navigateMobileStep("tables");
       await refresh(false);
     }, "已收款");
   }
@@ -393,6 +452,7 @@ export default function PosPage() {
       });
       setSplitting(false);
       setSelectedOrder(null);
+      navigateMobileStep("tables");
       await refresh(false);
     }, "分单完成");
   }
@@ -444,6 +504,7 @@ export default function PosPage() {
             body: JSON.stringify({ reason })
           });
           setSelectedOrder(null);
+          navigateMobileStep("tables");
           await refresh(false);
         }, "订单已取消");
         setConfirmAction(null);
@@ -468,7 +529,7 @@ export default function PosPage() {
   }
 
   return (
-    <main className="pos-shell">
+    <main className={`pos-shell ${tabletMode ? "tablet-mode" : ""}`}>
       <header className="pos-header">
         <div className="brand compact">
           <CircleDollarSign size={24} />
@@ -481,13 +542,23 @@ export default function PosPage() {
         <div className="top-actions">
           <span className="user-chip"><UserRound size={16} />{user.name}</span>
           <a className="link-button" href="/admin">后台</a>
-          <button onClick={() => refresh()} disabled={busy} title="刷新">
-            <RefreshCw size={18} />
-            <span>刷新</span>
+          <button className={refreshing ? "is-refreshing" : ""} onClick={manualRefresh} disabled={busy || refreshing} title="刷新">
+            <RefreshCw className={refreshing ? "spin" : ""} size={18} />
+            <span>{refreshing ? "刷新中" : "刷新"}</span>
           </button>
           <button onClick={() => setConfirmTakeaway(true)} disabled={busy} title="外带">
             <ShoppingBag size={18} />
             <span>外带</span>
+          </button>
+          <button
+            className={tabletMode ? "selected" : ""}
+            onClick={toggleTabletMode}
+            disabled={busy}
+            aria-pressed={tabletMode}
+            title="平板模式"
+          >
+            <TabletSmartphone size={18} />
+            <span>{tabletMode ? "桌面模式" : "平板模式"}</span>
           </button>
           <button onClick={logout} disabled={busy} title="退出">
             <LogOut size={18} />
@@ -500,7 +571,17 @@ export default function PosPage() {
       {online && !apiOnline && <div className="offline-banner pos-offline"><WifiOff size={16} />本地 API 暂不可用，请检查 Docker 服务。</div>}
       {notice && <button className="notice toast" onClick={() => setNotice("")}>{notice}</button>}
 
-      <section className="pos-board">
+      <MobileWorkflow
+        step={mobileStep}
+        order={selectedOrder}
+        tables={layout.tables}
+        locale={locale}
+        currency={currency}
+        onBack={backMobileStep}
+        onStep={navigateMobileStep}
+      />
+
+      <section className={`pos-board mobile-step-${mobileStep}`}>
         <FloorMap
           layout={layout}
           locale={locale}
@@ -531,7 +612,10 @@ export default function PosPage() {
           orders={orders}
           tables={layout.tables}
           user={user}
-          onSelectOrder={async (id) => setSelectedOrder(await api(`/orders/${id}`))}
+          onSelectOrder={async (id) => {
+            setSelectedOrder(await api(`/orders/${id}`));
+            navigateMobileStep("order");
+          }}
           onQuantity={updateItem}
           onEditItem={openEditForOrderItem}
           onSaveNotes={saveOrderNotes}
@@ -543,7 +627,10 @@ export default function PosPage() {
           onAdjustService={adjustServiceCharge}
           onDiscount={applyDiscount}
           onCancelOrder={cancelOrder}
-          onExit={() => setSelectedOrder(null)}
+          onExit={() => {
+            setSelectedOrder(null);
+            navigateMobileStep("tables");
+          }}
           busy={busy}
         />
       </section>
@@ -640,7 +727,10 @@ export default function PosPage() {
           busy={busy}
           onClose={(fullyPaid) => {
             setSplitting(false);
-            if (fullyPaid) setSelectedOrder(null);
+            if (fullyPaid) {
+              setSelectedOrder(null);
+              navigateMobileStep("tables");
+            }
           }}
           onPayPartial={payOrderPartial}
         />
@@ -657,6 +747,57 @@ export default function PosPage() {
         />
       )}
     </main>
+  );
+}
+
+function MobileWorkflow({ step, order, tables, locale, currency, onBack, onStep }) {
+  const steps = [
+    { id: "tables", label: "选台", icon: <Armchair size={17} /> },
+    { id: "menu", label: "点菜", icon: <Utensils size={17} /> },
+    { id: "order", label: "订单", icon: <CircleDollarSign size={17} /> }
+  ];
+  const itemCount = (order?.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const table = order?.table_id ? tables.find((item) => item.id === order.table_id) : null;
+  const location = order?.service_type === "dine_in"
+    ? `桌台 ${table?.label || "-"}`
+    : `外带 ${order?.pickup_no || "-"}`;
+
+  return (
+    <nav className="mobile-workflow" aria-label="点餐步骤">
+      <div className="mobile-workflow-top">
+        <button type="button" className="mobile-back-btn" onClick={onBack} disabled={step === "tables"}>
+          <ChevronLeft size={18} />
+          <span>返回</span>
+        </button>
+        <div className="mobile-order-chip">
+          {order ? (
+            <>
+              <strong>{location} · {money(order.total, currency, locale)}</strong>
+              <span>{itemCount} 件 · {order.status}</span>
+            </>
+          ) : (
+            <>
+              <strong>先选择桌台</strong>
+              <span>或创建外带订单</span>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="mobile-step-tabs">
+        {steps.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={step === item.id ? "selected" : ""}
+            onClick={() => onStep(item.id)}
+            disabled={item.id !== "tables" && !order}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </nav>
   );
 }
 

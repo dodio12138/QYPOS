@@ -131,6 +131,7 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
     body: JSON.stringify({ label: `IT-COPY-${Date.now().toString().slice(-4)}` })
   }));
   assert.ok(copiedTable.id);
+  await request(`/tables/${copiedTable.id}`, authed(token, { method: "DELETE" }));
 
   await request("/settings", authed(token, {
     method: "PUT",
@@ -140,7 +141,10 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
   const autoClearSettings = await request("/settings");
   assert.equal(autoClearSettings.auto_clear_tables_after_payment, true);
 
-  const dineInOrder = await request(`/tables/${copiedTable.id}/open`, authed(token, {
+  const autoClearLayout = await request("/floor-layouts");
+  const autoClearTable = autoClearLayout.tables.find((item) => item.status === "available" && !item.current_order_id);
+  assert.ok(autoClearTable);
+  const dineInOrder = await request(`/tables/${autoClearTable.id}/open`, authed(token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ guests: 1 })
@@ -157,7 +161,7 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
     body: JSON.stringify({ method: "cash", amount: Number(dineInUpdated.total), change_due: 0 })
   }));
   const layoutAfterAutoClear = await request("/floor-layouts");
-  const autoClearedTable = layoutAfterAutoClear.tables.find((item) => item.id === copiedTable.id);
+  const autoClearedTable = layoutAfterAutoClear.tables.find((item) => item.id === autoClearTable.id);
   assert.equal(autoClearedTable.status, "available");
   assert.equal(autoClearedTable.current_order_id, null);
 

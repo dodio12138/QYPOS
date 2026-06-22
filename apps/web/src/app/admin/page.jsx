@@ -6,7 +6,9 @@ import {
   Activity,
   BarChart3,
   ChefHat,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleDollarSign,
   ClipboardList,
   Grid3X3,
@@ -810,13 +812,33 @@ function NotePresetsAdmin({ presets, onSaved }) {
     try {
       await api("/note-presets", {
         method: "POST",
-        body: JSON.stringify({ label: value, sort_order: presets.length })
+        body: JSON.stringify({ label: value, sort_order: presets.length + 1 })
       });
       setLabel("");
       setShowForm(false);
       await onSaved();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function movePreset(index, direction) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= presets.length) return;
+    const next = presets.map((preset) => ({ ...preset }));
+    const [picked] = next.splice(index, 1);
+    next.splice(targetIndex, 0, picked);
+    setBusy(true);
+    try {
+      await Promise.all(next.map((preset, orderIndex) => api(`/note-presets/${preset.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sort_order: orderIndex + 1 })
+      })));
+      await onSaved();
+    } catch (err) {
+      alert(err.message);
     } finally {
       setBusy(false);
     }
@@ -872,12 +894,20 @@ function NotePresetsAdmin({ presets, onSaved }) {
         </form>
       )}
       {!presets.length && <div className="empty" style={{ padding: "8px 0" }}>暂无词条</div>}
-      {presets.map((preset) => (
+      {presets.map((preset, index) => (
         <div
           key={preset.id}
           className={`menu-sidebar-item${!preset.active ? " cat-inactive" : ""}`}
           style={{ paddingRight: 6 }}
         >
+          <div className="cat-order-controls">
+            <button type="button" title="上移" disabled={busy || index === 0} onClick={() => movePreset(index, -1)}>
+              <ChevronUp size={13} />
+            </button>
+            <button type="button" title="下移" disabled={busy || index === presets.length - 1} onClick={() => movePreset(index, 1)}>
+              <ChevronDown size={13} />
+            </button>
+          </div>
           <button
             type="button"
             className="cat-select-btn"
@@ -1659,6 +1689,10 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
                 {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
               </select>
             </label>
+            <label>厨房菜品字号
+              <input type="number" min="1" max="8" value={settings.kitchen_item_font_size ?? 5} onChange={(event) => setSettings({ ...settings, kitchen_item_font_size: Number(event.target.value) })} />
+            </label>
+            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_item_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_item_bold: event.target.checked })} />厨房菜品内容加粗</label>
             <button className="primary" type="submit"><Save size={16} /><span>保存打印配置</span></button>
           </div>
           <div className="printer-profile-list">

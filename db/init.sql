@@ -26,6 +26,8 @@ CREATE TABLE settings (
   printer_profiles JSONB NOT NULL DEFAULT '[]',
   kitchen_printer_id TEXT NOT NULL DEFAULT 'kitchen',
   receipt_printer_id TEXT NOT NULL DEFAULT 'cashier',
+  kitchen_item_font_size INTEGER NOT NULL DEFAULT 5,
+  kitchen_item_bold BOOLEAN NOT NULL DEFAULT true,
   backup_enabled BOOLEAN NOT NULL DEFAULT false,
   backup_interval_hours INTEGER NOT NULL DEFAULT 24,
   auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false,
@@ -422,7 +424,7 @@ INSERT INTO roles (id, name, permissions) VALUES ('bb065e2e-a231-43c5-9122-34418
 --
 -- Data for Name: settings; Type: TABLE DATA; Schema: public; Owner: -
 --
-INSERT INTO settings (id, restaurant_id, locale, fallback_locale, currency, tax_rate, prices_include_tax, show_tax_on_receipt, service_charge_rate, receipt_header, receipt_footer, printer_host, printer_port, updated_at, printer_profiles, kitchen_printer_id, receipt_printer_id, backup_enabled, backup_interval_hours, auto_clear_tables_after_payment, last_backup_at, receipt_address, receipt_header_zh, receipt_phone) VALUES ('aa62c2e5-3685-41e5-bef2-0b635c5ee3c5', '00000000-0000-0000-0000-000000000001', 'zh-CN', 'en-GB', 'GBP', 0.2000, true, true, 0.1200, 'Granny Noodles', 'Thank you / 感谢光临', '192.168.1.251', 9100, '2026-06-08 04:10:26.068483+00', '[{"id": "printer-51562", "host": "192.168.68.100", "name": "新打印机", "port": 9100, "charset": "GBK", "enabled": true, "connection_type": "network"}, {"id": "printer-01540", "name": "USB1", "charset": "GBK", "enabled": true, "device_path": "/dev/usb/lp0", "connection_type": "usb"}, {"id": "printer-39598", "mac": "04:7F:0E:4A:92:F6", "name": "蓝牙打印机", "channel": 1, "charset": "GBK", "enabled": true, "device_path": "/dev/rfcomm0", "connection_type": "bluetooth"}]', 'printer-51562', 'printer-51562', false, 24, false, '2026-04-28 00:54:50.625059+00', '37, Centurion House, Jewry St, London EC3N 2ER', '秦云老太婆摊摊面', '');
+INSERT INTO settings (id, restaurant_id, locale, fallback_locale, currency, tax_rate, prices_include_tax, show_tax_on_receipt, service_charge_rate, receipt_header, receipt_footer, printer_host, printer_port, updated_at, printer_profiles, kitchen_printer_id, receipt_printer_id, kitchen_item_font_size, kitchen_item_bold, backup_enabled, backup_interval_hours, auto_clear_tables_after_payment, last_backup_at, receipt_address, receipt_header_zh, receipt_phone) VALUES ('aa62c2e5-3685-41e5-bef2-0b635c5ee3c5', '00000000-0000-0000-0000-000000000001', 'zh-CN', 'en-GB', 'GBP', 0.2000, true, true, 0.1200, 'Granny Noodles', 'Thank you / 感谢光临', '192.168.1.251', 9100, '2026-06-08 04:10:26.068483+00', '[{"id": "printer-51562", "host": "192.168.68.100", "name": "新打印机", "port": 9100, "charset": "GBK", "enabled": true, "connection_type": "network"}, {"id": "printer-01540", "name": "USB1", "charset": "GBK", "enabled": true, "device_path": "/dev/usb/lp0", "connection_type": "usb"}, {"id": "printer-39598", "mac": "04:7F:0E:4A:92:F6", "name": "蓝牙打印机", "channel": 1, "charset": "GBK", "enabled": true, "device_path": "/dev/rfcomm0", "connection_type": "bluetooth"}]', 'printer-51562', 'printer-51562', 5, true, false, 24, false, '2026-04-28 00:54:50.625059+00', '37, Centurion House, Jewry St, London EC3N 2ER', '秦云老太婆摊摊面', '');
 --
 -- Data for Name: tables; Type: TABLE DATA; Schema: public; Owner: -
 --

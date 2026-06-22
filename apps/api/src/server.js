@@ -39,6 +39,8 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_profiles JSONB NOT NULL DEFAULT '[]'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_printer_id TEXT NOT NULL DEFAULT 'kitchen'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_printer_id TEXT NOT NULL DEFAULT 'cashier'");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_item_font_size INTEGER NOT NULL DEFAULT 5");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_item_bold BOOLEAN NOT NULL DEFAULT true");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_interval_hours INTEGER NOT NULL DEFAULT 24");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false");
@@ -437,6 +439,8 @@ app.put("/settings", async (request, reply) => {
       receipt_header_zh = COALESCE($18, receipt_header_zh),
       receipt_phone = COALESCE($19, receipt_phone),
       auto_clear_tables_after_payment = COALESCE($20::boolean, auto_clear_tables_after_payment),
+      kitchen_item_font_size = COALESCE($21::integer, kitchen_item_font_size),
+      kitchen_item_bold = COALESCE($22::boolean, kitchen_item_bold),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -460,7 +464,9 @@ app.put("/settings", async (request, reply) => {
       body.receipt_address,
       body.receipt_header_zh,
       body.receipt_phone,
-      body.auto_clear_tables_after_payment
+      body.auto_clear_tables_after_payment,
+      body.kitchen_item_font_size,
+      body.kitchen_item_bold
     ]
   );
   // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing

@@ -46,10 +46,17 @@ const LH_L    = 50;
 const FONT    = "PrintFont";
 
 // ── Document model helpers ────────────────────────────────────────────────────
-const T = (text, opts = {}) => ({ type: "text", text: String(text ?? ""), align: opts.align || "left", bold: !!opts.bold, large: !!opts.large });
+const T = (text, opts = {}) => ({ type: "text", text: String(text ?? ""), align: opts.align || "left", bold: !!opts.bold, large: !!opts.large, fontSize: opts.fontSize });
 const C = (text, opts = {}) => T(text, { ...opts, align: "center" });
 const R = () => ({ type: "rule" });
 const F = () => ({ type: "feed" });
+const KITEM = (qty, name, opts = {}) => ({
+  type: "kitchen_item",
+  qty: String(qty ?? ""),
+  name: String(name ?? ""),
+  fontSize: opts.fontSize,
+  nameBold: !!opts.nameBold,
+});
 
 // Pixel-anchored column row: each column is drawn at an exact X using ctx.textAlign.
 // Avoids the visual misalignment caused by mixing CJK (full-width) and ASCII glyphs
@@ -107,9 +114,20 @@ function itemName(item, locale) {
   return variant ? `${base} (${variant})` : base;
 }
 
+function kitchenFontPx(settings) {
+  const size = Math.min(8, Math.max(1, Number(settings?.kitchen_item_font_size ?? 5)));
+  return 18 + size * 4;
+}
+
+function lineHeightFor(fontSize) {
+  return Math.ceil(fontSize * 1.35);
+}
+
 // ── Document builders ─────────────────────────────────────────────────────────
 function buildKitchenDoc({ order, items, table, settings }) {
   const locale = settings.locale ?? "zh-CN";
+  const itemFontSize = kitchenFontPx(settings);
+  const itemBold = settings.kitchen_item_bold !== false;
   const titleZh = order.service_type === "dine_in" ? `桌号: ${table?.label ?? ""}` : `外带: ${order.pickup_no ?? ""}`;
   const titleEn = order.service_type === "dine_in" ? `Table: ${table?.label ?? ""}` : `Takeaway: ${order.pickup_no ?? ""}`;
   const doc = [
@@ -122,13 +140,13 @@ function buildKitchenDoc({ order, items, table, settings }) {
   ];
   for (const item of items) {
     const name = itemNameBilingual(item);
-    doc.push(T(`${item.quantity} × ${name.zh}`, { bold: true }));
-    if (name.en) doc.push(T(`    ${name.en}`));
+    doc.push(KITEM(`${item.quantity}X`, name.zh, { fontSize: itemFontSize, nameBold: itemBold }));
+    if (name.en) doc.push(T(`    ${name.en}`, { fontSize: itemFontSize }));
     for (const mod of item.modifiers ?? []) {
       const m = bilingualName(mod.name_i18n);
-      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`));
+      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize }));
     }
-    if (item.notes) doc.push(T(`  ※ ${item.notes}`));
+    if (item.notes) doc.push(T(`  ※ ${item.notes}`, { fontSize: itemFontSize }));
   }
   if (order.notes) { doc.push(R()); doc.push(T(`备注 Notes: ${order.notes}`)); }
   doc.push(R()); doc.push(F());
@@ -239,7 +257,8 @@ function docToBuffer(doc) {
   for (const item of doc) {
     if (item.type === "feed") { totalH += LH_N * 3; continue; }
     if (item.type === "rule") { totalH += LH_N;     continue; }
-    totalH += item.large ? LH_L : LH_N;
+    const fs = item.fontSize || (item.large ? FS_L : FS_N);
+    totalH += item.fontSize ? lineHeightFor(fs) : (item.large ? LH_L : LH_N);
   }
 
   const canvas = createCanvas(PAPER_W, totalH);
@@ -256,19 +275,28 @@ function docToBuffer(doc) {
       y += LH_N;
       continue;
     }
-    const fs = item.large ? FS_L : FS_N;
-    const lh = item.large ? LH_L : LH_N;
-    ctx.font = `${item.bold ? "bold " : ""}${fs}px '${FONT}'`;
+    const fs = item.fontSize || (item.large ? FS_L : FS_N);
+    const lh = item.fontSize ? lineHeightFor(fs) : (item.large ? LH_L : LH_N);
     ctx.textBaseline = "middle";
-    if (item.type === "row") {
+    if (item.type === "kitchen_item") {
+      ctx.textAlign = "left";
+      ctx.font = `bold ${fs}px '${FONT}'`;
+      ctx.fillText(item.qty, PAD, y + lh / 2);
+      const qtyWidth = ctx.measureText(item.qty).width;
+      ctx.font = `${item.nameBold ? "bold " : ""}${fs}px '${FONT}'`;
+      ctx.fillText(item.name, PAD + qtyWidth + 14, y + lh / 2);
+    } else if (item.type === "row") {
+      ctx.font = `${item.bold ? "bold " : ""}${fs}px '${FONT}'`;
       for (const col of item.cols) {
         ctx.textAlign = col.align || "left";
         ctx.fillText(col.text, col.x, y + lh / 2);
       }
     } else if (item.align === "center") {
+      ctx.font = `${item.bold ? "bold " : ""}${fs}px '${FONT}'`;
       ctx.textAlign = "center";
       ctx.fillText(item.text, PAPER_W / 2, y + lh / 2);
     } else {
+      ctx.font = `${item.bold ? "bold " : ""}${fs}px '${FONT}'`;
       ctx.textAlign = "left";
       ctx.fillText(item.text, PAD, y + lh / 2);
     }
