@@ -1,7 +1,31 @@
 {
   "name": "qypos",
   "version": "0.1.0",
+  "description": "开源轻量级餐饮 POS 系统 — 单店本地部署的 Web 收银解决方案，支持堂食外卖、后厨打印、菜单管理、数据看板",
   "private": true,
+  "license": "MIT",
+  "author": "QYPOS Contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dodio12138/QYPOS"
+  },
+  "keywords": [
+    "pos",
+    "restaurant",
+    "point-of-sale",
+    "escpos",
+    "kitchen-printing",
+    "restaurant-management",
+    "self-hosted",
+    "docker",
+    "nextjs",
+    "fastify",
+    "postgresql",
+    "redis"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
