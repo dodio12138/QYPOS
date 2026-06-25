@@ -1,0 +1,21 @@
+name: ❓ 提问 / Question
+description: 关于项目的使用问题或疑问 / Usage questions or general inquiries
+title: "[Question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: "## ❓ 提问 / Question\n\n关于 QYPOS 的使用问题，请尽量描述清楚你的场景。\n\nFor questions about using QYPOS, please describe your context clearly."
+  - type: textarea
+    id: question
+    attributes:
+      label: "你的问题 / Your Question"
+      description: "尽可能详细地描述你的问题 / Describe your question in detail"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: "环境上下文 / Context"
+      description: "你的部署方式、版本等 / How you deployed, version, etc."
+      placeholder: "- 部署方式: Docker Compose\n- 操作系统: Ubuntu 22.04\n- 使用场景: 小型面馆"

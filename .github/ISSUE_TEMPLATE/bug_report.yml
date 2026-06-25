@@ -1,0 +1,57 @@
+name: 🐛 Bug 报告 / Bug Report
+description: 提交 Bug 报告帮助我们改进 / File a bug report to help us improve
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "## 🐛 Bug 报告 / Bug Report\n\n感谢你花时间提交 Bug！请尽量提供详细信息。\n\nThank you for taking the time to file a bug report! Please provide as much detail as possible."
+  - type: textarea
+    id: description
+    attributes:
+      label: "Bug 描述 / Description"
+      description: "清晰简洁地描述这个 Bug / A clear and concise description of the bug"
+      placeholder: "当...时，发生了... / When I..., ...happens"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "复现步骤 / Steps to Reproduce"
+      description: "如何触发这个 Bug / How to trigger this bug"
+      placeholder: "1. 打开... / Go to...\n2. 点击... / Click on...\n3. 看到错误 / See error"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "预期行为 / Expected Behavior"
+      description: "你期望发生什么 / What you expected to happen"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: "环境信息 / Environment"
+      description: "操作系统、Docker 版本、Node 版本、浏览器等 / OS, Docker version, Node version, browser, etc."
+      placeholder: "- OS: macOS 14\n- Docker: 26.x\n- Node: 20.x\n- Browser: Chrome 125"
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "截图 / Screenshots"
+      description: "如有截图，请拖拽到此处 / Drag and drop screenshots here if available"
+  - type: textarea
+    id: logs
+    attributes:
+      label: "相关日志 / Relevant Logs"
+      description: "`docker compose logs` 或浏览器控制台的相关输出 / Relevant output from docker compose logs or browser console"
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: "确认 / Confirmation"
+      options:
+        - label: "我已确认这是 QYPOS 本身的 Bug，而非部署环境问题 / I confirm this is a QYPOS bug, not a deployment environment issue"
+          required: true
