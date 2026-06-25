@@ -21,20 +21,24 @@
 
 ## � Screenshots
 
+### 🖥️ Desktop
+
 <p align="center">
-  <img src="./docs/images/pos-tablet-view.png" width="45%" alt="POS Tablet View">&nbsp;
-  <img src="./docs/images/pos-table-map.png" width="45%" alt="POS Table Map">
+  <img src="./docs/images/pos-table-map.png" width="32%" alt="POS Table Map">
+  <img src="./docs/images/pos-ordering.png" width="32%" alt="POS Ordering">
+  <img src="./docs/images/admin-dashboard.png" width="32%" alt="Admin Dashboard">
 </p>
 <p align="center">
-  <img src="./docs/images/pos-ordering.png" width="45%" alt="POS Ordering">&nbsp;
-  <img src="./docs/images/admin-dashboard.png" width="45%" alt="Admin Dashboard">
+  <img src="./docs/images/admin-menu.png" width="32%" alt="Menu Management">
+  <img src="./docs/images/table-layout-editor.png" width="32%" alt="Table Layout Editor">
+  <img src="./docs/images/kitchen-display.png" width="32%" alt="Kitchen Display">
 </p>
+
+### 📱 Tablet Mode
+
 <p align="center">
-  <img src="./docs/images/admin-menu.png" width="45%" alt="Menu Management">&nbsp;
-  <img src="./docs/images/table-layout-editor.png" width="45%" alt="Table Layout Editor">
-</p>
-<p align="center">
-  <img src="./docs/images/kitchen-display.png" width="45%" alt="Kitchen Display">
+  <img src="./docs/images/pos-tablet-view.png" width="45%" alt="POS Tablet Map">
+  <img src="./docs/images/pos-ordering-tablet.png" width="45%" alt="POS Tablet Ordering">
 </p>
 
 ---

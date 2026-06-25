@@ -21,20 +21,24 @@
 
 ## � 运行截图
 
+### 🖥️ 桌面版
+
 <p align="center">
-  <img src="./docs/images/pos-tablet-view.png" width="45%" alt="点餐前台-平板模式">&nbsp;
-  <img src="./docs/images/pos-table-map.png" width="45%" alt="点餐前台-餐桌地图">
+  <img src="./docs/images/pos-table-map.png" width="32%" alt="点餐前台-餐桌地图">
+  <img src="./docs/images/pos-ordering.png" width="32%" alt="点餐前台-菜品点单">
+  <img src="./docs/images/admin-dashboard.png" width="32%" alt="后台-数据看板">
 </p>
 <p align="center">
-  <img src="./docs/images/pos-ordering.png" width="45%" alt="点餐前台-菜品点单">&nbsp;
-  <img src="./docs/images/admin-dashboard.png" width="45%" alt="后台-数据看板">
+  <img src="./docs/images/admin-menu.png" width="32%" alt="后台-菜单管理">
+  <img src="./docs/images/table-layout-editor.png" width="32%" alt="餐桌布局编辑器">
+  <img src="./docs/images/kitchen-display.png" width="32%" alt="厨房看板">
 </p>
+
+### 📱 平板模式
+
 <p align="center">
-  <img src="./docs/images/admin-menu.png" width="45%" alt="后台-菜单管理">&nbsp;
-  <img src="./docs/images/table-layout-editor.png" width="45%" alt="餐桌布局编辑器">
-</p>
-<p align="center">
-  <img src="./docs/images/kitchen-display.png" width="45%" alt="厨房看板">
+  <img src="./docs/images/pos-tablet-view.png" width="45%" alt="点餐前台-平板餐桌">
+  <img src="./docs/images/pos-ordering-tablet.png" width="45%" alt="点餐前台-平板点单">
 </p>
 
 ---
