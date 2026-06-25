@@ -19,7 +19,24 @@
 
 ---
 
-## 📖 Table of Contents
+## � Screenshots
+
+<p align="center">
+  <img src="./docs/images/pos-table-map.png" width="45%" alt="POS Table Map">&nbsp;
+  <img src="./docs/images/pos-ordering.png" width="45%" alt="POS Ordering">
+</p>
+<p align="center">
+  <img src="./docs/images/admin-dashboard.png" width="45%" alt="Admin Dashboard">&nbsp;
+  <img src="./docs/images/admin-menu.png" width="45%" alt="Menu Management">
+</p>
+<p align="center">
+  <img src="./docs/images/table-layout-editor.png" width="45%" alt="Table Layout Editor">&nbsp;
+  <img src="./docs/images/kitchen-display.png" width="45%" alt="Kitchen Display">
+</p>
+
+---
+
+## �📖 Table of Contents
 
 - [Overview](#-overview)
 - [Features](#-features)
