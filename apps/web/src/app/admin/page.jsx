@@ -1699,6 +1699,7 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
             </label>
             <label className="checkbox"><input type="checkbox" checked={settings.kitchen_item_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_item_bold: event.target.checked })} />厨房菜品内容加粗</label>
             <button className="primary" type="submit"><Save size={16} /><span>保存打印配置</span></button>
+            <button type="button" onClick={() => run(async () => { await api("/print-jobs/cash-drawer", { method: "POST" }); alert("钱箱信号已发送"); })}><span>💵 弹出钱箱</span></button>
           </div>
           <div className="printer-profile-list">
             {profiles.map((profile) => (

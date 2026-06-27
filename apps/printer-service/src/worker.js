@@ -337,10 +337,18 @@ function docToBuffer(doc) {
 
 function render(job) {
   let doc;
-  if      (job.type === "kitchen") doc = buildKitchenDoc(job.payload);
-  else if (job.type === "test")    doc = buildTestDoc(job.payload);
-  else                             doc = buildReceiptDoc(job.payload);
+  if      (job.type === "kitchen")     doc = buildKitchenDoc(job.payload);
+  else if (job.type === "test")        doc = buildTestDoc(job.payload);
+  else if (job.type === "cash_drawer") return buildCashDrawerBuffer();
+  else                                 doc = buildReceiptDoc(job.payload);
   return docToBuffer(doc);
+}
+
+// ── Cash drawer ESC/POS command ───────────────────────────────────────────────
+// ESC p m t1 t2  →  pulse drawer pin m (0/1), t1=on-time, t2=off-time (×2ms)
+function buildCashDrawerBuffer() {
+  // 48 × 2ms = 96ms on, 96ms off — standard for most drawers
+  return Buffer.from([0x1B, 0x70, 0x00, 48, 48]);
 }
 
 // ── Transport ─────────────────────────────────────────────────────────────────

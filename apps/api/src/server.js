@@ -1564,6 +1564,24 @@ app.post("/print-jobs/test", async (request, reply) => {
   return job;
 });
 
+app.post("/print-jobs/cash-drawer", async (request, reply) => {
+  if (!await requirePermission(request, reply, "take_payment")) return;
+  const settings = await getSettings();
+  const printer = selectPrinter(settings, "receipt");
+  if (!printer || !isValidPrinter(printer)) {
+    reply.code(409);
+    return { error: "No enabled printer configured — cannot open cash drawer" };
+  }
+  const job = await one(
+    "INSERT INTO print_jobs (type, payload) VALUES ('cash_drawer', $1) RETURNING *",
+    [{ settings, printer, created_at: new Date().toISOString() }]
+  );
+  await redis.lpush("print_jobs", job.id);
+  emit("print.queued", job);
+  await auditLog(request, "cash_drawer.open", "print_job", job.id, { printer: printer.name ?? printer.host });
+  return job;
+});
+
 app.post("/print-jobs/:id/retry", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_settings")) return;
   const job = await one("SELECT * FROM print_jobs WHERE id = $1", [request.params.id]);

@@ -422,6 +422,10 @@ export default function PosPage() {
         method: "POST",
         body: JSON.stringify(payment)
       });
+      // Auto-open cash drawer when paying with cash
+      if (payment.method === "cash") {
+        try { await api("/print-jobs/cash-drawer", { method: "POST" }); } catch { /* drawer is optional */ }
+      }
       setSelectedOrder(null);
       setPaying(false);
       navigateMobileStep("tables");
@@ -1138,6 +1142,9 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
                 <button className="primary" onClick={onPay} disabled={busy || !(order.items || []).length}>
                   <CircleDollarSign size={18} />
                   <span>收款</span>
+                </button>
+                <button onClick={async () => { try { await api("/print-jobs/cash-drawer", { method: "POST" }); } catch { /* drawer optional */ } }} disabled={busy}>
+                  <span>💵</span>
                 </button>
               </>
             )}
