@@ -28,6 +28,7 @@ CREATE TABLE settings (
   receipt_printer_id TEXT NOT NULL DEFAULT 'cashier',
   kitchen_item_font_size INTEGER NOT NULL DEFAULT 5,
   kitchen_item_bold BOOLEAN NOT NULL DEFAULT true,
+  kitchen_qty_bold BOOLEAN NOT NULL DEFAULT true,
   backup_enabled BOOLEAN NOT NULL DEFAULT false,
   backup_interval_hours INTEGER NOT NULL DEFAULT 24,
   auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false,

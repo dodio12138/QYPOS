@@ -32,6 +32,7 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_fixed NUMERIC(10,2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_rate NUMERIC(5,2)");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_reason TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS parent_order_id UUID REFERENCES orders(id)");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_address TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_header_zh TEXT NOT NULL DEFAULT ''");
@@ -45,6 +46,7 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_printer_id TEXT NOT NULL DEFAULT 'cashier'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_item_font_size INTEGER NOT NULL DEFAULT 5");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_item_bold BOOLEAN NOT NULL DEFAULT true");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS kitchen_qty_bold BOOLEAN NOT NULL DEFAULT true");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_interval_hours INTEGER NOT NULL DEFAULT 24");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false");
@@ -504,6 +506,7 @@ app.put("/settings", async (request, reply) => {
       auto_clear_tables_after_payment = COALESCE($20::boolean, auto_clear_tables_after_payment),
       kitchen_item_font_size = COALESCE($21::integer, kitchen_item_font_size),
       kitchen_item_bold = COALESCE($22::boolean, kitchen_item_bold),
+      kitchen_qty_bold = COALESCE($23::boolean, kitchen_qty_bold),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -529,7 +532,8 @@ app.put("/settings", async (request, reply) => {
       body.receipt_phone,
       body.auto_clear_tables_after_payment,
       body.kitchen_item_font_size,
-      body.kitchen_item_bold
+      body.kitchen_item_bold,
+      body.kitchen_qty_bold
     ]
   );
   // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing
@@ -560,7 +564,12 @@ app.put("/settings", async (request, reply) => {
 
 app.get("/menu", async () => {
   const categories = await query("SELECT * FROM menu_categories ORDER BY sort_order, name_i18n->>'zh-CN'");
-  const items = await query("SELECT * FROM menu_items ORDER BY created_at");
+  const items = await query(
+    `SELECT mi.*
+     FROM menu_items mi
+     LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+     ORDER BY COALESCE(mc.sort_order, 999), mi.sort_order, mi.created_at`
+  );
   const variants = await query("SELECT * FROM menu_item_variants ORDER BY sort_order");
   const groups = await query("SELECT * FROM modifier_groups ORDER BY sort_order");
   const modifiers = await query("SELECT * FROM modifiers ORDER BY sort_order");
@@ -637,10 +646,10 @@ app.post("/menu/items", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_menu")) return;
   const body = request.body ?? {};
   const item = await one(
-    `INSERT INTO menu_items (category_id, name_i18n, description_i18n, image_url, kitchen_group, active)
-     VALUES ($1, $2, COALESCE($3, '{}'::jsonb), $4, COALESCE($5, 'kitchen'), COALESCE($6, true))
+    `INSERT INTO menu_items (category_id, name_i18n, description_i18n, image_url, kitchen_group, active, sort_order)
+     VALUES ($1, $2, COALESCE($3, '{}'::jsonb), $4, COALESCE($5, 'kitchen'), COALESCE($6, true), COALESCE($7, 0))
      RETURNING *`,
-    [body.category_id, body.name_i18n, body.description_i18n, body.image_url, body.kitchen_group, body.active]
+    [body.category_id, body.name_i18n, body.description_i18n, body.image_url, body.kitchen_group, body.active, body.sort_order]
   );
   for (const variant of body.variants ?? []) {
     await query(
@@ -663,9 +672,10 @@ app.patch("/menu/items/:id", async (request, reply) => {
       image_url = COALESCE($5, image_url),
       kitchen_group = COALESCE($6, kitchen_group),
       active = COALESCE($7, active),
+      sort_order = COALESCE($8::integer, sort_order),
       updated_at = now()
      WHERE id = $1 RETURNING *`,
-    [request.params.id, body.category_id, body.name_i18n, body.description_i18n, body.image_url, body.kitchen_group, body.active]
+    [request.params.id, body.category_id, body.name_i18n, body.description_i18n, body.image_url, body.kitchen_group, body.active, body.sort_order]
   );
   await auditLog(request, "menu.item.update", "menu_item", item?.id ?? request.params.id, body);
   return item;

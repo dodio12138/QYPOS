@@ -65,6 +65,7 @@ const KITEM = (qty, name, opts = {}) => ({
   qty: String(qty ?? ""),
   name: String(name ?? ""),
   fontSize: opts.fontSize,
+  qtyBold: opts.qtyBold !== false,
   nameBold: !!opts.nameBold,
 });
 
@@ -137,7 +138,8 @@ function lineHeightFor(fontSize) {
 function buildKitchenDoc({ order, items, table, settings }) {
   const locale = settings.locale ?? "zh-CN";
   const itemFontSize = kitchenFontPx(settings);
-  const itemBold = settings.kitchen_item_bold !== false;
+  const nameBold = settings.kitchen_item_bold !== false;
+  const qtyBold = settings.kitchen_qty_bold !== false;
   const titleZh = order.service_type === "dine_in" ? `桌号: ${table?.label ?? ""}` : `外带: ${order.pickup_no ?? ""}`;
   const titleEn = order.service_type === "dine_in" ? `Table: ${table?.label ?? ""}` : `Takeaway: ${order.pickup_no ?? ""}`;
   const doc = [
@@ -150,11 +152,11 @@ function buildKitchenDoc({ order, items, table, settings }) {
   ];
   for (const item of items) {
     const name = itemNameBilingual(item);
-    doc.push(KITEM(`${item.quantity}X`, name.zh, { fontSize: itemFontSize, nameBold: itemBold }));
-    if (name.en) doc.push(T(`    ${name.en}`, { fontSize: itemFontSize, bold: itemBold }));
+    doc.push(KITEM(`${item.quantity}X`, name.zh, { fontSize: itemFontSize, qtyBold, nameBold }));
+    if (name.en) doc.push(T(`    ${name.en}`, { fontSize: itemFontSize, bold: nameBold }));
     for (const mod of item.modifiers ?? []) {
       const m = bilingualName(mod.name_i18n);
-      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize, bold: itemBold }));
+      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize, bold: nameBold }));
     }
     if (item.notes) doc.push(T(`  ※ ${item.notes}`, { fontSize: itemFontSize, bold: itemBold }));
   }
@@ -290,7 +292,7 @@ function docToBuffer(doc) {
     ctx.textBaseline = "middle";
     if (item.type === "kitchen_item") {
       ctx.textAlign = "left";
-      ctx.font = `${item.nameBold ? "bold " : ""}${fs}px '${FONT}'`;
+      ctx.font = `${item.qtyBold ? "bold " : ""}${fs}px '${FONT}'`;
       ctx.fillText(item.qty, PAD, y + lh / 2);
       const qtyWidth = ctx.measureText(item.qty).width;
       ctx.font = `${item.nameBold ? "bold " : ""}${fs}px '${FONT}'`;

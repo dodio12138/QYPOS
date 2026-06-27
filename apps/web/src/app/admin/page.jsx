@@ -33,7 +33,7 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../../lib/api";
 
 const tabs = [
@@ -787,26 +787,27 @@ function CategoryEditor({ category, locale, onSaved }) {
     active: category.active
   });
 
-  async function save() {
+  const save = useCallback(async (overrides = {}) => {
+    const data = { ...draft, ...overrides };
+    setDraft(data);
     await api(`/menu/categories/${category.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name_i18n: { "zh-CN": draft.zh, "en-GB": draft.en || draft.zh },
-        sort_order: Number(draft.sort_order),
-        active: draft.active
+        name_i18n: { "zh-CN": data.zh, "en-GB": data.en || data.zh },
+        sort_order: Number(data.sort_order),
+        active: data.active
       })
     });
     await onSaved();
-  }
+  }, [draft, category.id, onSaved]);
 
   return (
     <div className="cat-editor-panel">
       <p className="muted cat-editor-title">编辑分类</p>
-      <label>中文<input value={draft.zh} onChange={(event) => setDraft({ ...draft, zh: event.target.value })} /></label>
-      <label>English<input value={draft.en} onChange={(event) => setDraft({ ...draft, en: event.target.value })} /></label>
-      <label>排序<input type="number" value={draft.sort_order} onChange={(event) => setDraft({ ...draft, sort_order: event.target.value })} /></label>
-      <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} />启用</label>
-      <button className="primary" type="button" onClick={save}><Save size={16} /><span>保存分类</span></button>
+      <label>中文<input value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => save({ zh: draft.zh })} /></label>
+      <label>English<input value={draft.en} onChange={(e) => setDraft({ ...draft, en: e.target.value })} onBlur={() => save({ en: draft.en })} /></label>
+      <label>排序<input type="number" value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} onBlur={() => save({ sort_order: draft.sort_order })} /></label>
+      <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); save({ active: v }); }} />启用</label>
     </div>
   );
 }
@@ -951,23 +952,30 @@ function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable
     en: labelOf(item.name_i18n, "en-GB"),
     category_id: item.category_id,
     kitchen_group: item.kitchen_group,
+    sort_order: item.sort_order ?? 0,
     active: item.active
   });
   const [variantDraft, setVariantDraft] = useState({ zh: "", en: "", price: "0" });
   const [groupDraft, setGroupDraft] = useState({ zh: "加料", en: "Extras", min: 0, max: 1 });
 
-  async function saveItem() {
+  const saveItem = useCallback(async (overrides = {}) => {
+    const data = { ...draft, ...overrides };
+    setDraft(data);
     await api(`/menu/items/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        category_id: draft.category_id,
-        name_i18n: { "zh-CN": draft.zh, "en-GB": draft.en || draft.zh },
-        kitchen_group: draft.kitchen_group,
-        active: draft.active
+        category_id: data.category_id,
+        name_i18n: { "zh-CN": data.zh, "en-GB": data.en || data.zh },
+        kitchen_group: data.kitchen_group,
+        sort_order: Number(data.sort_order),
+        active: data.active
       })
     });
     await onSaved();
-  }
+  }, [draft, item.id, onSaved]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const autoSave = useCallback((field, value) => saveItem({ [field]: value }), [saveItem]);
 
   async function addVariant(event) {
     event.preventDefault();
@@ -1002,14 +1010,14 @@ function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable
   return (
     <div className={`menu-editor${item.active ? "" : " inactive"}`}>
       <div className="inline-editor item-main-editor">
-        <label>中文<input value={draft.zh} onChange={(event) => setDraft({ ...draft, zh: event.target.value })} /></label>
-        <label>English<input value={draft.en} onChange={(event) => setDraft({ ...draft, en: event.target.value })} /></label>
-        <label>分类<select value={draft.category_id || ""} onChange={(event) => setDraft({ ...draft, category_id: event.target.value })}>
+        <label>中文<input value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => autoSave("zh", draft.zh)} /></label>
+        <label>English<input value={draft.en} onChange={(e) => setDraft({ ...draft, en: e.target.value })} onBlur={() => autoSave("en", draft.en)} /></label>
+        <label>分类<select value={draft.category_id || ""} onChange={(e) => { const v = e.target.value; setDraft({ ...draft, category_id: v }); saveItem({ category_id: v }); }}>
           {categories.map((category) => <option key={category.id} value={category.id}>{labelOf(category.name_i18n, locale)}</option>)}
         </select></label>
-        <label>厨房分组<input value={draft.kitchen_group} onChange={(event) => setDraft({ ...draft, kitchen_group: event.target.value })} /></label>
-        <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} />上架</label>
-        <button className="primary" type="button" onClick={saveItem}><Save size={16} /><span>保存菜品</span></button>
+        <label>厨房分组<input value={draft.kitchen_group} onChange={(e) => setDraft({ ...draft, kitchen_group: e.target.value })} onBlur={() => autoSave("kitchen_group", draft.kitchen_group)} /></label>
+        <label>排序<input type="number" value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} onBlur={() => autoSave("sort_order", draft.sort_order)} /></label>
+        <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); saveItem({ active: v }); }} />上架</label>
         <button type="button" onClick={onDisable}><Trash2 size={16} /><span>{item.active ? "下架" : "已下架"}</span></button>
         {!item.active && onDestroy && (
           <button type="button" className="danger" onClick={onDestroy}><Trash2 size={16} /><span>永久删除</span></button>
@@ -1057,27 +1065,28 @@ function VariantEditor({ item, variant, locale, currency, onSaved }) {
     active: variant.active
   });
 
-  async function save() {
+  const save = useCallback(async (overrides = {}) => {
+    const data = { ...draft, ...overrides };
+    setDraft(data);
     await api(`/menu/items/${item.id}/variants/${variant.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name_i18n: { "zh-CN": draft.zh, "en-GB": draft.en || draft.zh },
-        price: Number(draft.price),
-        sort_order: Number(draft.sort_order),
-        active: draft.active
+        name_i18n: { "zh-CN": data.zh, "en-GB": data.en || data.zh },
+        price: Number(data.price),
+        sort_order: Number(data.sort_order),
+        active: data.active
       })
     });
     await onSaved();
-  }
+  }, [draft, item.id, variant.id, onSaved]);
 
   return (
     <div className="item-sub-row">
-      <input className="sub-field sub-field-name" placeholder="名称" value={draft.zh} onChange={(event) => setDraft({ ...draft, zh: event.target.value })} />
-      <input className="sub-field sub-field-name" placeholder="English" value={draft.en} onChange={(event) => setDraft({ ...draft, en: event.target.value })} />
-      <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="价格" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} />
+      <input className="sub-field sub-field-name" placeholder="名称" value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => save({ zh: draft.zh })} />
+      <input className="sub-field sub-field-name" placeholder="English" value={draft.en} onChange={(e) => setDraft({ ...draft, en: e.target.value })} onBlur={() => save({ en: draft.en })} />
+      <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="价格" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} onBlur={() => save({ price: draft.price })} />
       <span className="sub-price-display muted">{money(draft.price, currency, locale)}</span>
-      <label className="checkbox sub-active"><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} />启用</label>
-      <button type="button" onClick={save}><Save size={14} /></button>
+      <label className="checkbox sub-active"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); save({ active: v }); }} />启用</label>
       <button type="button" onClick={async () => { await api(`/menu/items/${item.id}/variants/${variant.id}`, { method: "DELETE" }); await onSaved(); }}><Trash2 size={14} /></button>
     </div>
   );
@@ -1718,7 +1727,8 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
             <label>厨房菜品字号
               <input type="number" min="1" max="8" value={settings.kitchen_item_font_size ?? 5} onChange={(event) => setSettings({ ...settings, kitchen_item_font_size: Number(event.target.value) })} />
             </label>
-            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_item_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_item_bold: event.target.checked })} />厨房菜品内容加粗</label>
+            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_qty_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_qty_bold: event.target.checked })} />数量加粗 (1X)</label>
+            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_item_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_item_bold: event.target.checked })} />菜品名加粗</label>
             <button className="primary" type="submit"><Save size={16} /><span>保存打印配置</span></button>
             <button type="button" onClick={() => run(async () => { await api("/print-jobs/cash-drawer", { method: "POST" }); alert("钱箱信号已发送"); })}><span>💵 弹出钱箱</span></button>
           </div>
