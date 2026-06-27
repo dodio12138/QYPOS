@@ -7,26 +7,36 @@ import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { formatMoney } from "@qypos/shared";
 
 // ── Font registration ─────────────────────────────────────────────────────────
-function findCJKFont() {
+function findCJKFonts() {
   const dirs = ["/usr/share/fonts/noto", "/usr/share/fonts", "/usr/local/share/fonts"];
   const exts = [".otf", ".ttf", ".ttc"];
   const hints = ["CJK", "SC", "CN", "noto", "Noto"];
+  const found = [];
   for (const dir of dirs) {
     try {
       for (const file of readdirSync(dir)) {
         if (exts.some(e => file.endsWith(e)) && hints.some(h => file.includes(h))) {
-          return `${dir}/${file}`;
+          found.push({ path: `${dir}/${file}`, name: file });
         }
       }
     } catch { /* dir not found */ }
   }
-  return null;
+  return found;
 }
 
-const fontPath = findCJKFont();
-if (fontPath) {
-  try { GlobalFonts.registerFromPath(fontPath, "PrintFont"); console.log(`Font loaded: ${fontPath}`); }
-  catch (e) { console.warn(`Font load failed: ${e.message}`); }
+const cjkFonts = findCJKFonts();
+if (cjkFonts.length) {
+  for (const { path, name } of cjkFonts) {
+    const lower = name.toLowerCase();
+    // Determine weight from filename: 400 = Regular, 700 = Bold
+    const weight = lower.includes("bold") ? 700 : lower.includes("regular") ? 400 : 400;
+    try {
+      GlobalFonts.registerFromPath(path, "PrintFont", weight);
+      console.log(`Font registered: ${name} (weight=${weight}) → PrintFont`);
+    } catch (e) {
+      console.warn(`Font register failed: ${name}: ${e.message}`);
+    }
+  }
 } else {
   console.warn("No CJK font found – Chinese text may not render correctly");
 }
@@ -141,12 +151,12 @@ function buildKitchenDoc({ order, items, table, settings }) {
   for (const item of items) {
     const name = itemNameBilingual(item);
     doc.push(KITEM(`${item.quantity}X`, name.zh, { fontSize: itemFontSize, nameBold: itemBold }));
-    if (name.en) doc.push(T(`    ${name.en}`, { fontSize: itemFontSize }));
+    if (name.en) doc.push(T(`    ${name.en}`, { fontSize: itemFontSize, bold: itemBold }));
     for (const mod of item.modifiers ?? []) {
       const m = bilingualName(mod.name_i18n);
-      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize }));
+      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize, bold: itemBold }));
     }
-    if (item.notes) doc.push(T(`  ※ ${item.notes}`, { fontSize: itemFontSize }));
+    if (item.notes) doc.push(T(`  ※ ${item.notes}`, { fontSize: itemFontSize, bold: itemBold }));
   }
   if (order.notes) { doc.push(R()); doc.push(T(`备注 Notes: ${order.notes}`)); }
   doc.push(R()); doc.push(F());
@@ -280,7 +290,7 @@ function docToBuffer(doc) {
     ctx.textBaseline = "middle";
     if (item.type === "kitchen_item") {
       ctx.textAlign = "left";
-      ctx.font = `bold ${fs}px '${FONT}'`;
+      ctx.font = `${item.nameBold ? "bold " : ""}${fs}px '${FONT}'`;
       ctx.fillText(item.qty, PAD, y + lh / 2);
       const qtyWidth = ctx.measureText(item.qty).width;
       ctx.font = `${item.nameBold ? "bold " : ""}${fs}px '${FONT}'`;

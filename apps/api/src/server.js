@@ -1571,9 +1571,13 @@ app.post("/print-jobs/:id/retry", async (request, reply) => {
     reply.code(404);
     return { error: "Print job not found" };
   }
+  // Refresh settings & printer in payload so retry uses current configuration
+  const currentSettings = await getSettings();
+  const refreshedPrinter = selectPrinter(currentSettings, job.type === "kitchen" ? "kitchen" : "receipt");
+  const payload = { ...job.payload, settings: currentSettings, printer: refreshedPrinter ?? job.payload.printer };
   const updated = await one(
-    "UPDATE print_jobs SET status = 'queued', error = NULL, updated_at = now() WHERE id = $1 RETURNING id, order_id, type, status, attempts, error, created_at, updated_at",
-    [job.id]
+    "UPDATE print_jobs SET status = 'queued', error = NULL, payload = $2, updated_at = now() WHERE id = $1 RETURNING id, order_id, type, status, attempts, error, created_at, updated_at",
+    [job.id, payload]
   );
   await redis.lpush("print_jobs", job.id);
   emit("print.queued", updated);
