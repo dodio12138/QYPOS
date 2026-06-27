@@ -8,14 +8,18 @@ import { promisify } from "node:util";
 import Fastify from "fastify";
 import Redis from "ioredis";
 import pg from "pg";
-import { calculateTotals } from "@qypos/shared";
+import { calculateTotals, localToday } from "@qypos/shared";
 import { defaultPrinterProfiles, printerProfiles, selectPrinter, isValidPrinter } from "./services/printers.js";
 import { normalizePermissions, requirePermission as requirePermissionWithRedis, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
 import { assertPositivePayment } from "./services/validation.js";
 
 const { Pool } = pg;
 const app = Fastify({ logger: true });
+const tz = process.env.TZ || 'Europe/London';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+pool.on('connect', async (client) => {
+  await client.query(`SET timezone TO '${tz}'`);
+});
 const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
 const redisSub = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
 const sockets = new Set();
@@ -1622,6 +1626,7 @@ app.patch("/orders/:orderId/items/:itemId/status", async (request, reply) => {
 });
 
 app.get("/dashboard/today", async () => {
+  const today = localToday();
   const summary = await one(
     `SELECT
       COALESCE(SUM(total), 0)::numeric AS revenue,
@@ -1634,16 +1639,18 @@ app.get("/dashboard/today", async () => {
       COUNT(*) FILTER (WHERE service_type = 'dine_in')::integer AS dine_in_orders,
       COUNT(*) FILTER (WHERE service_type = 'takeaway')::integer AS takeaway_orders
      FROM orders
-     WHERE created_at::date = CURRENT_DATE AND status IN ('submitted','preparing','ready','paid')`
+     WHERE created_at::date = $1::date AND status IN ('submitted','preparing','ready','paid')`,
+    [today]
   );
   const hotItems = await query(
     `SELECT oi.name_i18n, SUM(oi.quantity)::integer AS quantity, SUM((oi.unit_price * oi.quantity))::numeric AS sales
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at::date = CURRENT_DATE AND o.status NOT IN ('cancelled', 'split')
+     WHERE o.created_at::date = $1::date AND o.status NOT IN ('cancelled', 'split')
      GROUP BY oi.name_i18n
      ORDER BY quantity DESC
-     LIMIT 8`
+     LIMIT 8`,
+    [today]
   );
   const openOrders = await query("SELECT * FROM orders WHERE status NOT IN ('paid','cancelled','split') ORDER BY created_at DESC LIMIT 20");
   const printer = await one("SELECT status, COUNT(*)::integer FROM print_jobs GROUP BY status ORDER BY status LIMIT 1");
@@ -1750,13 +1757,13 @@ async function buildSalesReport(from, to) {
 
 app.get("/reports/sales", async (request, reply) => {
   if (!await requirePermission(request, reply, "view_reports")) return;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
   return buildSalesReport(request.query.from ?? today, request.query.to ?? today);
 });
 
 app.get("/reports/sales.csv", async (request, reply) => {
   if (!await requirePermission(request, reply, "export_reports")) return;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
   const report = await buildSalesReport(request.query.from ?? today, request.query.to ?? today);
   const rows = [
     ["from", "to", "orders", "revenue", "subtotal", "discount", "net_sales", "tax", "service_charge", "average_ticket"],

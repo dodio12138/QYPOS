@@ -1176,7 +1176,12 @@ function ModifierEditor({ modifier, locale, currency, onSaved }) {
 
 function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }) {
   const summary = dashboard?.summary || {};
-  const today = new Date().toISOString().slice(0, 10);
+  const today = (() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/London';
+      return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    } catch { return new Date().toISOString().slice(0, 10); }
+  })();
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [auditCollapsed, setAuditCollapsed] = useState(true);

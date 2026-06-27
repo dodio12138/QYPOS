@@ -11,6 +11,21 @@ export const tableStatuses = [
 
 export const orderStatuses = ["draft", "submitted", "preparing", "ready", "paid", "cancelled", "split"];
 
+/**
+ * Get today's date string (YYYY-MM-DD) in the given timezone.
+ * Defaults to Asia/Shanghai. Falls back gracefully in older Node / non-Intl runtimes.
+ */
+export function localToday(timeZone) {
+  const tz = timeZone || process.env.TZ || 'Europe/London';
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatter.format(new Date());
+  } catch {
+    // fallback: use UTC-based toISOString
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 export function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
