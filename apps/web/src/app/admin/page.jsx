@@ -28,6 +28,7 @@ import {
   LogOut,
   Undo2,
   User,
+  Users,
   WifiOff,
   Wrench,
   X
@@ -42,6 +43,7 @@ const tabs = [
   ["menu", ReceiptText, "菜单"],
   ["dashboard", BarChart3, "看板"],
   ["settings", Settings, "设置"],
+  ["users", Users, "账户"],
   ["ops", Wrench, "运维"],
   ["layout", Armchair, "布局"]
 ];
@@ -107,6 +109,8 @@ export default function AdminPage() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [opsHealth, setOpsHealth] = useState(null);
   const [backups, setBackups] = useState([]);
+  const [usersList, setUsersList] = useState([]);
+  const [rolesList, setRolesList] = useState([]);
   const [notice, setNotice] = useState("");
 
   const locale = settings?.locale || "zh-CN";
@@ -164,6 +168,15 @@ export default function AdminPage() {
     ]);
     setOpsHealth(healthData);
     setBackups(backupData);
+  }
+
+  async function refreshUsers() {
+    const [usersData, rolesData] = await Promise.all([
+      api("/users"),
+      api("/roles")
+    ]);
+    setUsersList(usersData);
+    setRolesList(rolesData);
   }
 
   async function run(action, successText) {
@@ -277,6 +290,7 @@ export default function AdminPage() {
         {activeTab === "dashboard" && <Dashboard dashboard={dashboard} report={report} setReport={setReport} auditLogs={auditLogs} locale={locale} currency={currency} />}
         {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} onSaved={refresh} />}
         {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
+        {activeTab === "users" && <UsersView usersList={usersList} rolesList={rolesList} onSaved={async () => { await refresh(); await refreshUsers(); }} />}
         {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} />}
       </section>
     </main>
@@ -1844,6 +1858,105 @@ function SettingsView({ settings, setSettings, onSaved }) {
           <small>{settings.receipt_footer || "Thank you / 感谢光临"}</small>
         </div>
       </section>
+    </div>
+  );
+}
+
+// ── Users management ─────────────────────────────────────────────────────────
+function UsersView({ usersList, rolesList, onSaved }) {
+  const [editing, setEditing] = useState(null); // null = list, {user} = edit, "new" = create
+  const [form, setForm] = useState({ name: "", pin: "", role_id: "", active: true });
+  const [localUsers, setLocalUsers] = useState([]);
+  const [localRoles, setLocalRoles] = useState([]);
+  const [loadError, setLoadError] = useState("");
+
+  const users = usersList.length ? usersList : localUsers;
+  const roles = rolesList.length ? rolesList : localRoles;
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [u, r] = await Promise.all([api("/users"), api("/roles")]);
+        setLocalUsers(u);
+        setLocalRoles(r);
+        setLoadError("");
+      } catch (e) {
+        setLoadError(e.message || "加载失败");
+      }
+    }
+    load();
+  }, []);
+
+  function openNew() {
+    setForm({ name: "", pin: "", role_id: rolesList[0]?.id ?? "", active: true });
+    setEditing("new");
+  }
+  function openEdit(user) {
+    setForm({ name: user.name, pin: user.pin, role_id: user.role_id, active: user.active });
+    setEditing(user);
+  }
+  function cancel() { setEditing(null); }
+
+  async function save(event) {
+    event.preventDefault();
+    if (!form.name.trim() || !form.pin.trim()) return;
+    if (editing === "new") {
+      await api("/users", { method: "POST", body: JSON.stringify(form) });
+    } else {
+      await api(`/users/${editing.id}`, { method: "PATCH", body: JSON.stringify(form) });
+    }
+    setEditing(null);
+    await onSaved();
+  }
+
+  async function remove(user) {
+    if (!confirm(`确定删除 ${user.name}？`)) return;
+    await api(`/users/${user.id}`, { method: "DELETE" });
+    await onSaved();
+  }
+
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <div className="panel-title split">
+        <div className="inline-title"><Users size={18} /><h2>账户管理</h2></div>
+        <button type="button" onClick={openNew}><Plus size={16} /><span>新建账户</span></button>
+      </div>
+
+      {editing && (
+        <form className="settings-form" onSubmit={save} style={{ marginBottom: 16, padding: 14, border: "1px solid var(--line)", borderRadius: 8, background: "white" }}>
+          <p style={{ margin: "0 0 10px", fontWeight: 600 }}>{editing === "new" ? "新建账户" : `编辑 ${editing.name}`}</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, alignItems: "end" }}>
+            <label>姓名<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus /></label>
+            <label>PIN<input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} /></label>
+            <label>角色<select value={form.role_id} onChange={(e) => setForm({ ...form, role_id: e.target.value })}>
+              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select></label>
+            <label className="checkbox"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />启用</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="primary" type="submit"><Save size={14} /><span>保存</span></button>
+              <button type="button" onClick={cancel}>取消</button>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {loadError && <div style={{ padding: 10, marginBottom: 8, background: "#fef2f2", color: "#dc2626", borderRadius: 6, fontSize: 13 }}>{loadError}</div>}
+
+      <div style={{ display: "grid", gap: 8 }}>
+        {users.map((u) => (
+          <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: 10, alignItems: "center", padding: "8px 12px", border: "1px solid var(--line)", borderRadius: 8, background: "white", opacity: u.active ? 1 : 0.5 }}>
+            <div>
+              <strong style={{ color: "var(--ink)" }}>{u.name}</strong>
+              <small style={{ color: "var(--muted)", marginLeft: 8 }}>{u.role}</small>
+              {!u.active && <small style={{ color: "#ef4444", marginLeft: 8 }}>已禁用</small>}
+            </div>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>PIN: {u.pin}</span>
+            <button type="button" onClick={() => openEdit(u)} style={{ fontSize: 12 }}>编辑</button>
+            <button type="button" onClick={() => remove(u)} style={{ fontSize: 12, color: "#ef4444" }}><Trash2 size={14} /></button>
+          </div>
+        ))}
+        {!users.length && !loadError && <div className="empty">暂无账户</div>}
+      </div>
     </div>
   );
 }

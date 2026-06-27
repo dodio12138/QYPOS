@@ -64,7 +64,7 @@ async function ensureSchema() {
     );
   }
   await pool.query(
-    `UPDATE roles SET permissions = '["manage_settings","manage_menu","manage_tables","manage_orders","adjust_service_charge","view_dashboard","view_reports","export_reports","view_audit_logs","view_kitchen","update_item_status","create_order","take_payment","print_receipt"]'
+    `UPDATE roles SET permissions = '["manage_settings","manage_menu","manage_tables","manage_orders","manage_users","adjust_service_charge","view_dashboard","view_reports","export_reports","view_audit_logs","view_kitchen","update_item_status","create_order","take_payment","print_receipt"]'
      WHERE name = 'owner'`
   );
   await pool.query(
@@ -409,6 +409,65 @@ app.post("/auth/logout", async (request) => {
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (token) await redis.del(`session:${token}`);
   return { ok: true };
+});
+
+// ── User management ─────────────────────────────────────────────────────────
+app.get("/users", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_users")) return;
+  return query(
+    `SELECT u.id, u.name, u.pin, u.active, r.id AS role_id, r.name AS role
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
+     ORDER BY u.name`
+  );
+});
+
+app.get("/roles", async (request, reply) => {
+  const user = await userFromToken(request);
+  if (!user) { reply.code(401); return { error: "Unauthorized" }; }
+  return query("SELECT id, name FROM roles ORDER BY name");
+});
+
+app.post("/users", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_users")) return;
+  const body = request.body ?? {};
+  const name = String(body.name ?? "").trim();
+  const pin = String(body.pin ?? "").trim();
+  if (!name) { reply.code(400); return { error: "Name is required" }; }
+  if (!pin) { reply.code(400); return { error: "PIN is required" }; }
+  const exists = await one("SELECT id FROM users WHERE name = $1", [name]);
+  if (exists) { reply.code(409); return { error: "User already exists" }; }
+  const user = await one(
+    "INSERT INTO users (role_id, name, pin) VALUES ($1, $2, $3) RETURNING *",
+    [body.role_id, name, pin]
+  );
+  await auditLog(request, "user.create", "user", user.id, { name: user.name });
+  return user;
+});
+
+app.patch("/users/:id", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_users")) return;
+  const body = request.body ?? {};
+  const user = await one(
+    `UPDATE users SET
+      name = COALESCE($2, name),
+      pin = COALESCE($3, pin),
+      role_id = COALESCE($4, role_id),
+      active = COALESCE($5, active)
+     WHERE id = $1 RETURNING *`,
+    [request.params.id, body.name ?? null, body.pin ?? null, body.role_id ?? null, body.active ?? null]
+  );
+  if (!user) { reply.code(404); return { error: "User not found" }; }
+  await auditLog(request, "user.update", "user", user.id, { name: user.name });
+  return user;
+});
+
+app.delete("/users/:id", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_users")) return;
+  const user = await one("DELETE FROM users WHERE id = $1 RETURNING *", [request.params.id]);
+  if (!user) { reply.code(404); return { error: "User not found" }; }
+  await auditLog(request, "user.delete", "user", user.id, { name: user.name });
+  return user;
 });
 
 app.get("/settings", async () => {
