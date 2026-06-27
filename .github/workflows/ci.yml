@@ -9,32 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: qypos
-          POSTGRES_USER: qypos
-          POSTGRES_PASSWORD: qypos_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    timeout-minutes: 5
 
     steps:
       - uses: actions/checkout@v4
@@ -48,9 +23,6 @@ jobs:
 
       - name: Run unit tests
         run: node --test tests/calculations.test.mjs
-        env:
-          DATABASE_URL: postgres://qypos:qypos_password@localhost:5432/qypos
-          REDIS_URL: redis://localhost:6379
 
   docker:
     runs-on: ubuntu-latest
