@@ -1362,7 +1362,7 @@ function CanvasDualChart({ data, locale, currency }) {
       // draw order bars
       ctx.fillStyle = "#60a5fa";
       days.forEach((d, i) => {
-        const bw = Math.max(8, step * 0.6);
+        const bw = Math.max(4, Math.min(step * 0.45, 64));
         const barH = maxOrders ? (d.orders / maxOrders) * plotH : 0;
         const x = pad + i * step - bw / 2;
         const y = pad + (plotH - barH);
@@ -1395,7 +1395,7 @@ function CanvasDualChart({ data, locale, currency }) {
       days.forEach((d, i) => {
         const label = new Date(d.day).toLocaleDateString(locale, { month: '2-digit', day: '2-digit' });
         const x = pad + i * step;
-        ctx.fillText(label, x, h - 8);
+        ctx.fillText(label, x, h - 16);
       });
     }
 
@@ -1513,7 +1513,7 @@ function CanvasTimeChart({ data, locale, currency }) {
         if (i % 2 !== 0) return; // show every 1 hour to reduce clutter
         const label = s.slot || s.time || s.label || '';
         const x = pad + i * step;
-        ctx.fillText(label, x, h - 8);
+        ctx.fillText(label, x, h - 16);
       });
     }
 
@@ -1566,6 +1566,7 @@ function CanvasTimeChart({ data, locale, currency }) {
 function OpsView({ health, backups, settings, setSettings, locale, onRefresh, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [profiles, setProfiles] = useState(settings.printer_profiles || []);
+  const [showAllBackups, setShowAllBackups] = useState(false);
 
   useEffect(() => setProfiles(settings.printer_profiles || []), [settings.printer_profiles]);
 
@@ -1660,8 +1661,8 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
               </button>
             </div>
           </form>
-          <div className="backup-list">
-            {backups.map((file) => (
+          <div className="backup-list" style={{ maxHeight: showAllBackups ? "none" : 280, overflowY: "auto" }}>
+            {(showAllBackups ? backups : backups.slice(0, 5)).map((file) => (
               <div className="backup-row" key={file.name}>
                 <span>{file.name}</span>
                 <small>{(Number(file.size) / 1024).toFixed(1)} KB · {new Date(file.updated_at).toLocaleString(locale)}</small>
@@ -1669,6 +1670,12 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
               </div>
             ))}
             {!backups.length && <div className="empty">暂无备份文件</div>}
+            {backups.length > 5 && (
+              <button type="button" className="link-button" style={{ justifySelf: "center" }}
+                onClick={() => setShowAllBackups((v) => !v)}>
+                {showAllBackups ? `收起 (仅显示最近 5 个)` : `显示全部 ${backups.length} 个备份`}
+              </button>
+            )}
           </div>
         </article>
       </section>

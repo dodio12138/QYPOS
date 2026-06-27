@@ -1729,11 +1729,16 @@ async function buildSalesReport(from, to) {
 
   // common note presets (match preset label anywhere in notes) and free-form notes frequency
   const notePresets = await query(
-    `SELECT np.label, COALESCE(SUM((oi.notes ILIKE ('%' || np.label || '%'))::int), 0)::integer AS count
+    `SELECT np.label, COUNT(filtered.notes)::integer AS count
      FROM note_presets np
-     LEFT JOIN order_items oi ON oi.notes IS NOT NULL AND oi.notes <> ''
-     LEFT JOIN orders o ON o.id = oi.order_id
-       AND o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
+     LEFT JOIN (
+       SELECT oi.notes
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
+         AND o.status NOT IN ('cancelled', 'split')
+         AND oi.notes IS NOT NULL AND oi.notes <> ''
+     ) filtered ON filtered.notes ILIKE ('%' || np.label || '%')
      GROUP BY np.label
      ORDER BY count DESC
      LIMIT 20`,
