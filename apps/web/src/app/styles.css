@@ -1613,6 +1613,68 @@ h1 {
   border-radius: 8px;
 }
 
+.modifier-quantity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 9px;
+}
+
+.modifier-quantity-card {
+  overflow: hidden;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  transition: border-color 140ms, background 140ms;
+}
+
+.modifier-quantity-card.selected {
+  border-color: #1a1a1a;
+  background: #fff;
+}
+
+.modifier-main-button {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.modifier-main-button:disabled {
+  opacity: 0.5;
+}
+
+.modifier-quantity-stepper {
+  display: grid;
+  grid-template-columns: 42px 1fr 42px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+}
+
+.modifier-quantity-stepper button {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: #f3f4f6;
+  color: var(--ink);
+}
+
+.modifier-quantity-stepper button:disabled {
+  color: #cbd5e1;
+}
+
+.modifier-quantity-stepper strong {
+  text-align: center;
+  font-size: 17px;
+}
+
 .pay-total {
   padding: 18px;
   text-align: center;

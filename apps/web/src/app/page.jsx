@@ -41,6 +41,17 @@ function money(value, currency = "CNY", locale = "zh-CN") {
   return new Intl.NumberFormat(locale, { style: "currency", currency }).format(Number(value || 0));
 }
 
+function aggregateModifiers(modifiers = []) {
+  const grouped = new Map();
+  for (const modifier of modifiers) {
+    const key = modifier.modifier_id || `${JSON.stringify(modifier.name_i18n)}:${modifier.price_delta}`;
+    const current = grouped.get(key);
+    if (current) current.count += 1;
+    else grouped.set(key, { ...modifier, count: 1 });
+  }
+  return [...grouped.values()];
+}
+
 export default function PosPage() {
   const [settings, setSettings] = useState(null);
   const [paymentProviders, setPaymentProviders] = useState({ manual: { configured: true }, dojo: { configured: false } });
@@ -1150,7 +1161,7 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
               <>
                 <button onClick={() => onSplit("even")} disabled={busy || !(order.items || []).length}>
                   <Coins size={18} />
-                  <span>均摔</span>
+                  <span>平分</span>
                 </button>
                 <button className="primary" onClick={onPay} disabled={busy || !(order.items || []).length}>
                   <CircleDollarSign size={18} />
@@ -1273,8 +1284,8 @@ function VoidableOrderLine({ item, locale, currency, locked, canVoidThis, voidRe
             &nbsp;/ {maxQty}
           </small>
         )}
-        {(item.modifiers || []).map((modifier) => (
-          <small key={modifier.id}>+ {labelOf(modifier.name_i18n, locale)} {Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : ""}</small>
+        {aggregateModifiers(item.modifiers).map((modifier) => (
+          <small key={modifier.modifier_id || modifier.id}>+ {modifier.count > 1 ? `${modifier.count}X ` : ""}{labelOf(modifier.name_i18n, locale)} {Number(modifier.price_delta) ? money(Number(modifier.price_delta) * modifier.count, currency, locale) : ""}</small>
         ))}
         {item.notes && <small className="item-notes">备注：{item.notes}</small>}
       </div>
@@ -1401,17 +1412,39 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
     return [labels.join("、"), free].filter(Boolean).join("；");
   }
 
-  function toggleModifier(group, modifierId) {
+  function modifierCount(modifierId) {
+    return modifierIds.filter((id) => id === modifierId).length;
+  }
+
+  function groupSelectionCount(group, ids = modifierIds) {
+    const groupIds = new Set(group.modifiers.map((modifier) => modifier.id));
+    return ids.filter((id) => groupIds.has(id)).length;
+  }
+
+  function changeModifierCount(group, modifierId, delta) {
     setModifierIds((current) => {
-      if (current.includes(modifierId)) return current.filter((id) => id !== modifierId);
       const groupIds = group.modifiers.map((modifier) => modifier.id);
       const maxSelect = Number(group.max_select || 1);
-      const withoutGroup = maxSelect === 1 ? current.filter((id) => !groupIds.includes(id)) : current;
-      const selectedInGroup = withoutGroup.filter((id) => groupIds.includes(id));
-      if (selectedInGroup.length >= maxSelect) return withoutGroup;
-      return [...withoutGroup, modifierId];
+      if (delta > 0) {
+        if (maxSelect === 1) return [...current.filter((id) => !groupIds.includes(id)), modifierId];
+        if (current.filter((id) => groupIds.includes(id)).length >= maxSelect) return current;
+        return [...current, modifierId];
+      }
+      const removeAt = current.lastIndexOf(modifierId);
+      if (removeAt < 0) return current;
+      return current.filter((_id, index) => index !== removeAt);
     });
   }
+
+  function toggleModifier(group, modifierId) {
+    changeModifierCount(group, modifierId, modifierCount(modifierId) > 0 ? -1 : 1);
+  }
+
+  const activeModifierGroups = item.modifier_groups.filter((group) => group.active);
+  const modifierSelectionValid = activeModifierGroups.every((group) => {
+    const count = groupSelectionCount(group);
+    return count >= Number(group.min_select || 0) && count <= Number(group.max_select || 1);
+  });
 
   return (
     <div className="modal-backdrop">
@@ -1438,17 +1471,39 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
           {!activeVariants.length && <div className="inline-error">这个菜品还没有可售规格，请到后台先添加规格。</div>}
         </div>
 
-        {item.modifier_groups.filter((group) => group.active).map((group) => (
+        {activeModifierGroups.map((group) => (
           <div className="choice-group" key={group.id}>
-            <h3>{labelOf(group.name_i18n, locale)}</h3>
-            <div className="choice-grid">
-              {group.modifiers.filter((modifier) => modifier.active).map((modifier) => (
-                <button key={modifier.id} className={modifierIds.includes(modifier.id) ? "selected" : ""} onClick={() => toggleModifier(group, modifier.id)}>
-                  <span>{labelOf(modifier.name_i18n, locale)}</span>
-                  <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : "免费"}</b>
-                </button>
-              ))}
-            </div>
+            <h3>{labelOf(group.name_i18n, locale)} <small className="muted">已选 {groupSelectionCount(group)} / {Number(group.max_select || 1)}{Number(group.min_select || 0) > 0 ? `，至少 ${group.min_select}` : ""}</small></h3>
+            {Number(group.max_select || 1) === 1 ? (
+              <div className="choice-grid">
+                {group.modifiers.filter((modifier) => modifier.active).map((modifier) => (
+                  <button key={modifier.id} className={modifierIds.includes(modifier.id) ? "selected" : ""} onClick={() => toggleModifier(group, modifier.id)}>
+                    <span>{labelOf(modifier.name_i18n, locale)}</span>
+                    <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : "免费"}</b>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="modifier-quantity-grid">
+                {group.modifiers.filter((modifier) => modifier.active).map((modifier) => {
+                  const count = modifierCount(modifier.id);
+                  const atGroupLimit = groupSelectionCount(group) >= Number(group.max_select || 1);
+                  return (
+                    <div className={`modifier-quantity-card ${count > 0 ? "selected" : ""}`} key={modifier.id}>
+                      <button className="modifier-main-button" onClick={() => changeModifierCount(group, modifier.id, 1)} disabled={atGroupLimit}>
+                        <span>{labelOf(modifier.name_i18n, locale)}</span>
+                        <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : "免费"}</b>
+                      </button>
+                      <div className="modifier-quantity-stepper">
+                        <button onClick={() => changeModifierCount(group, modifier.id, -1)} disabled={count === 0} aria-label={`减少${labelOf(modifier.name_i18n, locale)}`}><Minus size={15} /></button>
+                        <strong>{count}</strong>
+                        <button onClick={() => changeModifierCount(group, modifier.id, 1)} disabled={atGroupLimit} aria-label={`增加${labelOf(modifier.name_i18n, locale)}`}><Plus size={15} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ))}
 
@@ -1494,12 +1549,13 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
                 setSubmitting(false);
               }
             }}
-            disabled={!variantId || submitting}
+            disabled={!variantId || !modifierSelectionValid || submitting}
           >
             {submitting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
             <span>{submitting ? (editMode ? "更新中" : "加入中") : (editMode ? "更新菜品" : "加入订单")}</span>
           </button>
         </footer>
+        {!modifierSelectionValid && <div className="inline-error">请完成必选小料，并确认选择数量没有超过上限。</div>}
         {error && <div className="inline-error">{error}</div>}
       </section>
     </div>

@@ -105,8 +105,16 @@ async function ensureSchema() {
     );
   }
   await pool.query(
-    `UPDATE roles SET permissions = '["manage_settings","manage_menu","manage_tables","manage_orders","manage_users","adjust_service_charge","view_dashboard","view_reports","export_reports","view_audit_logs","view_kitchen","update_item_status","create_order","take_payment","print_receipt"]'
+    `UPDATE roles SET permissions = '["manage_settings","manage_menu","manage_tables","manage_orders","manage_users","adjust_service_charge","view_dashboard","view_reports","export_reports","view_audit_logs","view_kitchen","update_item_status","create_order","split_order","take_payment","print_receipt"]'
      WHERE name = 'owner'`
+  );
+  await pool.query(
+    `UPDATE roles
+     SET permissions = CASE
+       WHEN permissions ? 'split_order' THEN permissions
+       ELSE permissions || '["split_order"]'::jsonb
+     END
+     WHERE name = 'cashier'`
   );
   await pool.query(
     `INSERT INTO users (role_id, name, pin)
@@ -210,6 +218,19 @@ async function userFromToken(request) {
 
 async function requirePermission(request, reply, permission) {
   return requirePermissionWithRedis(request, reply, redis, permission);
+}
+
+async function requireAnyPermission(request, reply, permissions) {
+  const user = await userFromToken(request);
+  if (!user) {
+    reply.code(401);
+    return null;
+  }
+  if (!permissions.some((permission) => user.permissions.includes(permission))) {
+    reply.code(403);
+    return null;
+  }
+  return user;
 }
 
 async function auditLog(request, action, entityType, entityId = null, metadata = {}) {
@@ -1532,7 +1553,7 @@ app.post("/orders/:id/discount", async (request, reply) => {
 // POST /orders/:id/split
 // body: { splits: [{ label, items: [{ id, quantity }] }] }
 app.post("/orders/:id/split", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_orders")) return;
+  if (!await requireAnyPermission(request, reply, ["split_order", "manage_orders"])) return;
   const { splits } = request.body ?? {};
   if (!Array.isArray(splits) || splits.length < 2) {
     reply.code(400); return { error: "Need at least 2 splits" };

@@ -71,3 +71,13 @@ test("allows service charge exemption", () => {
   assert.equal(totals.serviceCharge, 0);
   assert.equal(totals.total, 88);
 });
+
+test("charges repeated add-ons once per selected portion", () => {
+  const totals = calculateTotals(
+    [{ unit_price: 10, quantity: 1, modifiers: [{ price_delta: 1.5 }, { price_delta: 1.5 }, { price_delta: 2 }] }],
+    { tax_rate: 0, prices_include_tax: true, service_charge_rate: 0 }
+  );
+
+  assert.equal(totals.subtotal, 15);
+  assert.equal(totals.total, 15);
+});

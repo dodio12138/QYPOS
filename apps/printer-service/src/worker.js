@@ -125,6 +125,17 @@ function itemName(item, locale) {
   return variant ? `${base} (${variant})` : base;
 }
 
+function aggregateModifiers(modifiers = []) {
+  const grouped = new Map();
+  for (const modifier of modifiers) {
+    const key = modifier.modifier_id || `${JSON.stringify(modifier.name_i18n)}:${modifier.price_delta}`;
+    const current = grouped.get(key);
+    if (current) current.count += 1;
+    else grouped.set(key, { ...modifier, count: 1 });
+  }
+  return [...grouped.values()];
+}
+
 function kitchenFontPx(settings) {
   const size = Math.min(8, Math.max(1, Number(settings?.kitchen_item_font_size ?? 5)));
   return 18 + size * 4;
@@ -154,9 +165,9 @@ function buildKitchenDoc({ order, items, table, settings }) {
     const name = itemNameBilingual(item);
     doc.push(KITEM(`${item.quantity}X`, name.zh, { fontSize: itemFontSize, qtyBold, nameBold }));
     if (name.en) doc.push(T(`    ${name.en}`, { fontSize: itemFontSize, bold: nameBold }));
-    for (const mod of item.modifiers ?? []) {
+    for (const mod of aggregateModifiers(item.modifiers)) {
       const m = bilingualName(mod.name_i18n);
-      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize, bold: nameBold }));
+      doc.push(T(`  + ${mod.count > 1 ? `${mod.count}X ` : ""}${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize, bold: nameBold }));
     }
     if (item.notes) doc.push(T(`  ※ ${item.notes}`, { fontSize: itemFontSize, bold: itemBold }));
   }
@@ -203,10 +214,10 @@ function buildReceiptDoc({ order, items, payments, settings, table }) {
     const amount = unit * Number(item.quantity);
     doc.push(ROW(name.zh, item.quantity, moneyShort(unit, currency), moneyShort(amount, currency)));
     if (name.en) doc.push(T(`  ${name.en}`));
-    for (const mod of item.modifiers ?? []) {
+    for (const mod of aggregateModifiers(item.modifiers)) {
       const m = bilingualName(mod.name_i18n);
-      const sfx = Number(mod.price_delta) ? ` ${moneyShort(mod.price_delta, currency)}` : "";
-      doc.push(T(`  + ${m.zh}${m.en ? ` / ${m.en}` : ""}${sfx}`));
+      const sfx = Number(mod.price_delta) ? ` ${moneyShort(Number(mod.price_delta) * mod.count, currency)}` : "";
+      doc.push(T(`  + ${mod.count > 1 ? `${mod.count}X ` : ""}${m.zh}${m.en ? ` / ${m.en}` : ""}${sfx}`));
     }
   }
   doc.push(R());
