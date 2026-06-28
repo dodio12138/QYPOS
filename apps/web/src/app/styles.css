@@ -1632,6 +1632,11 @@ h1 {
   background: #fff;
 }
 
+.modifier-quantity-card.selected .modifier-main-button {
+  background: #1a1a1a;
+  color: white;
+}
+
 .modifier-main-button {
   width: 100%;
   min-height: 48px;
