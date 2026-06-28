@@ -214,11 +214,19 @@ function buildReceiptDoc({ order, items, payments, settings, table }) {
     const amount = unit * Number(item.quantity);
     doc.push(ROW(name.zh, item.quantity, moneyShort(unit, currency), moneyShort(amount, currency)));
     if (name.en) doc.push(T(`  ${name.en}`));
+    if ((item.modifiers ?? []).length) {
+      doc.push(T(`  基础单价 Base: ${moneyShort(item.unit_price, currency)}`));
+    }
     for (const mod of aggregateModifiers(item.modifiers)) {
       const m = bilingualName(mod.name_i18n);
-      const sfx = Number(mod.price_delta) ? ` ${moneyShort(Number(mod.price_delta) * mod.count, currency)}` : "";
-      doc.push(T(`  + ${mod.count > 1 ? `${mod.count}X ` : ""}${m.zh}${m.en ? ` / ${m.en}` : ""}${sfx}`));
+      const group = bilingualName(mod.group_name_i18n);
+      const price = Number(mod.price_delta || 0);
+      const priceText = mod.count > 1
+        ? `${mod.count}X ${moneyShort(price, currency)} = ${moneyShort(price * mod.count, currency)}`
+        : moneyShort(price, currency);
+      doc.push(T(`  + ${group.zh ? `${group.zh}: ` : ""}${m.zh}${m.en ? ` / ${m.en}` : ""}  ${priceText}`));
     }
+    if (item.notes) doc.push(T(`  ※ 备注 Notes: ${item.notes}`));
   }
   doc.push(R());
   const subtotal = Number(order.subtotal ?? 0);

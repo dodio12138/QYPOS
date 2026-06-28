@@ -81,6 +81,7 @@ Core Principles:
 - Visual table map with drag-and-drop layout editor
 - Dine-in table opening + takeaway order creation
 - Menu category browsing, variant selection, modifiers & notes
+- Required/optional modifier groups with default selections
 - Order add-items, discount, service charge adjustment
 - Multiple payment methods (cash/card/QR/other)
 - Real-time table status via WebSocket
@@ -90,15 +91,16 @@ Core Principles:
 - Separate kitchen ticket & receipt printing
 - Multi-printer routing (kitchen/receipt/bar)
 - Automatic print retry on failure
+- Receipts include variants, modifiers, unit prices, and line totals
 - Item-level cooking status tracking (preparing → ready → served)
 
 ### 📊 Back Office
-- **Menu Management**: Full CRUD for categories, items, variants, modifier groups
+- **Menu Management**: Full CRUD plus synchronized variant presets and group-level modifier presets with ordering and automatic detachment after direct edits
 - **Table Layout**: Visual editor with zones, copy/delete tables
-- **Settings**: Tax, service charge, currency, printer config
+- **Settings**: Tax, service charge, currency, printer config; sensitive tax changes require current-account PIN confirmation
 - **Dashboard**: Today's revenue, order count, avg. ticket, top sellers
 - **Sales Reports**: Historical data with CSV export
-- **Audit Log**: Full audit trail for sensitive operations
+- **Audit Log**: Full audit trail with combined user, action, and exact time-range filters
 
 ### 🔧 Operations
 - Auto & manual DB backups with download
@@ -254,10 +256,13 @@ Configure via `.env` file:
 | `/orders/:id/items` | POST | Add items to order | `create_order` |
 | `/menu/categories` | CRUD | Category management | `manage_menu` |
 | `/menu/items` | CRUD | Item management | `manage_menu` |
+| `/menu/option-presets` | CRUD | Variant and modifier preset management | `manage_menu` |
+| `/menu/modifier-groups/:id/apply-option-preset` | POST | Bind a preset to one modifier group | `manage_menu` |
 | `/settings` | GET/PUT | System settings | Read: public / Write: auth |
 | `/dashboard/today` | GET | Today's dashboard | `view_dashboard` |
 | `/reports/sales` | GET | Sales reports | `view_reports` |
 | `/print-jobs` | GET | Print job list | `view_kitchen` |
+| `/audit-logs` | GET | Audit log (filterable by time, user, and action in Admin) | `view_audit_logs` |
 | `/health` | GET | Health check | Public |
 
 ---
@@ -282,6 +287,7 @@ Test Coverage:
 - ✅ Payment amount validation
 - ✅ Strict printer routing
 - ✅ API integration tests (optional)
+- ✅ Preset synchronization/defaults/detachment and sensitive-settings reauthentication
 
 ---
 

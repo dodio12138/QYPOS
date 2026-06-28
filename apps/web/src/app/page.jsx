@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../lib/api";
+import qyposLogo from "../pic/logo.png";
 
 const statusText = {
   available: "空桌",
@@ -558,7 +559,7 @@ export default function PosPage() {
     <main className={`pos-shell ${tabletMode ? "tablet-mode" : ""}`}>
       <header className="pos-header">
         <div className="brand compact">
-          <CircleDollarSign size={24} />
+          <img className="brand-logo" src={qyposLogo.src} alt="QYPOS" />
           <span>QYPOS</span>
         </div>
         <div className="mode-pill">
@@ -868,7 +869,7 @@ function PosLogin({ notice, online, apiOnline, busy, onLogin }) {
   return (
     <section className="login-panel pos-login-panel">
       <div className="brand login-brand">
-        <CircleDollarSign size={28} />
+        <img className="brand-logo login-logo" src={qyposLogo.src} alt="QYPOS" />
         <span>QYPOS</span>
       </div>
       <h1>点餐前台登录</h1>
@@ -1371,8 +1372,14 @@ function CustomItemModal({ locale, currency, onClose, onAdd }) {
 
 function ItemModal({ item, locale, currency, notePresets = [], initialVariantId, initialModifierIds, initialNotes, initialQuantity, editMode, onClose, onAdd }) {
   const activeVariants = item.variants.filter((variant) => variant.active);
+  const defaultModifierIds = item.modifier_groups
+    .filter((group) => group.active)
+    .flatMap((group) => group.modifiers
+      .filter((modifier) => modifier.active && modifier.default_selected)
+      .slice(0, Number(group.max_select || 1))
+      .map((modifier) => modifier.id));
   const [variantId, setVariantId] = useState(initialVariantId || activeVariants[0]?.id || "");
-  const [modifierIds, setModifierIds] = useState(initialModifierIds || []);
+  const [modifierIds, setModifierIds] = useState(() => Array.isArray(initialModifierIds) ? initialModifierIds : defaultModifierIds);
   const [quantity, setQuantity] = useState(initialQuantity || 1);
   const [selectedPresetIds, setSelectedPresetIds] = useState([]);
   const [notes, setNotes] = useState(initialNotes || "");
@@ -1478,7 +1485,7 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
               <div className="choice-grid">
                 {group.modifiers.filter((modifier) => modifier.active).map((modifier) => (
                   <button key={modifier.id} className={modifierIds.includes(modifier.id) ? "selected" : ""} onClick={() => toggleModifier(group, modifier.id)}>
-                    <span>{labelOf(modifier.name_i18n, locale)}</span>
+                    <span>{labelOf(modifier.name_i18n, locale)}{modifier.default_selected && <small className="default-option-badge">默认</small>}</span>
                     <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : "免费"}</b>
                   </button>
                 ))}
@@ -1491,7 +1498,7 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
                   return (
                     <div className={`modifier-quantity-card ${count > 0 ? "selected" : ""}`} key={modifier.id}>
                       <button className="modifier-main-button" onClick={() => changeModifierCount(group, modifier.id, 1)} disabled={atGroupLimit}>
-                        <span>{labelOf(modifier.name_i18n, locale)}</span>
+                        <span>{labelOf(modifier.name_i18n, locale)}{modifier.default_selected && <small className="default-option-badge">默认</small>}</span>
                         <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : "免费"}</b>
                       </button>
                       <div className="modifier-quantity-stepper">

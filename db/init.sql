@@ -124,6 +124,24 @@ CREATE TABLE modifiers (
   active BOOLEAN NOT NULL DEFAULT true
 );
 
+CREATE TABLE menu_option_presets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('variants', 'modifiers')),
+  payload JSONB NOT NULL DEFAULT '[]',
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX menu_option_presets_kind_idx ON menu_option_presets(kind, active, created_at);
+
+ALTER TABLE menu_items ADD COLUMN variant_preset_id UUID REFERENCES menu_option_presets(id) ON DELETE SET NULL;
+ALTER TABLE menu_items ADD COLUMN modifier_preset_id UUID REFERENCES menu_option_presets(id) ON DELETE SET NULL;
+ALTER TABLE modifier_groups ADD COLUMN preset_id UUID REFERENCES menu_option_presets(id) ON DELETE SET NULL;
+CREATE INDEX modifier_groups_preset_idx ON modifier_groups(preset_id) WHERE preset_id IS NOT NULL;
+ALTER TABLE modifiers ADD COLUMN default_selected BOOLEAN NOT NULL DEFAULT false;
+
 CREATE TABLE orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_no TEXT NOT NULL UNIQUE,

@@ -1,0 +1,2 @@
+ALTER TABLE modifiers
+  ADD COLUMN IF NOT EXISTS default_selected BOOLEAN NOT NULL DEFAULT false;

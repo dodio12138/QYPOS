@@ -137,6 +137,9 @@ node --test tests/calculations.test.mjs
 
 # API integration tests
 API_BASE=http://localhost:4000 node --test tests/api.integration.test.mjs
+
+# Preset binding and sensitive-settings integration tests
+API_BASE=http://localhost:4000 node --test tests/option-presets.integration.test.mjs
 ```
 
 ### Test Conventions
@@ -144,6 +147,7 @@ API_BASE=http://localhost:4000 node --test tests/api.integration.test.mjs
 - Uses Node.js native `node:test` + `node:assert`
 - Calculation tests run independently without external services
 - API integration tests support conditional skip via `{ skip: !API_BASE }`
+- Integration tests that create records must clean them in a `finally` block; never leave test users, menu items, presets, or settings changes in the live development database
 - New features should include tests
 
 ---
@@ -156,7 +160,7 @@ Yes. The print worker falls back to log output when no real printer is available
 
 ### Q: How do I change the database schema?
 
-Add a new SQL file under `db/migrations/` (naming: `NNN_description.sql`). Pending migrations run automatically on API startup.
+Add a new SQL file under `db/migrations/` (naming: `NNN_description.sql`). Pending migrations run automatically on API startup. Keep `db/init.sql` and the API `ensureSchema()` compatibility bootstrap in sync with every schema addition, then rebuild the API container to verify the migration is applied.
 
 ### Q: How do I add a new API endpoint?
 

@@ -13,6 +13,7 @@ import {
   ClipboardList,
   Grid3X3,
   Plus,
+  Power,
   Printer,
   Redo2,
   RefreshCw,
@@ -35,6 +36,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../../lib/api";
+import qyposLogo from "../../pic/logo.png";
 
 const tabs = [
   ["orders", ClipboardList, "订单"],
@@ -80,7 +82,7 @@ function AdminLogin({ onLogin }) {
     <main className="login-shell">
       <form className="login-panel" onSubmit={submit}>
         <div className="brand login-brand">
-          <img src="/qypos-logo.png" alt="QYPOS" style={{ height: 40, width: 'auto' }} />
+          <img className="brand-logo login-logo" src={qyposLogo.src} alt="QYPOS" />
           <span>QYPOS</span>
         </div>
         <h1>后台登录</h1>
@@ -112,6 +114,7 @@ export default function AdminPage() {
   const [usersList, setUsersList] = useState([]);
   const [rolesList, setRolesList] = useState([]);
   const [notice, setNotice] = useState("");
+  const noticeTimerRef = useRef(null);
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
@@ -183,10 +186,16 @@ export default function AdminPage() {
     setNotice("");
     try {
       await action();
-      if (successText) setNotice(successText);
+      if (successText) showNotice(successText);
     } catch (error) {
-      setNotice(error.message);
+      showNotice(error.message);
     }
+  }
+
+  function showNotice(message) {
+    setNotice(message);
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(""), 3000);
   }
 
   useEffect(() => {
@@ -223,6 +232,7 @@ export default function AdminPage() {
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
       socket.close();
     };
   }, [user?.id]);
@@ -238,7 +248,7 @@ export default function AdminPage() {
     <main>
       <aside className="sidebar">
         <div className="brand">
-          <img src="/qypos-logo.png" alt="QYPOS" style={{ height: 28, width: 'auto' }} />
+          <img className="brand-logo" src={qyposLogo.src} alt="QYPOS" />
           <span>QYPOS</span>
         </div>
         <nav>
@@ -255,7 +265,7 @@ export default function AdminPage() {
         <header className="topbar">
           <div>
             <h1>{tabs.find(([id]) => id === activeTab)?.[2]}</h1>
-            <p>{settings ? `${settings.currency} · Tax ${(Number(settings.tax_rate) * 100).toFixed(1)}% · Service ${(Number(settings.service_charge_rate) * 100).toFixed(1)}%` : "Loading"}</p>
+            {activeTab === "settings" && settings && <p>{`${settings.currency} · Tax ${(Number(settings.tax_rate) * 100).toFixed(1)}% · Service ${(Number(settings.service_charge_rate) * 100).toFixed(1)}%`}</p>}
           </div>
           <div className="top-actions">
             <span className="user-chip"><User size={16} />{user.name} · {user.role}</span>
@@ -286,7 +296,7 @@ export default function AdminPage() {
           await api(`/print-jobs/${job.id}/retry`, { method: "POST" });
           await refresh();
         }, "打印任务已重新入队")} />}
-        {activeTab === "menu" && <MenuAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} />}
+        {activeTab === "menu" && <MenuAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />}
         {activeTab === "dashboard" && <Dashboard dashboard={dashboard} report={report} setReport={setReport} auditLogs={auditLogs} locale={locale} currency={currency} />}
         {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} onSaved={refresh} />}
         {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
@@ -312,12 +322,30 @@ const ORDER_STATUS_COLOR = {
 };
 
 function OrderDetailModal({ order, locale, currency, onClose }) {
+  const [printing, setPrinting] = useState(false);
+  const [printFeedback, setPrintFeedback] = useState("");
   if (!order) return null;
   const subtotal = Number(order.subtotal || 0);
   const serviceCharge = Number(order.service_charge || 0);
   const discount = Number(order.discount || 0);
   const total = Number(order.total || 0);
   const paid = (order.payments || []).reduce((s, p) => s + Number(p.amount), 0);
+
+  async function printReceipt() {
+    setPrinting(true);
+    setPrintFeedback("");
+    try {
+      await api(`/orders/${order.id}/print`, {
+        method: "POST",
+        body: JSON.stringify({ type: "receipt" })
+      });
+      setPrintFeedback("小票已发送到打印队列");
+    } catch (error) {
+      setPrintFeedback(error.message);
+    } finally {
+      setPrinting(false);
+    }
+  }
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal order-detail-modal">
@@ -339,16 +367,42 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
 
         <div className="order-detail-items">
           {(order.items || []).length === 0 && <div className="empty">无菜品记录</div>}
-          {(order.items || []).map((item) => (
-            <div className="order-detail-item" key={item.id}>
-              <div className="order-detail-item-name">
-                <strong>{item.name_i18n?.["zh-CN"] || item.name_i18n?.["en-GB"] || "-"}</strong>
-                {item.notes && <small style={{ color: "var(--muted)" }}>{item.notes}</small>}
+          {(order.items || []).map((item) => {
+            const quantity = Number(item.quantity || 0);
+            const modifiers = [];
+            for (const modifier of item.modifiers || []) {
+              const key = modifier.modifier_id || `${JSON.stringify(modifier.name_i18n)}:${modifier.price_delta}`;
+              const existing = modifiers.find((entry) => entry.key === key);
+              if (existing) existing.count += 1;
+              else modifiers.push({ ...modifier, key, count: 1 });
+            }
+            const modifierUnitTotal = (item.modifiers || []).reduce((sum, modifier) => sum + Number(modifier.price_delta || 0), 0);
+            const baseUnitPrice = Number(item.unit_price || 0);
+            const unitTotal = baseUnitPrice + modifierUnitTotal;
+            return (
+              <div className="order-detail-item" key={item.id}>
+                <div className="order-detail-item-head">
+                  <div className="order-detail-item-name">
+                    <strong>{item.name_i18n?.["zh-CN"] || item.name_i18n?.["en-GB"] || "-"}</strong>
+                    {item.variant_name_i18n?.["zh-CN"] && <small>规格：{item.variant_name_i18n["zh-CN"]}</small>}
+                  </div>
+                  <span>数量 ×{quantity}</span>
+                </div>
+                <div className="order-detail-price-breakdown">
+                  <span>基础单价</span><strong>{money(baseUnitPrice, currency, locale)}</strong>
+                  {modifiers.map((modifier) => (
+                    <div className="order-detail-modifier" key={modifier.key}>
+                      <span>＋ {modifier.group_name_i18n?.["zh-CN"] ? `${modifier.group_name_i18n["zh-CN"]}：` : ""}{modifier.name_i18n?.["zh-CN"] || modifier.name_i18n?.["en-GB"]}{modifier.count > 1 ? ` ×${modifier.count}` : ""}</span>
+                      <strong>{money(Number(modifier.price_delta || 0) * modifier.count, currency, locale)}</strong>
+                    </div>
+                  ))}
+                  <span>每份合计</span><strong>{money(unitTotal, currency, locale)}</strong>
+                  <span className="line-total-label">本项合计</span><strong className="line-total-value">{money(unitTotal * quantity, currency, locale)}</strong>
+                </div>
+                {item.notes && <div className="order-detail-note">备注：{item.notes}</div>}
               </div>
-              <span style={{ color: "var(--muted)", fontSize: 13 }}>x{item.quantity}</span>
-              <strong>{money(Number(item.unit_price) * item.quantity, currency, locale)}</strong>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="order-detail-totals">
@@ -370,6 +424,10 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
             ))}
           </div>
         )}
+        <div className="order-detail-actions">
+          <button type="button" onClick={printReceipt} disabled={printing}><Printer size={16} /><span>{printing ? "发送中…" : "打印小票"}</span></button>
+          {printFeedback && <span>{printFeedback}</span>}
+        </div>
       </div>
     </div>
   );
@@ -563,14 +621,14 @@ function PrintJobsView({ jobs, locale, onRetry }) {
   );
 }
 
-function MenuAdmin({ menu, locale, currency, onSaved }) {
+function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
   const [selectedCatId, setSelectedCatId] = useState(null);
   const [expandedItemId, setExpandedItemId] = useState(null);
   const [showCatForm, setShowCatForm] = useState(false);
   const [showItemForm, setShowItemForm] = useState(false);
   const [categoryZh, setCategoryZh] = useState("");
   const [categoryEn, setCategoryEn] = useState("");
-  const [newItem, setNewItem] = useState({ nameZh: "", nameEn: "", price: "0", categoryId: "" });
+  const [newItem, setNewItem] = useState({ nameZh: "", nameEn: "", price: "0", categoryId: "", variantPresetId: "" });
 
   const firstCatId = menu.categories[0]?.id;
   const filteredItems = selectedCatId ? menu.items.filter((item) => item.category_id === selectedCatId) : menu.items;
@@ -605,21 +663,29 @@ function MenuAdmin({ menu, locale, currency, onSaved }) {
 
   async function saveItem(event) {
     event.preventDefault();
-    await api("/menu/items", {
+    const item = await api("/menu/items", {
       method: "POST",
       body: JSON.stringify({
         category_id: newItem.categoryId || selectedCatId || firstCatId,
         name_i18n: { "zh-CN": newItem.nameZh, "en-GB": newItem.nameEn || newItem.nameZh },
-        variants: [{ name_i18n: { "zh-CN": "标准", "en-GB": "Standard" }, price: Number(newItem.price) }]
+        variants: newItem.variantPresetId ? [] : [{ name_i18n: { "zh-CN": "标准", "en-GB": "Standard" }, price: Number(newItem.price) }]
       })
     });
-    setNewItem({ nameZh: "", nameEn: "", price: "0", categoryId: "" });
+    for (const presetId of [newItem.variantPresetId].filter(Boolean)) {
+      await api(`/menu/items/${item.id}/apply-option-preset`, {
+        method: "POST",
+        body: JSON.stringify({ preset_id: presetId, replace: true })
+      });
+    }
+    setNewItem({ nameZh: "", nameEn: "", price: "0", categoryId: "", variantPresetId: "" });
     setShowItemForm(false);
     await onSaved();
   }
 
   return (
-    <div className="menu-split">
+    <div className="menu-admin-stack">
+      <OptionPresetsAdmin presets={menu.option_presets ?? []} onSaved={onSaved} onNotify={onNotify} />
+      <div className="menu-split">
       <aside className="menu-sidebar">
         <div className="menu-sidebar-head">
           <span>分类管理</span>
@@ -700,7 +766,11 @@ function MenuAdmin({ menu, locale, currency, onSaved }) {
               </label>
               <label>中文名<input value={newItem.nameZh} onChange={(e) => setNewItem({ ...newItem, nameZh: e.target.value })} required /></label>
               <label>English<input value={newItem.nameEn} onChange={(e) => setNewItem({ ...newItem, nameEn: e.target.value })} /></label>
-              <label>标准价格<input type="number" step="0.01" value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} /></label>
+              {!newItem.variantPresetId && <label>标准价格<input type="number" step="0.01" value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} /></label>}
+              <label>规格预设<select value={newItem.variantPresetId} onChange={(e) => setNewItem({ ...newItem, variantPresetId: e.target.value })}>
+                <option value="">不使用</option>
+                {(menu.option_presets ?? []).filter((preset) => preset.kind === "variants" && preset.active !== false).map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
+              </select></label>
               <button className="primary" type="submit"><Plus size={16} /><span>保存</span></button>
               <button type="button" onClick={() => setShowItemForm(false)}>取消</button>
             </div>
@@ -712,21 +782,24 @@ function MenuAdmin({ menu, locale, currency, onSaved }) {
               key={item.id}
               item={item}
               categories={menu.categories}
+              optionPresets={menu.option_presets ?? []}
               locale={locale}
               currency={currency}
               expanded={expandedItemId === item.id}
               onToggle={() => setExpandedItemId((id) => id === item.id ? null : item.id)}
               onSaved={onSaved}
+              onNotify={onNotify}
             />
           ))}
           {!filteredItems.length && <div className="empty">暂无菜品</div>}
         </div>
       </div>
+      </div>
     </div>
   );
 }
 
-function MenuItemRow({ item, categories, locale, currency, expanded, onToggle, onSaved }) {
+function MenuItemRow({ item, categories, optionPresets, locale, currency, expanded, onToggle, onSaved, onNotify }) {
   const activeVariants = item.variants.filter((v) => v.active !== false);
   const priceSource = activeVariants.length ? activeVariants : item.variants;
   const prices = priceSource.map((v) => Number(v.price));
@@ -736,18 +809,32 @@ function MenuItemRow({ item, categories, locale, currency, expanded, onToggle, o
     ? money(priceMin, currency, locale)
     : `${money(priceMin, currency, locale)} – ${money(priceMax, currency, locale)}`;
 
-  async function disableItem() {
-    await api(`/menu/items/${item.id}`, { method: "DELETE" });
-    await onSaved();
+  const [itemAction, setItemAction] = useState("");
+
+  async function toggleItem() {
+    setItemAction("toggle");
+    try {
+      await api(`/menu/items/${item.id}`, { method: "PATCH", body: JSON.stringify({ active: !item.active }) });
+      await onSaved();
+      onNotify(item.active ? "产品已停用" : "产品已启用");
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setItemAction("");
+    }
   }
 
   async function destroyItem() {
     if (!window.confirm(`永久删除"${labelOf(item.name_i18n, locale)}"？此操作无法恢复，历史订单记录将保留但不再关联该菜品。`)) return;
+    setItemAction("destroy");
     try {
       await api(`/menu/items/${item.id}/destroy`, { method: "DELETE" });
       await onSaved();
+      onNotify("产品已永久删除");
     } catch (err) {
-      alert(err.message);
+      onNotify(err.message);
+    } finally {
+      setItemAction("");
     }
   }
 
@@ -767,15 +854,264 @@ function MenuItemRow({ item, categories, locale, currency, expanded, onToggle, o
           <MenuItemEditor
             item={item}
             categories={categories}
+            optionPresets={optionPresets}
             locale={locale}
             currency={currency}
             onSaved={onSaved}
-            onDisable={disableItem}
+            onNotify={onNotify}
+            onToggleActive={toggleItem}
             onDestroy={destroyItem}
+            itemAction={itemAction}
           />
         </div>
       )}
     </div>
+  );
+}
+
+function OptionPresetsAdmin({ presets, onSaved, onNotify }) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("variants");
+  const [expandedId, setExpandedId] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function createPreset(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const preset = await api("/menu/option-presets", {
+        method: "POST",
+        body: JSON.stringify({ name, kind, payload: [] })
+      });
+      setName("");
+      setShowCreate(false);
+      setExpandedId(preset.id);
+      await onSaved();
+    } catch (caught) {
+      setError(caught.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="option-presets-panel">
+      <div className="option-presets-head">
+        <div>
+          <h2>规格与加料预设库</h2>
+          <p>产品绑定预设后会自动同步；直接修改产品配置时，该类型的绑定会自动断开。</p>
+        </div>
+        <button type="button" onClick={() => setShowCreate((value) => !value)}><Plus size={15} /><span>新建预设</span></button>
+      </div>
+      {showCreate && (
+        <form className="option-preset-create" onSubmit={createPreset}>
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="预设名称，例如：面条大小规格" required />
+          <select value={kind} onChange={(event) => setKind(event.target.value)}>
+            <option value="variants">产品规格</option>
+            <option value="modifiers">加料小项</option>
+          </select>
+          <button className="primary" type="submit" disabled={busy}>创建</button>
+          <button type="button" onClick={() => setShowCreate(false)}>取消</button>
+        </form>
+      )}
+      {error && <div className="inline-error">{error}</div>}
+      <div className="option-preset-list">
+        {presets.map((preset) => (
+          <OptionPresetCard
+            key={preset.id}
+            preset={preset}
+            expanded={expandedId === preset.id}
+            onToggle={() => setExpandedId((id) => id === preset.id ? null : preset.id)}
+            onSaved={onSaved}
+            onNotify={onNotify}
+          />
+        ))}
+        {!presets.length && <div className="empty">暂无规格或加料预设</div>}
+      </div>
+    </section>
+  );
+}
+
+function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify }) {
+  const [name, setName] = useState(preset.name);
+  const [payload, setPayload] = useState(() => structuredClone(preset.payload || []));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setName(preset.name);
+    setPayload(structuredClone(preset.payload || []));
+  }, [preset]);
+
+  function updateRow(index, patch) {
+    setPayload((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  }
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api(`/menu/option-presets/${preset.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name, payload })
+      });
+      await onSaved();
+      onNotify(result.synced_items ? `预设已保存，并同步到 ${result.synced_items} 个产品` : "预设已保存");
+    } catch (caught) {
+      setError(caught.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`删除预设“${preset.name}”？绑定产品会保留当前配置，但不再继续同步。`)) return;
+    await api(`/menu/option-presets/${preset.id}`, { method: "DELETE" });
+    await onSaved();
+    onNotify("预设已删除，相关产品已转为独立配置");
+  }
+
+  function addVariant() {
+    setPayload((current) => [...current, {
+      name_i18n: { "zh-CN": "新规格", "en-GB": "New option" },
+      price: 0,
+      sort_order: current.length,
+      active: true
+    }]);
+  }
+
+  function addGroup() {
+    setPayload((current) => [...current, {
+      name_i18n: { "zh-CN": "加料", "en-GB": "Extras" },
+      min_select: 0,
+      max_select: 5,
+      sort_order: current.length,
+      active: true,
+      modifiers: []
+    }]);
+  }
+
+  function addModifier(groupIndex) {
+    setPayload((current) => current.map((group, index) => index === groupIndex ? {
+      ...group,
+      modifiers: [...(group.modifiers || []), {
+        name_i18n: { "zh-CN": "新选项", "en-GB": "New extra" },
+        price_delta: 0,
+        sort_order: (group.modifiers || []).length,
+        active: true,
+        default_selected: false
+      }]
+    } : group));
+  }
+
+  function updateModifier(groupIndex, modifierIndex, patch) {
+    setPayload((current) => current.map((group, index) => index === groupIndex ? {
+      ...group,
+      modifiers: group.modifiers.map((modifier, childIndex) => childIndex === modifierIndex ? { ...modifier, ...patch } : modifier)
+    } : group));
+  }
+
+  function moveRow(index, direction) {
+    setPayload((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next.map((row, sortOrder) => ({ ...row, sort_order: sortOrder }));
+    });
+  }
+
+  function moveModifier(groupIndex, modifierIndex, direction) {
+    setPayload((current) => current.map((group, index) => {
+      if (index !== groupIndex) return group;
+      const modifiers = [...(group.modifiers || [])];
+      const target = modifierIndex + direction;
+      if (target < 0 || target >= modifiers.length) return group;
+      [modifiers[modifierIndex], modifiers[target]] = [modifiers[target], modifiers[modifierIndex]];
+      return { ...group, modifiers: modifiers.map((modifier, sortOrder) => ({ ...modifier, sort_order: sortOrder })) };
+    }));
+  }
+
+  return (
+    <article className={`option-preset-card${expanded ? " expanded" : ""}`}>
+      <button type="button" className="option-preset-summary" onClick={onToggle}>
+        <ChevronRight size={15} className={expanded ? "rotated" : ""} />
+        <strong>{preset.name}</strong>
+        <span>{preset.kind === "variants" ? "产品规格" : "加料小项"}</span>
+        <em>{(preset.payload || []).length} 项</em>
+      </button>
+      {expanded && (
+        <div className="option-preset-body">
+          <label>预设名称<input value={name} onChange={(event) => setName(event.target.value)} /></label>
+          {preset.kind === "variants" ? (
+            <div className="option-preset-rows">
+              {payload.map((variant, index) => (
+                <div className="option-preset-row" key={index}>
+                  <div className="option-row-order">
+                    <button type="button" title="上移" disabled={index === 0} onClick={() => moveRow(index, -1)}><ChevronUp size={13} /></button>
+                    <button type="button" title="下移" disabled={index === payload.length - 1} onClick={() => moveRow(index, 1)}><ChevronDown size={13} /></button>
+                  </div>
+                  <input value={labelOf(variant.name_i18n, "zh-CN")} onChange={(event) => updateRow(index, { name_i18n: { ...variant.name_i18n, "zh-CN": event.target.value } })} placeholder="中文规格" />
+                  <input value={labelOf(variant.name_i18n, "en-GB")} onChange={(event) => updateRow(index, { name_i18n: { ...variant.name_i18n, "en-GB": event.target.value } })} placeholder="English" />
+                  <input type="number" step="0.01" value={variant.price} onChange={(event) => updateRow(index, { price: Number(event.target.value) })} placeholder="价格" />
+                  <button type="button" onClick={() => setPayload((current) => current.filter((_row, rowIndex) => rowIndex !== index))}><Trash2 size={14} /></button>
+                </div>
+              ))}
+              <button type="button" className="option-preset-add" onClick={addVariant}><Plus size={14} />添加规格</button>
+            </div>
+          ) : (
+            <div className="option-preset-rows">
+              {payload.map((group, groupIndex) => (
+                <div className="option-preset-group" key={groupIndex}>
+                  <div className="option-preset-row group-row">
+                    <div className="option-row-order">
+                      <button type="button" title="上移" disabled={groupIndex === 0} onClick={() => moveRow(groupIndex, -1)}><ChevronUp size={13} /></button>
+                      <button type="button" title="下移" disabled={groupIndex === payload.length - 1} onClick={() => moveRow(groupIndex, 1)}><ChevronDown size={13} /></button>
+                    </div>
+                    <input value={labelOf(group.name_i18n, "zh-CN")} onChange={(event) => updateRow(groupIndex, { name_i18n: { ...group.name_i18n, "zh-CN": event.target.value } })} placeholder="加料组" />
+                    <input value={labelOf(group.name_i18n, "en-GB")} onChange={(event) => updateRow(groupIndex, { name_i18n: { ...group.name_i18n, "en-GB": event.target.value } })} placeholder="English" />
+                    <label>最少<input type="number" min="0" value={group.min_select} onChange={(event) => updateRow(groupIndex, { min_select: Number(event.target.value) })} /></label>
+                    <label>最多<input type="number" min="1" value={group.max_select} onChange={(event) => updateRow(groupIndex, { max_select: Number(event.target.value) })} /></label>
+                    <label className="preset-required-toggle"><input type="checkbox" checked={Number(group.min_select) > 0} onChange={(event) => updateRow(groupIndex, { min_select: event.target.checked ? Math.max(1, Number(group.min_select || 0)) : 0 })} />必选</label>
+                    <button type="button" onClick={() => setPayload((current) => current.filter((_row, index) => index !== groupIndex))}><Trash2 size={14} /></button>
+                  </div>
+                  {(group.modifiers || []).map((modifier, modifierIndex) => (
+                    <div className="option-preset-row child-row" key={modifierIndex}>
+                      <div className="option-row-order">
+                        <button type="button" title="上移" disabled={modifierIndex === 0} onClick={() => moveModifier(groupIndex, modifierIndex, -1)}><ChevronUp size={13} /></button>
+                        <button type="button" title="下移" disabled={modifierIndex === group.modifiers.length - 1} onClick={() => moveModifier(groupIndex, modifierIndex, 1)}><ChevronDown size={13} /></button>
+                      </div>
+                      <input value={labelOf(modifier.name_i18n, "zh-CN")} onChange={(event) => updateModifier(groupIndex, modifierIndex, { name_i18n: { ...modifier.name_i18n, "zh-CN": event.target.value } })} placeholder="小料名称" />
+                      <input value={labelOf(modifier.name_i18n, "en-GB")} onChange={(event) => updateModifier(groupIndex, modifierIndex, { name_i18n: { ...modifier.name_i18n, "en-GB": event.target.value } })} placeholder="English" />
+                      <input type="number" step="0.01" value={modifier.price_delta} onChange={(event) => updateModifier(groupIndex, modifierIndex, { price_delta: Number(event.target.value) })} placeholder="加价" />
+                      <label className="preset-default-toggle"><input type="checkbox" checked={modifier.default_selected === true} onChange={(event) => {
+                        const checked = event.target.checked;
+                        if (checked && Number(group.max_select) === 1) {
+                          updateRow(groupIndex, { modifiers: group.modifiers.map((entry, index) => ({ ...entry, default_selected: index === modifierIndex })) });
+                        } else {
+                          updateModifier(groupIndex, modifierIndex, { default_selected: checked });
+                        }
+                      }} />默认</label>
+                      <button type="button" onClick={() => updateRow(groupIndex, { modifiers: group.modifiers.filter((_modifier, index) => index !== modifierIndex) })}><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                  <button type="button" className="option-preset-add child-add" onClick={() => addModifier(groupIndex)}><Plus size={14} />添加小料</button>
+                </div>
+              ))}
+              {!payload.length && <button type="button" className="option-preset-add" onClick={addGroup}><Plus size={14} />添加加料组模板</button>}
+            </div>
+          )}
+          {error && <div className="inline-error">{error}</div>}
+          <div className="option-preset-actions">
+            <button className="primary" type="button" onClick={save} disabled={busy}><Save size={14} />保存预设</button>
+            <button className="danger" type="button" onClick={remove}><Trash2 size={14} />删除预设</button>
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -787,7 +1123,7 @@ function CategoryEditor({ category, locale, onSaved }) {
     active: category.active
   });
 
-  const save = useCallback(async (overrides = {}) => {
+  const save = useCallback(async (overrides = {}, refresh = true) => {
     const data = { ...draft, ...overrides };
     setDraft(data);
     await api(`/menu/categories/${category.id}`, {
@@ -798,7 +1134,7 @@ function CategoryEditor({ category, locale, onSaved }) {
         active: data.active
       })
     });
-    await onSaved();
+    if (refresh) await onSaved();
   }, [draft, category.id, onSaved]);
 
   return (
@@ -946,7 +1282,131 @@ function NotePresetsAdmin({ presets, onSaved }) {
   );
 }
 
-function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable, onDestroy }) {
+function PresetControls({ item, kind, presets, currentPresetId, onSaved, onNotify }) {
+  const available = presets.filter((preset) => preset.kind === kind && preset.active !== false);
+  const [presetId, setPresetId] = useState(currentPresetId || "");
+  const [busy, setBusy] = useState(false);
+  const boundPreset = available.find((preset) => preset.id === currentPresetId);
+
+  useEffect(() => {
+    setPresetId(currentPresetId || "");
+  }, [currentPresetId, presets]);
+
+  async function applyPreset() {
+    if (!presetId) return;
+    const preset = available.find((entry) => entry.id === presetId);
+    if (!window.confirm(`绑定“${preset?.name || "该预设"}”并替换当前${kind === "variants" ? "规格" : "加料小项"}？以后修改该预设时，此产品会自动同步。`)) return;
+    setBusy(true);
+    try {
+      await api(`/menu/items/${item.id}/apply-option-preset`, {
+        method: "POST",
+        body: JSON.stringify({ preset_id: presetId, replace: true })
+      });
+      await onSaved();
+      onNotify(`已绑定预设“${preset?.name}”`);
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAsPreset() {
+    const name = window.prompt(`为当前${kind === "variants" ? "产品规格" : "加料小项"}输入新预设名称：`);
+    if (!name?.trim()) return;
+    setBusy(true);
+    try {
+      await api(`/menu/items/${item.id}/option-presets`, {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim(), kind })
+      });
+      await onSaved();
+      onNotify(`已保存并绑定新预设“${name.trim()}”`);
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="item-preset-controls">
+      <span className="preset-control-label">预设</span>
+      <select value={presetId} onChange={(event) => setPresetId(event.target.value)} disabled={busy || !available.length}>
+        <option value="">{available.length ? "选择要绑定的预设" : "暂无预设"}</option>
+        {available.map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
+      </select>
+      <button type="button" onClick={applyPreset} disabled={busy || !presetId}>绑定预设</button>
+      <button type="button" onClick={saveAsPreset} disabled={busy}>保存当前为预设</button>
+      <span className={`preset-binding-status${boundPreset ? " bound" : " detached"}`}>
+        {boundPreset ? `已绑定：${boundPreset.name}` : "独立配置"}
+      </span>
+    </div>
+  );
+}
+
+function ModifierGroupPresetControls({ group, presets, onSaved, onNotify }) {
+  const available = presets.filter((preset) => preset.kind === "modifiers" && preset.active !== false && (preset.payload || []).length === 1);
+  const [presetId, setPresetId] = useState(group.preset_id || "");
+  const [busy, setBusy] = useState(false);
+  const boundPreset = available.find((preset) => preset.id === group.preset_id);
+
+  useEffect(() => setPresetId(group.preset_id || ""), [group.preset_id, presets]);
+
+  async function applyPreset() {
+    if (!presetId) return;
+    const preset = available.find((entry) => entry.id === presetId);
+    if (!window.confirm(`将加料组“${labelOf(group.name_i18n, "zh-CN")}”绑定到“${preset?.name}”？当前组设置和选项会被替换。`)) return;
+    setBusy(true);
+    try {
+      await api(`/menu/modifier-groups/${group.id}/apply-option-preset`, {
+        method: "POST",
+        body: JSON.stringify({ preset_id: presetId })
+      });
+      await onSaved();
+      onNotify(`加料组已绑定预设“${preset?.name}”`);
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAsPreset() {
+    const name = window.prompt("为当前加料组输入新预设名称：");
+    if (!name?.trim()) return;
+    setBusy(true);
+    try {
+      await api(`/menu/modifier-groups/${group.id}/option-presets`, {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim() })
+      });
+      await onSaved();
+      onNotify(`已保存并绑定新预设“${name.trim()}”`);
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="item-preset-controls modifier-group-preset-controls">
+      <span className="preset-control-label">组预设</span>
+      <select value={presetId} onChange={(event) => setPresetId(event.target.value)} disabled={busy || !available.length}>
+        <option value="">{available.length ? "选择预设" : "暂无组预设"}</option>
+        {available.map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
+      </select>
+      <button type="button" onClick={applyPreset} disabled={busy || !presetId}>绑定</button>
+      <button type="button" onClick={saveAsPreset} disabled={busy}>保存为预设</button>
+      <span className={`preset-binding-status${boundPreset ? " bound" : " detached"}`}>
+        {boundPreset ? `已绑定：${boundPreset.name}` : "独立配置"}
+      </span>
+    </div>
+  );
+}
+
+function MenuItemEditor({ item, categories, optionPresets, locale, currency, onSaved, onNotify, onToggleActive, onDestroy, itemAction }) {
   const [draft, setDraft] = useState({
     zh: labelOf(item.name_i18n, "zh-CN"),
     en: labelOf(item.name_i18n, "en-GB"),
@@ -989,6 +1449,7 @@ function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable
     });
     setVariantDraft({ zh: "", en: "", price: "0" });
     await onSaved();
+    onNotify(item.variant_preset_id ? "规格已添加，已断开规格预设绑定" : "规格已添加");
   }
 
   async function addGroup(event) {
@@ -1005,6 +1466,20 @@ function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable
     });
     setGroupDraft({ zh: "加料", en: "Extras", min: 0, max: 1 });
     await onSaved();
+    onNotify(item.modifier_preset_id ? "加料组已添加，已断开加料预设绑定" : "加料组已添加");
+  }
+
+  async function moveVariant(index, direction) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= item.variants.length) return;
+    const current = item.variants[index];
+    const target = item.variants[targetIndex];
+    await Promise.all([
+      api(`/menu/items/${item.id}/variants/${current.id}`, { method: "PATCH", body: JSON.stringify({ sort_order: targetIndex }) }),
+      api(`/menu/items/${item.id}/variants/${target.id}`, { method: "PATCH", body: JSON.stringify({ sort_order: index }) })
+    ]);
+    await onSaved();
+    onNotify(item.variant_preset_id ? "规格顺序已更新，已断开规格预设绑定" : "规格顺序已更新");
   }
 
   return (
@@ -1018,20 +1493,35 @@ function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable
         <label>厨房分组<input value={draft.kitchen_group} onChange={(e) => setDraft({ ...draft, kitchen_group: e.target.value })} onBlur={() => autoSave("kitchen_group", draft.kitchen_group)} /></label>
         <label>排序<input type="number" value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} onBlur={() => autoSave("sort_order", draft.sort_order)} /></label>
         <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); saveItem({ active: v }); }} />上架</label>
-        <button type="button" onClick={onDisable}><Trash2 size={16} /><span>{item.active ? "下架" : "已下架"}</span></button>
+        <button className="action-toggle" type="button" onClick={onToggleActive} disabled={Boolean(itemAction)}>
+          <Power size={16} /><span>{itemAction === "toggle" ? "处理中…" : item.active ? "停用产品" : "启用产品"}</span>
+        </button>
         {!item.active && onDestroy && (
-          <button type="button" className="danger" onClick={onDestroy}><Trash2 size={16} /><span>永久删除</span></button>
+          <button type="button" className="action-delete" onClick={onDestroy} disabled={Boolean(itemAction)}><Trash2 size={16} /><span>{itemAction === "destroy" ? "删除中…" : "永久删除"}</span></button>
         )}
       </div>
 
-      <div className="editor-subsection">
-        <h3>规格价格</h3>
+      <div className="editor-subsection variants-editor-section">
+        <div className="editor-subsection-title">
+          <div className="editor-subsection-heading-copy">
+            <span className="editor-section-step">1</span>
+            <div>
+              <h3>产品规格 <span className="editor-section-count">{item.variants.length} 项</span></h3>
+              <p>设置不同份量或尺寸，以及每个规格的销售价格</p>
+            </div>
+          </div>
+          <div className="section-preset-bar">
+            <PresetControls item={item} kind="variants" presets={optionPresets} currentPresetId={item.variant_preset_id} onSaved={onSaved} onNotify={onNotify} />
+          </div>
+        </div>
         <div className="item-sub-list">
-          {item.variants.map((variant) => (
-            <VariantEditor key={variant.id} item={item} variant={variant} locale={locale} currency={currency} onSaved={onSaved} />
+          {!item.variants.length && <div className="editor-empty-state">还没有规格，请在下方添加，或直接应用一个规格预设。</div>}
+          {item.variants.map((variant, index) => (
+            <VariantEditor key={variant.id} index={index} item={item} variant={variant} locale={locale} currency={currency} onSaved={onSaved} onNotify={onNotify} wasPresetBound={Boolean(item.variant_preset_id)} onMove={moveVariant} total={item.variants.length} />
           ))}
         </div>
         <form className="item-sub-add" onSubmit={addVariant}>
+          <span className="sub-add-label">新规格</span>
           <input className="sub-field" placeholder="规格名" value={variantDraft.zh} onChange={(event) => setVariantDraft({ ...variantDraft, zh: event.target.value })} required />
           <input className="sub-field" placeholder="English" value={variantDraft.en} onChange={(event) => setVariantDraft({ ...variantDraft, en: event.target.value })} />
           <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="价格" value={variantDraft.price} onChange={(event) => setVariantDraft({ ...variantDraft, price: event.target.value })} />
@@ -1039,16 +1529,29 @@ function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable
         </form>
       </div>
 
-      <div className="editor-subsection">
-        <h3>小项 / 加料组</h3>
-        {item.modifier_groups.map((group) => (
-          <ModifierGroupEditor key={group.id} group={group} locale={locale} currency={currency} onSaved={onSaved} />
+      <div className="editor-subsection modifiers-editor-section">
+        <div className="editor-subsection-title">
+          <div className="editor-subsection-heading-copy">
+            <span className="editor-section-step">2</span>
+            <div>
+              <h3>加料与小项 <span className="editor-section-count">{item.modifier_groups.length} 组</span></h3>
+              <p>先建立分组，再在组内配置顾客可以选择的加料选项</p>
+            </div>
+          </div>
+        </div>
+        <div className="modifier-groups-list">
+        {!item.modifier_groups.length && <div className="editor-empty-state">还没有加料组，请先创建分组，再向组内添加选项。</div>}
+        {item.modifier_groups.map((group, index) => (
+          <ModifierGroupEditor key={group.id} index={index} group={group} presets={optionPresets} locale={locale} currency={currency} onSaved={onSaved} onNotify={onNotify} wasPresetBound={Boolean(group.preset_id || item.modifier_preset_id)} />
         ))}
+        </div>
         <form className="item-sub-add" onSubmit={addGroup}>
+          <span className="sub-add-label">新加料组</span>
           <input className="sub-field" placeholder="组名" value={groupDraft.zh} onChange={(event) => setGroupDraft({ ...groupDraft, zh: event.target.value })} />
           <input className="sub-field" placeholder="English" value={groupDraft.en} onChange={(event) => setGroupDraft({ ...groupDraft, en: event.target.value })} />
           <label className="sub-num-label">最少<input className="sub-field sub-field-num" type="number" min="0" value={groupDraft.min} onChange={(event) => setGroupDraft({ ...groupDraft, min: event.target.value })} /></label>
           <label className="sub-num-label">最多<input className="sub-field sub-field-num" type="number" min="1" value={groupDraft.max} onChange={(event) => setGroupDraft({ ...groupDraft, max: event.target.value })} /></label>
+          <label className="checkbox group-required-toggle"><input type="checkbox" checked={Number(groupDraft.min) > 0} onChange={(event) => setGroupDraft({ ...groupDraft, min: event.target.checked ? Math.max(1, Number(groupDraft.min || 0)) : 0 })} />必选组</label>
           <button type="submit"><Plus size={14} /><span>添加小项组</span></button>
         </form>
       </div>
@@ -1056,7 +1559,7 @@ function MenuItemEditor({ item, categories, locale, currency, onSaved, onDisable
   );
 }
 
-function VariantEditor({ item, variant, locale, currency, onSaved }) {
+function VariantEditor({ item, variant, index, locale, currency, onSaved, onNotify, wasPresetBound, onMove, total }) {
   const [draft, setDraft] = useState({
     zh: labelOf(variant.name_i18n, "zh-CN"),
     en: labelOf(variant.name_i18n, "en-GB"),
@@ -1064,8 +1567,9 @@ function VariantEditor({ item, variant, locale, currency, onSaved }) {
     sort_order: variant.sort_order ?? 0,
     active: variant.active
   });
+  const [action, setAction] = useState("");
 
-  const save = useCallback(async (overrides = {}) => {
+  const save = useCallback(async (overrides = {}, refresh = true) => {
     const data = { ...draft, ...overrides };
     setDraft(data);
     await api(`/menu/items/${item.id}/variants/${variant.id}`, {
@@ -1077,22 +1581,46 @@ function VariantEditor({ item, variant, locale, currency, onSaved }) {
         active: data.active
       })
     });
-    await onSaved();
+    if (refresh) await onSaved();
   }, [draft, item.id, variant.id, onSaved]);
+
+  async function runVariantAction(kind, operation, successText) {
+    setAction(kind);
+    try {
+      await operation();
+      await onSaved();
+      onNotify(`${successText}${wasPresetBound ? "，已断开规格预设绑定" : ""}`);
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setAction("");
+    }
+  }
+
+  function destroyVariant() {
+    if (!window.confirm(`永久删除规格“${draft.zh}”？历史订单中的规格名称和价格仍会保留。`)) return;
+    runVariantAction("destroy", () => api(`/menu/items/${item.id}/variants/${variant.id}/destroy`, { method: "DELETE" }), "规格已永久删除");
+  }
 
   return (
     <div className="item-sub-row">
+      <span className="sub-row-index">{index + 1}</span>
+      <div className="sub-row-order">
+        <button type="button" title="上移" disabled={index === 0 || Boolean(action)} onClick={() => onMove(index, -1)}><ChevronUp size={13} /></button>
+        <button type="button" title="下移" disabled={index === total - 1 || Boolean(action)} onClick={() => onMove(index, 1)}><ChevronDown size={13} /></button>
+      </div>
       <input className="sub-field sub-field-name" placeholder="名称" value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => save({ zh: draft.zh })} />
       <input className="sub-field sub-field-name" placeholder="English" value={draft.en} onChange={(e) => setDraft({ ...draft, en: e.target.value })} onBlur={() => save({ en: draft.en })} />
       <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="价格" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} onBlur={() => save({ price: draft.price })} />
       <span className="sub-price-display muted">{money(draft.price, currency, locale)}</span>
-      <label className="checkbox sub-active"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); save({ active: v }); }} />启用</label>
-      <button type="button" onClick={async () => { await api(`/menu/items/${item.id}/variants/${variant.id}`, { method: "DELETE" }); await onSaved(); }}><Trash2 size={14} /></button>
+      <button className="action-save" type="button" disabled={Boolean(action)} onClick={() => runVariantAction("save", () => save({}, false), "规格已保存")}><Save size={14} /><span>{action === "save" ? "保存中…" : "保存"}</span></button>
+      <button className="action-toggle" type="button" disabled={Boolean(action)} onClick={() => runVariantAction("toggle", () => save({ active: !draft.active }, false), draft.active ? "规格已停用" : "规格已启用")}><Power size={14} /><span>{action === "toggle" ? "处理中…" : draft.active ? "停用" : "启用"}</span></button>
+      <button className="action-delete" type="button" disabled={Boolean(action)} onClick={destroyVariant}><Trash2 size={14} /><span>{action === "destroy" ? "删除中…" : "删除"}</span></button>
     </div>
   );
 }
 
-function ModifierGroupEditor({ group, locale, currency, onSaved }) {
+function ModifierGroupEditor({ group, index, presets, locale, currency, onSaved, onNotify, wasPresetBound }) {
   const [draft, setDraft] = useState({
     zh: labelOf(group.name_i18n, "zh-CN"),
     en: labelOf(group.name_i18n, "en-GB"),
@@ -1100,19 +1628,41 @@ function ModifierGroupEditor({ group, locale, currency, onSaved }) {
     max_select: group.max_select,
     active: group.active
   });
-  const [modifierDraft, setModifierDraft] = useState({ zh: "", en: "", price: "0" });
+  const [modifierDraft, setModifierDraft] = useState({ zh: "", en: "", price: "0", default_selected: false });
+  const [expanded, setExpanded] = useState(true);
+  const [action, setAction] = useState("");
 
-  async function saveGroup() {
+  async function saveGroup(refresh = true, overrides = {}) {
+    const data = { ...draft, ...overrides };
+    setDraft(data);
     await api(`/menu/modifier-groups/${group.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name_i18n: { "zh-CN": draft.zh, "en-GB": draft.en || draft.zh },
-        min_select: Number(draft.min_select),
-        max_select: Number(draft.max_select),
-        active: draft.active
+        name_i18n: { "zh-CN": data.zh, "en-GB": data.en || data.zh },
+        min_select: Number(data.min_select),
+        max_select: Number(data.max_select),
+        active: data.active
       })
     });
-    await onSaved();
+    if (refresh) await onSaved();
+  }
+
+  async function runGroupAction(kind, operation, successText) {
+    setAction(kind);
+    try {
+      await operation();
+      await onSaved();
+      onNotify(`${successText}${wasPresetBound ? "，已断开加料预设绑定" : ""}`);
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setAction("");
+    }
+  }
+
+  function destroyGroup() {
+    if (!window.confirm(`永久删除整个加料组“${draft.zh}”及其中 ${group.modifiers.length} 个选项？此操作无法恢复。`)) return;
+    runGroupAction("destroy", () => api(`/menu/modifier-groups/${group.id}/destroy`, { method: "DELETE" }), "整个加料组已永久删除");
   }
 
   async function addModifier(event) {
@@ -1122,77 +1672,134 @@ function ModifierGroupEditor({ group, locale, currency, onSaved }) {
       body: JSON.stringify({
         name_i18n: { "zh-CN": modifierDraft.zh, "en-GB": modifierDraft.en || modifierDraft.zh },
         price_delta: Number(modifierDraft.price),
-        sort_order: group.modifiers.length
+        sort_order: group.modifiers.length,
+        default_selected: modifierDraft.default_selected
       })
     });
-    setModifierDraft({ zh: "", en: "", price: "0" });
+    setModifierDraft({ zh: "", en: "", price: "0", default_selected: false });
     await onSaved();
+    onNotify(wasPresetBound ? "加料已添加，已断开加料预设绑定" : "加料已添加");
+  }
+
+  async function moveModifier(index, direction) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= group.modifiers.length) return;
+    const current = group.modifiers[index];
+    const target = group.modifiers[targetIndex];
+    await Promise.all([
+      api(`/menu/modifiers/${current.id}`, { method: "PATCH", body: JSON.stringify({ sort_order: targetIndex }) }),
+      api(`/menu/modifiers/${target.id}`, { method: "PATCH", body: JSON.stringify({ sort_order: index }) })
+    ]);
+    await onSaved();
+    onNotify(wasPresetBound ? "加料顺序已更新，已断开组预设绑定" : "加料顺序已更新");
   }
 
   return (
-    <div className="modifier-group-editor">
+    <div className={`modifier-group-editor${expanded ? " expanded" : ""}`}>
+      <div className="modifier-group-summary">
+        <button className="modifier-group-toggle" type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+          {expanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+          <span className="modifier-group-index">组 {index + 1}</span>
+          <span className="modifier-group-name">{draft.zh || "未命名加料组"}</span>
+          <span className="modifier-group-rule">{Number(draft.min_select) > 0 ? "必选" : "可选"} · {Number(draft.max_select) === 1 ? "单选" : `最多 ${draft.max_select} 项`} · {group.modifiers.length} 个选项</span>
+        </button>
+        <ModifierGroupPresetControls group={group} presets={presets} onSaved={onSaved} onNotify={onNotify} />
+        <div className="item-sub-group-actions">
+          <button className="action-save" type="button" disabled={Boolean(action)} onClick={() => runGroupAction("save", () => saveGroup(false), "加料组已保存")}><Save size={14} /><span>{action === "save" ? "保存中…" : "保存组"}</span></button>
+          <button className="action-toggle" type="button" disabled={Boolean(action)} onClick={() => runGroupAction("toggle", () => saveGroup(false, { active: !draft.active }), draft.active ? "加料组已停用" : "加料组已启用")}><Power size={14} /><span>{action === "toggle" ? "处理中…" : draft.active ? "停用" : "启用"}</span></button>
+          <button className="action-delete" type="button" disabled={Boolean(action)} onClick={destroyGroup}><Trash2 size={14} /><span>{action === "destroy" ? "删除中…" : "删除整组"}</span></button>
+        </div>
+      </div>
+      {expanded && <div className="modifier-group-body">
       <div className="item-sub-group-head">
+        <span className="group-settings-label">分组设置</span>
         <div className="item-sub-group-inputs">
           <input className="sub-field sub-field-name" placeholder="组名" value={draft.zh} onChange={(event) => setDraft({ ...draft, zh: event.target.value })} />
           <input className="sub-field sub-field-name" placeholder="English" value={draft.en} onChange={(event) => setDraft({ ...draft, en: event.target.value })} />
           <label className="sub-num-label">最少<input className="sub-field sub-field-num" type="number" min="0" value={draft.min_select} onChange={(event) => setDraft({ ...draft, min_select: event.target.value })} /></label>
           <label className="sub-num-label">最多<input className="sub-field sub-field-num" type="number" min="1" value={draft.max_select} onChange={(event) => setDraft({ ...draft, max_select: event.target.value })} /></label>
+          <label className="checkbox group-required-toggle"><input type="checkbox" checked={Number(draft.min_select) > 0} onChange={(event) => setDraft({ ...draft, min_select: event.target.checked ? Math.max(1, Number(draft.min_select || 0)) : 0 })} />必选组</label>
           <span className="muted sub-price-display">{Number(draft.min_select) > 0 ? "必选" : "可选"} · {Number(draft.max_select) === 1 ? "单选" : "多选"}</span>
-          <label className="checkbox sub-active"><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} />启用</label>
-        </div>
-        <div className="item-sub-group-actions">
-          <button type="button" onClick={saveGroup}><Save size={14} /><span>保存</span></button>
-          <button type="button" onClick={async () => {
-            if (!window.confirm(`停用加料组"${labelOf(group.name_i18n, locale)}"？所有选项也会同时停用。`)) return;
-            await api(`/menu/modifier-groups/${group.id}`, { method: "DELETE" });
-            await onSaved();
-          }}><Trash2 size={14} /><span>停用组</span></button>
+          <span className={`item-badge${draft.active ? " badge-active" : " badge-inactive"}`}>{draft.active ? "启用中" : "已停用"}</span>
         </div>
       </div>
+      <div className="group-options-label"><span>组内选项</span><small>{group.modifiers.length} 项</small></div>
       <div className="item-sub-group-modifiers">
-        {group.modifiers.map((modifier) => (
-          <ModifierEditor key={modifier.id} modifier={modifier} locale={locale} currency={currency} onSaved={onSaved} />
+        {group.modifiers.map((modifier, modifierIndex) => (
+          <ModifierEditor key={modifier.id} index={modifierIndex} modifier={modifier} locale={locale} currency={currency} onSaved={onSaved} onNotify={onNotify} wasPresetBound={wasPresetBound} onMove={moveModifier} total={group.modifiers.length} />
         ))}
       </div>
       <form className="item-sub-add" onSubmit={addModifier}>
+        <span className="sub-add-label">新选项</span>
         <input className="sub-field" placeholder="选项名" value={modifierDraft.zh} onChange={(event) => setModifierDraft({ ...modifierDraft, zh: event.target.value })} required />
         <input className="sub-field" placeholder="English" value={modifierDraft.en} onChange={(event) => setModifierDraft({ ...modifierDraft, en: event.target.value })} />
         <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="加价" value={modifierDraft.price} onChange={(event) => setModifierDraft({ ...modifierDraft, price: event.target.value })} />
+        <label className="checkbox modifier-default-new"><input type="checkbox" checked={modifierDraft.default_selected} onChange={(event) => setModifierDraft({ ...modifierDraft, default_selected: event.target.checked })} />默认选中</label>
         <button type="submit"><Plus size={14} /><span>添加选项</span></button>
       </form>
+      </div>}
     </div>
   );
 }
 
-function ModifierEditor({ modifier, locale, currency, onSaved }) {
+function ModifierEditor({ modifier, index, locale, currency, onSaved, onNotify, wasPresetBound, onMove, total }) {
   const [draft, setDraft] = useState({
     zh: labelOf(modifier.name_i18n, "zh-CN"),
     en: labelOf(modifier.name_i18n, "en-GB"),
     price_delta: modifier.price_delta,
-    active: modifier.active
+    active: modifier.active,
+    default_selected: modifier.default_selected === true
   });
+  const [action, setAction] = useState("");
 
-  async function save() {
+  async function save(refresh = true, overrides = {}) {
+    const data = { ...draft, ...overrides };
+    setDraft(data);
     await api(`/menu/modifiers/${modifier.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name_i18n: { "zh-CN": draft.zh, "en-GB": draft.en || draft.zh },
-        price_delta: Number(draft.price_delta),
-        active: draft.active
+        name_i18n: { "zh-CN": data.zh, "en-GB": data.en || data.zh },
+        price_delta: Number(data.price_delta),
+        active: data.active,
+        default_selected: data.default_selected
       })
     });
-    await onSaved();
+    if (refresh) await onSaved();
+  }
+
+  async function runModifierAction(kind, operation, successText) {
+    setAction(kind);
+    try {
+      await operation();
+      await onSaved();
+      onNotify(`${successText}${wasPresetBound ? "，已断开加料预设绑定" : ""}`);
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setAction("");
+    }
+  }
+
+  function destroyModifier() {
+    if (!window.confirm(`永久删除加料“${draft.zh}”？此操作无法恢复。`)) return;
+    runModifierAction("destroy", () => api(`/menu/modifiers/${modifier.id}/destroy`, { method: "DELETE" }), "加料已永久删除");
   }
 
   return (
     <div className="item-sub-row modifier-option">
+      <span className="sub-row-index">{index + 1}</span>
+      <div className="sub-row-order">
+        <button type="button" title="上移" disabled={index === 0 || Boolean(action)} onClick={() => onMove(index, -1)}><ChevronUp size={13} /></button>
+        <button type="button" title="下移" disabled={index === total - 1 || Boolean(action)} onClick={() => onMove(index, 1)}><ChevronDown size={13} /></button>
+      </div>
       <input className="sub-field sub-field-name" placeholder="选项" value={draft.zh} onChange={(event) => setDraft({ ...draft, zh: event.target.value })} />
       <input className="sub-field sub-field-name" placeholder="English" value={draft.en} onChange={(event) => setDraft({ ...draft, en: event.target.value })} />
       <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="加价" value={draft.price_delta} onChange={(event) => setDraft({ ...draft, price_delta: event.target.value })} />
       <span className="sub-price-display muted">{money(draft.price_delta, currency, locale)}</span>
-      <label className="checkbox sub-active"><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} />启用</label>
-      <button type="button" onClick={save}><Save size={14} /></button>
-      <button type="button" onClick={async () => { await api(`/menu/modifiers/${modifier.id}`, { method: "DELETE" }); await onSaved(); }}><Trash2 size={14} /></button>
+      <label className="checkbox modifier-default-toggle"><input type="checkbox" checked={draft.default_selected} onChange={(event) => setDraft({ ...draft, default_selected: event.target.checked })} />默认</label>
+      <button className="action-save" type="button" disabled={Boolean(action)} onClick={() => runModifierAction("save", () => save(false), "加料已保存")}><Save size={14} /><span>{action === "save" ? "保存中…" : "保存"}</span></button>
+      <button className="action-toggle" type="button" disabled={Boolean(action)} onClick={() => runModifierAction("toggle", () => save(false, { active: !draft.active }), draft.active ? "加料已停用" : "加料已启用")}><Power size={14} /><span>{action === "toggle" ? "处理中…" : draft.active ? "停用" : "启用"}</span></button>
+      <button className="action-delete" type="button" disabled={Boolean(action)} onClick={destroyModifier}><Trash2 size={14} /><span>{action === "destroy" ? "删除中…" : "删除"}</span></button>
     </div>
   );
 }
@@ -1208,6 +1815,52 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [auditCollapsed, setAuditCollapsed] = useState(true);
+  const [auditTimeFilter, setAuditTimeFilter] = useState("all");
+  const [auditUserFilter, setAuditUserFilter] = useState("all");
+  const [auditActionFilter, setAuditActionFilter] = useState("all");
+  const [auditFrom, setAuditFrom] = useState(() => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T00:00`;
+  });
+  const [auditTo, setAuditTo] = useState(() => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  });
+
+  const auditUsers = [...new Map((auditLogs || []).map((log) => [
+    log.actor_id || "system",
+    log.actor_name || "System"
+  ])).entries()].sort((a, b) => a[1].localeCompare(b[1], locale));
+  const auditActions = [...new Set((auditLogs || []).map((log) => log.action).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+
+  const filteredAuditLogs = (auditLogs || []).filter((log) => {
+    const actorKey = log.actor_id || "system";
+    if (auditUserFilter !== "all" && actorKey !== auditUserFilter) return false;
+    if (auditActionFilter !== "all" && log.action !== auditActionFilter) return false;
+    if (auditTimeFilter === "all") return true;
+    const createdAt = new Date(log.created_at);
+    if (auditTimeFilter === "custom") {
+      const from = auditFrom ? new Date(auditFrom) : null;
+      const to = auditTo ? new Date(auditTo) : null;
+      if (from && createdAt < from) return false;
+      if (to && createdAt > to) return false;
+      return true;
+    }
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    if (auditTimeFilter === "today") return createdAt >= todayStart && createdAt < tomorrowStart;
+    if (auditTimeFilter === "yesterday") {
+      const yesterdayStart = new Date(todayStart);
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+      return createdAt >= yesterdayStart && createdAt < todayStart;
+    }
+    const days = auditTimeFilter === "7d" ? 7 : 30;
+    return createdAt >= new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  });
 
   async function loadReport(event) {
     event.preventDefault();
@@ -1333,11 +1986,33 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
         )}
       </section>
       <section className="wide-list dashboard-list">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>审计日志</h2>
-          <button className="link-button" onClick={() => setAuditCollapsed((s) => !s)}>{auditCollapsed ? '显示更多' : '收起'}</button>
+        <div className="audit-log-head">
+          <div><h2>审计日志</h2><span>{filteredAuditLogs.length} 条</span></div>
+          <div className="audit-log-filters">
+            <label>时间<select value={auditTimeFilter} onChange={(event) => { setAuditTimeFilter(event.target.value); setAuditCollapsed(true); }}>
+              <option value="all">全部时间</option>
+              <option value="today">今天</option>
+              <option value="yesterday">昨天</option>
+              <option value="7d">近 7 天</option>
+              <option value="30d">近 30 天</option>
+              <option value="custom">自定义范围</option>
+            </select></label>
+            {auditTimeFilter === "custom" && <>
+              <label>开始时间<input type="datetime-local" value={auditFrom} max={auditTo || undefined} onChange={(event) => { setAuditFrom(event.target.value); setAuditCollapsed(true); }} /></label>
+              <label>结束时间<input type="datetime-local" value={auditTo} min={auditFrom || undefined} onChange={(event) => { setAuditTo(event.target.value); setAuditCollapsed(true); }} /></label>
+            </>}
+            <label>用户<select value={auditUserFilter} onChange={(event) => { setAuditUserFilter(event.target.value); setAuditCollapsed(true); }}>
+              <option value="all">全部用户</option>
+              {auditUsers.map(([id, name]) => <option value={id} key={id}>{name}</option>)}
+            </select></label>
+            <label>具体操作<select className="audit-action-select" value={auditActionFilter} onChange={(event) => { setAuditActionFilter(event.target.value); setAuditCollapsed(true); }}>
+              <option value="all">全部操作</option>
+              {auditActions.map((action) => <option value={action} key={action}>{action}</option>)}
+            </select></label>
+            {filteredAuditLogs.length > 6 && <button className="link-button" onClick={() => setAuditCollapsed((s) => !s)}>{auditCollapsed ? '显示更多' : '收起'}</button>}
+          </div>
         </div>
-        {(auditLogs || []).slice(0, auditCollapsed ? 6 : 100).map((log) => (
+        {filteredAuditLogs.slice(0, auditCollapsed ? 6 : 100).map((log) => (
           <div className="list-row audit-row" key={log.id}>
             <span>{log.action}</span>
             <span>{log.actor_name || "System"}</span>
@@ -1345,7 +2020,7 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
             <small>{new Date(log.created_at).toLocaleString(locale)}</small>
           </div>
         ))}
-        {!(auditLogs || []).length && <div className="empty">暂无审计记录</div>}
+        {!filteredAuditLogs.length && <div className="empty">当前筛选条件下暂无审计记录</div>}
       </section>
     </div>
   );
@@ -1788,10 +2463,49 @@ echo HELLO > ${profile.device_path || "/dev/rfcomm0"}   # 打印机出纸即可�
 }
 
 function SettingsView({ settings, setSettings, onSaved }) {
+  const originalProtectedSettings = useRef({
+    tax: Number(settings.tax_rate),
+    service: Number(settings.service_charge_rate),
+    pricesIncludeTax: Boolean(settings.prices_include_tax),
+    showTaxOnReceipt: Boolean(settings.show_tax_on_receipt)
+  });
+  const [confirmName, setConfirmName] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const protectedSettingsChanged = Number(settings.tax_rate) !== originalProtectedSettings.current.tax
+    || Number(settings.service_charge_rate) !== originalProtectedSettings.current.service
+    || Boolean(settings.prices_include_tax) !== originalProtectedSettings.current.pricesIncludeTax
+    || Boolean(settings.show_tax_on_receipt) !== originalProtectedSettings.current.showTaxOnReceipt;
+
   async function save(event) {
     event.preventDefault();
-    await api("/settings", { method: "PUT", body: JSON.stringify(settings) });
-    await onSaved();
+    if (protectedSettingsChanged && (!confirmName.trim() || !confirmPin)) {
+      setFeedback("修改税务或服务费设置需要输入当前账号名和 PIN。");
+      return;
+    }
+    setSaving(true);
+    setFeedback("");
+    try {
+      await api("/settings", {
+        method: "PUT",
+        body: JSON.stringify({ ...settings, confirm_name: confirmName.trim(), confirm_pin: confirmPin })
+      });
+      originalProtectedSettings.current = {
+        tax: Number(settings.tax_rate),
+        service: Number(settings.service_charge_rate),
+        pricesIncludeTax: Boolean(settings.prices_include_tax),
+        showTaxOnReceipt: Boolean(settings.show_tax_on_receipt)
+      };
+      setConfirmName("");
+      setConfirmPin("");
+      await onSaved();
+      setFeedback("设置已保存。");
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function printTest() {
@@ -1802,15 +2516,15 @@ function SettingsView({ settings, setSettings, onSaved }) {
   return (
     <div className="settings-top">
       <form className="settings-form" onSubmit={save}>
-        <div className="settings-section">
-          <p className="settings-section-title">基本</p>
+        <div className="settings-section settings-section-basic">
+          <div className="settings-section-title"><Settings size={17} /><div><h3>基本设置</h3><p>语言与结算显示</p></div></div>
           <div className="settings-fields">
             <label>语言 / Locale<input value={settings.locale} onChange={(event) => setSettings({ ...settings, locale: event.target.value })} /></label>
             <label>结算币种<input value={settings.currency} onChange={(event) => setSettings({ ...settings, currency: event.target.value })} /></label>
           </div>
         </div>
-        <div className="settings-section">
-          <p className="settings-section-title">税务 &amp; 费用</p>
+        <div className="settings-section settings-section-tax">
+          <div className="settings-section-title"><CircleDollarSign size={17} /><div><h3>税务与费用</h3><p>配置 VAT、服务费及小票税务显示</p></div></div>
           <div className="settings-fields">
             <label>VAT 税率<small className="label-hint">小数，0.20 = 20%</small><input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
             <label>服务费率<small className="label-hint">小数，0.10 = 10%；0 = 不收取</small><input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
@@ -1819,15 +2533,22 @@ function SettingsView({ settings, setSettings, onSaved }) {
             <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} /><b>VAT 包含在标价中（默认 20%）</b></label>
             <label className="checkbox"><input type="checkbox" checked={settings.show_tax_on_receipt} onChange={(event) => setSettings({ ...settings, show_tax_on_receipt: event.target.checked })} />小票显示 VAT 金额</label>
           </div>
+          {protectedSettingsChanged && (
+            <div className="settings-reauth">
+              <div><strong>需要身份确认</strong><span>税务或服务费设置已修改，请重新输入当前登录账号。</span></div>
+              <label>账号名<input value={confirmName} onChange={(event) => setConfirmName(event.target.value)} autoComplete="username" /></label>
+              <label>PIN<input type="password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value)} autoComplete="current-password" /></label>
+            </div>
+          )}
         </div>
-        <div className="settings-section">
-          <p className="settings-section-title">桌台</p>
+        <div className="settings-section settings-section-tables">
+          <div className="settings-section-title"><Armchair size={17} /><div><h3>桌台行为</h3><p>付款后的桌台处理方式</p></div></div>
           <div className="settings-checkboxes">
             <label className="checkbox"><input type="checkbox" checked={Boolean(settings.auto_clear_tables_after_payment)} onChange={(event) => setSettings({ ...settings, auto_clear_tables_after_payment: event.target.checked })} />付款完成后自动清台</label>
           </div>
         </div>
-        <div className="settings-section">
-          <p className="settings-section-title">小票抬头</p>
+        <div className="settings-section settings-section-receipt">
+          <div className="settings-section-title"><ReceiptText size={17} /><div><h3>小票内容</h3><p>店铺名称、联系方式与页脚信息</p></div></div>
           <div className="settings-fields">
             <label>店铺名称（英文）<small className="label-hint">第一行，加大加粗，例：Granny Noodles</small><input value={settings.receipt_header || ""} onChange={(event) => setSettings({ ...settings, receipt_header: event.target.value })} /></label>
             <label>店铺名称（中文）<small className="label-hint">第二行，例：秦云老太婆摊摊面</small><input value={settings.receipt_header_zh || ""} onChange={(event) => setSettings({ ...settings, receipt_header_zh: event.target.value })} /></label>
@@ -1837,8 +2558,9 @@ function SettingsView({ settings, setSettings, onSaved }) {
           </div>
         </div>
         <div className="settings-actions">
-          <button className="primary" type="submit"><Save size={16} /><span>保存设置</span></button>
+          <button className="primary" type="submit" disabled={saving}><Save size={16} /><span>{saving ? "保存中…" : "保存设置"}</span></button>
           <button type="button" onClick={printTest}><Printer size={16} /><span>打印测试</span></button>
+          {feedback && <span className="settings-feedback">{feedback}</span>}
         </div>
       </form>
       <section className="panel receipt-preview">
