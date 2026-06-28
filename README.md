@@ -150,6 +150,20 @@ docker compose up --build
 | ⚙️ Admin | http://localhost:3000/admin |
 | 💚 Health Check | http://localhost:4000/health |
 
+### Dojo terminal payments (Pay at Counter)
+
+QYPOS supports Dojo Go terminal payments while keeping manual cash, card, QR, and other payment records. Configure these server-only values in `.env`:
+
+```env
+DOJO_API_KEY=sk_sandbox_or_prod_key
+DOJO_API_BASE_URL=https://api.dojo.tech
+DOJO_API_VERSION=2026-02-27
+DOJO_SOFTWARE_HOUSE_ID=your_software_house_id
+DOJO_RESELLER_ID=your_reseller_id
+```
+
+Never expose the API key through a `NEXT_PUBLIC_*` variable. Run `docker compose up -d --build api web` after configuration. A terminal payment is recorded only after the Dojo Payment Intent reaches `Captured`; if the result is uncertain, check the terminal display or receipt before recording it manually to avoid a duplicate charge.
+
 ### Seed Accounts
 
 | Role | Username | PIN |

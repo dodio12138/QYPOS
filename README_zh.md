@@ -150,6 +150,20 @@ docker compose up --build
 | ⚙️ 后台管理 | http://localhost:3000/admin |
 | 💚 API 健康检查 | http://localhost:4000/health |
 
+### Dojo 刷卡机（Pay at Counter）
+
+QYPOS 支持通过 Dojo Go 终端收款，同时保留现金、刷卡、扫码和其他方式的手工记账。请在 `.env` 中配置：
+
+```env
+DOJO_API_KEY=sk_sandbox_or_prod_key
+DOJO_API_BASE_URL=https://api.dojo.tech
+DOJO_API_VERSION=2026-02-27
+DOJO_SOFTWARE_HOUSE_ID=your_software_house_id
+DOJO_RESELLER_ID=your_reseller_id
+```
+
+API Key 仅由后端容器读取，不要放入 `NEXT_PUBLIC_*` 环境变量。配置后运行 `docker compose up -d --build api web`。收款成功必须以 Dojo Payment Intent 的 `Captured` 状态为准；如果结果不确定，请先核对刷卡机屏幕或终端小票，再使用手工记账，避免重复扣款。
+
 ### 种子账号
 
 | 角色 | 用户名 | PIN |

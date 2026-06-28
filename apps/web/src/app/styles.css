@@ -1621,6 +1621,79 @@ h1 {
   color: var(--accent-strong);
 }
 
+.payment-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.payment-mode-tabs button {
+  min-height: 46px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.payment-mode-tabs button.selected {
+  border-color: var(--accent);
+  background: #fff7ed;
+  color: var(--accent-strong);
+}
+
+.dojo-signature-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.dojo-signature-actions button {
+  min-height: 42px;
+  border: 1.5px solid var(--line);
+  border-radius: 9px;
+  background: white;
+  font-weight: 700;
+}
+
+.dojo-payment-state {
+  min-height: 116px;
+  margin: 14px 0;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.dojo-payment-state.pending,
+.dojo-payment-state.created {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.dojo-payment-state.declined,
+.dojo-payment-state.unknown {
+  border-color: #fca5a5;
+  background: #fff5f5;
+  color: var(--danger);
+}
+
+.payment-provider-hint {
+  display: block;
+  margin: 12px 0;
+  color: var(--muted);
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;

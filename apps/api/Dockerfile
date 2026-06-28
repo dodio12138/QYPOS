@@ -3,6 +3,7 @@ WORKDIR /app
 RUN apk add --no-cache postgresql-client
 COPY package.json package-lock.json* ./
 COPY packages ./packages
+COPY db ./db
 COPY apps/api/package.json ./apps/api/package.json
 RUN npm install --workspace @qypos/api --include-workspace-root
 COPY apps/api ./apps/api

@@ -12,6 +12,17 @@ import { calculateTotals, localToday } from "@qypos/shared";
 import { defaultPrinterProfiles, printerProfiles, selectPrinter, isValidPrinter } from "./services/printers.js";
 import { normalizePermissions, requirePermission as requirePermissionWithRedis, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
 import { assertPositivePayment } from "./services/validation.js";
+import {
+  cancelDojoTerminalSession,
+  createDojoTerminalPayment,
+  dojoConfig,
+  getDojoPaymentIntent,
+  getDojoTerminalSession,
+  isDojoConfigured,
+  listDojoTerminals,
+  mapDojoSessionStatus,
+  respondToDojoSignature
+} from "./services/dojo.js";
 
 const { Pool } = pg;
 const app = Fastify({ logger: true });
@@ -51,6 +62,34 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_interval_hours INTEGER NOT NULL DEFAULT 24");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
+  await pool.query(`CREATE TABLE IF NOT EXISTS payment_attempts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'created',
+    amount NUMERIC(10,2) NOT NULL,
+    currency TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    provider_payment_id TEXT,
+    provider_session_id TEXT,
+    terminal_id TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    provider_payload JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_attempt_id UUID REFERENCES payment_attempts(id)");
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider TEXT");
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider_payment_id TEXT");
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS terminal_id TEXT");
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS card_brand TEXT");
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS card_last4 TEXT");
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS auth_code TEXT");
+  await pool.query("CREATE INDEX IF NOT EXISTS payment_attempts_order_idx ON payment_attempts(order_id, created_at DESC)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payment_attempts_provider_payment_idx ON payment_attempts(provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payments_attempt_idx ON payments(payment_attempt_id) WHERE payment_attempt_id IS NOT NULL");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payments_provider_payment_idx ON payments(provider, provider_payment_id) WHERE provider IS NOT NULL AND provider_payment_id IS NOT NULL");
   await pool.query("UPDATE settings SET printer_profiles = $1 WHERE printer_profiles = '[]'::jsonb", [JSON.stringify(defaultPrinterProfiles)]);
   await pool.query(`CREATE TABLE IF NOT EXISTS note_presets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -99,6 +138,22 @@ async function runMigrations() {
   const applied = new Set(appliedRes.rows.map((r) => r.name));
 
   const files = (await fs.readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
+  // Older production images did not copy db/migrations into the API image. Those
+  // databases were kept compatible by ensureSchema() and therefore have the old
+  // schema changes but no migration ledger. Baseline only the known legacy files
+  // so their seed SQL is not replayed over live menu/order data.
+  const legacyBaseline = new Set([
+    '002_runtime_compat.sql',
+    '003_granny_noodles_menu.sql',
+    '004_init_updates.sql',
+    '005_auto_clear_tables.sql',
+    '006_kitchen_print_style.sql'
+  ]);
+  for (const file of files.filter((name) => legacyBaseline.has(name) && !applied.has(name))) {
+    await pool.query('INSERT INTO migrations (name) VALUES ($1) ON CONFLICT DO NOTHING', [file]);
+    applied.add(file);
+    app.log.info({ file }, 'baselined legacy migration');
+  }
   for (const file of files) {
     if (applied.has(file)) continue;
     const full = path.join(migrationsDir, file);
@@ -199,6 +254,114 @@ async function insertOrderWithRetry(serviceType, suffix, build) {
 
 async function getSettings() {
   return one("SELECT * FROM settings ORDER BY updated_at DESC LIMIT 1");
+}
+
+function httpError(message, statusCode) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function safePaymentAttempt(attempt) {
+  if (!attempt) return null;
+  const payload = attempt.provider_payload || {};
+  const session = payload.session || {};
+  const events = Array.isArray(session.notificationEvents) ? session.notificationEvents : [];
+  return {
+    id: attempt.id,
+    order_id: attempt.order_id,
+    provider: attempt.provider,
+    status: attempt.status,
+    amount: Number(attempt.amount),
+    currency: attempt.currency,
+    provider_payment_id: attempt.provider_payment_id,
+    provider_session_id: attempt.provider_session_id,
+    terminal_id: attempt.terminal_id,
+    error_code: attempt.error_code,
+    error_message: attempt.error_message,
+    terminal_status: session.status || null,
+    terminal_prompt: events.at(-1)?.notificationType || null,
+    created_at: attempt.created_at,
+    updated_at: attempt.updated_at
+  };
+}
+
+async function recordPayment({
+  orderId,
+  method,
+  amount,
+  changeDue = 0,
+  paymentAttemptId = null,
+  provider = null,
+  providerPaymentId = null,
+  terminalId = null,
+  cardBrand = null,
+  cardLast4 = null,
+  authCode = null
+}) {
+  const client = await pool.connect();
+  let payment;
+  let updated;
+  let paid;
+  let tableStatus;
+  try {
+    await client.query("BEGIN");
+    if (paymentAttemptId) {
+      await client.query("SELECT id FROM payment_attempts WHERE id = $1 FOR UPDATE", [paymentAttemptId]);
+      const existing = await client.query("SELECT * FROM payments WHERE payment_attempt_id = $1", [paymentAttemptId]);
+      if (existing.rows[0]) {
+        payment = existing.rows[0];
+        const orderResult = await client.query("SELECT * FROM orders WHERE id = $1", [orderId]);
+        updated = orderResult.rows[0];
+        const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due), 0)::numeric AS paid FROM payments WHERE order_id = $1", [orderId]);
+        paid = paidResult.rows[0];
+        await client.query("COMMIT");
+        return { payment, order: updated, paid: Number(paid.paid), duplicate: true };
+      }
+    }
+
+    const orderResult = await client.query("SELECT * FROM orders WHERE id = $1 FOR UPDATE", [orderId]);
+    const order = orderResult.rows[0];
+    if (!order) throw httpError("Order not found", 404);
+    if (order.status === "paid" || order.status === "cancelled") throw httpError("Order is already closed", 409);
+
+    const paymentResult = await client.query(
+      `INSERT INTO payments
+       (order_id, method, amount, change_due, payment_attempt_id, provider, provider_payment_id, terminal_id, card_brand, card_last4, auth_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [orderId, method, amount, changeDue, paymentAttemptId, provider, providerPaymentId, terminalId, cardBrand, cardLast4, authCode]
+    );
+    payment = paymentResult.rows[0];
+    const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due), 0)::numeric AS paid FROM payments WHERE order_id = $1", [orderId]);
+    paid = paidResult.rows[0];
+    updated = order;
+    if (Number(paid.paid) >= Number(order.total)) {
+      const updatedResult = await client.query("UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
+      updated = updatedResult.rows[0];
+      if (updated.table_id) {
+        const settingsResult = await client.query("SELECT auto_clear_tables_after_payment FROM settings ORDER BY updated_at DESC LIMIT 1");
+        const autoClear = Boolean(settingsResult.rows[0]?.auto_clear_tables_after_payment);
+        if (autoClear) {
+          await client.query("UPDATE tables SET current_order_id = NULL, status = 'available', opened_at = NULL, updated_at = now() WHERE id = $1", [updated.table_id]);
+          tableStatus = "available";
+        } else {
+          await client.query("UPDATE tables SET status = 'needs_cleaning', updated_at = now() WHERE id = $1", [updated.table_id]);
+          tableStatus = "needs_cleaning";
+        }
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  if (updated?.table_id && updated.status === "paid") {
+    emit("table.status.updated", { table_id: updated.table_id, status: tableStatus ?? "needs_cleaning" });
+    emit("order.paid", updated);
+  }
+  return { payment, order: updated, paid: Number(paid.paid), duplicate: false };
 }
 
 async function listBackupFiles() {
@@ -1541,6 +1704,210 @@ app.post("/orders/:id/submit", async (request, reply) => {
   return { order: updated, print_job: job };
 });
 
+app.get("/payment-providers", async () => ({
+  dojo: {
+    configured: isDojoConfigured(),
+    api_version: dojoConfig().version
+  },
+  manual: { configured: true }
+}));
+
+app.get("/payment-providers/dojo/terminals", async (request, reply) => {
+  if (!await requirePermission(request, reply, "take_payment")) return;
+  if (!isDojoConfigured()) {
+    reply.code(503);
+    return { error: "Dojo terminal payments are not configured" };
+  }
+  try {
+    const terminals = await listDojoTerminals();
+    return terminals.map((terminal) => ({
+      id: terminal.id,
+      name: terminal.name || terminal.displayName || terminal.id,
+      status: terminal.status || "Available",
+      tid: terminal.tid || null
+    }));
+  } catch (error) {
+    reply.code(error.statusCode || 502);
+    return { error: error.message };
+  }
+});
+
+app.post("/orders/:id/payment-attempts/dojo", async (request, reply) => {
+  if (!await requirePermission(request, reply, "take_payment")) return;
+  if (!isDojoConfigured()) {
+    reply.code(503);
+    return { error: "Dojo terminal payments are not configured" };
+  }
+  const amount = Number(request.body?.amount);
+  try {
+    assertPositivePayment({ amount, change_due: 0 });
+  } catch (error) {
+    reply.code(error.statusCode || 400);
+    return { error: error.message };
+  }
+
+  const order = await one(
+    `SELECT o.*, COALESCE(SUM(p.amount - p.change_due), 0)::numeric AS paid
+     FROM orders o LEFT JOIN payments p ON p.order_id = o.id
+     WHERE o.id = $1 GROUP BY o.id`,
+    [request.params.id]
+  );
+  if (!order) { reply.code(404); return { error: "Order not found" }; }
+  if (["paid", "cancelled"].includes(order.status)) { reply.code(409); return { error: "Order is already closed" }; }
+  const remaining = Math.max(0, Math.round((Number(order.total) - Number(order.paid)) * 100) / 100);
+  if (amount > remaining) {
+    reply.code(400);
+    return { error: "Dojo payment cannot exceed the remaining order balance" };
+  }
+
+  const settings = await getSettings();
+  const attempt = await one(
+    `INSERT INTO payment_attempts (order_id, provider, status, amount, currency, idempotency_key, terminal_id)
+     VALUES ($1, 'dojo', 'created', $2, $3, $4, $5) RETURNING *`,
+    [order.id, amount, String(settings?.currency || "GBP").toUpperCase(), crypto.randomUUID(), request.body?.terminal_id || null]
+  );
+
+  try {
+    let terminalId = attempt.terminal_id;
+    if (!terminalId) {
+      const terminals = await listDojoTerminals();
+      terminalId = terminals[0]?.id;
+    }
+    if (!terminalId) throw httpError("No available Dojo terminal was found", 409);
+
+    const result = await createDojoTerminalPayment({
+      amountMinor: Math.round(amount * 100),
+      currency: attempt.currency,
+      reference: order.order_no,
+      description: `QYPOS ${order.order_no}`,
+      terminalId,
+      idempotencyKey: attempt.idempotency_key
+    });
+    const updated = await one(
+      `UPDATE payment_attempts SET status = 'pending', provider_payment_id = $2,
+       provider_session_id = $3, terminal_id = $4, provider_payload = $5::jsonb, updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [attempt.id, result.paymentIntent.id, result.terminalSession.id, terminalId, JSON.stringify({ session: result.terminalSession })]
+    );
+    await auditLog(request, "payment.dojo.start", "payment_attempt", attempt.id, { order_id: order.id, terminal_id: terminalId, amount });
+    reply.code(201);
+    return safePaymentAttempt(updated);
+  } catch (error) {
+    const failed = await one(
+      `UPDATE payment_attempts SET status = 'failed', provider_payment_id = COALESCE($2, provider_payment_id),
+       error_code = $3, error_message = $4, updated_at = now() WHERE id = $1 RETURNING *`,
+      [attempt.id, error.paymentIntent?.id || null, String(error.statusCode || "dojo_error"), error.message]
+    );
+    await auditLog(request, "payment.dojo.failed", "payment_attempt", attempt.id, { order_id: order.id, error: error.message });
+    reply.code(error.statusCode || 502);
+    return { error: error.message, attempt: safePaymentAttempt(failed) };
+  }
+});
+
+app.get("/payment-attempts/:id", async (request, reply) => {
+  if (!await requirePermission(request, reply, "take_payment")) return;
+  let attempt = await one("SELECT * FROM payment_attempts WHERE id = $1", [request.params.id]);
+  if (!attempt) { reply.code(404); return { error: "Payment attempt not found" }; }
+  if (attempt.provider !== "dojo" || !["created", "pending"].includes(attempt.status)) return safePaymentAttempt(attempt);
+  if (!attempt.provider_session_id) return safePaymentAttempt(attempt);
+
+  try {
+    const session = await getDojoTerminalSession(attempt.provider_session_id);
+    let status = mapDojoSessionStatus(session.status);
+    let paymentIntent = null;
+    if (session.status === "Captured") {
+      paymentIntent = await getDojoPaymentIntent(attempt.provider_payment_id);
+      if (paymentIntent.status !== "Captured") status = "pending";
+    }
+
+    if (status === "succeeded") {
+      const card = paymentIntent?.paymentDetails?.card || {};
+      const cardDigits = String(card.cardNumber || "").replace(/\D/g, "");
+      const result = await recordPayment({
+        orderId: attempt.order_id,
+        method: "card",
+        amount: Number(attempt.amount),
+        paymentAttemptId: attempt.id,
+        provider: "dojo",
+        providerPaymentId: attempt.provider_payment_id,
+        terminalId: attempt.terminal_id,
+        cardBrand: card.cardType || null,
+        cardLast4: cardDigits.slice(-4) || null,
+        authCode: paymentIntent?.paymentDetails?.authCode || null
+      });
+      attempt = await one(
+        `UPDATE payment_attempts SET status = 'succeeded', provider_payload = $2::jsonb,
+         error_code = NULL, error_message = NULL, updated_at = now() WHERE id = $1 RETURNING *`,
+        [attempt.id, JSON.stringify({ session, paymentIntent })]
+      );
+      if (!result.duplicate) {
+        await auditLog(request, "payment.dojo.captured", "payment", result.payment.id, {
+          order_id: attempt.order_id,
+          payment_attempt_id: attempt.id,
+          provider_payment_id: attempt.provider_payment_id,
+          amount: attempt.amount
+        });
+      }
+      return { ...safePaymentAttempt(attempt), order: result.order, payment: result.payment };
+    }
+
+    attempt = await one(
+      `UPDATE payment_attempts SET status = $2, provider_payload = $3::jsonb,
+       error_code = CASE WHEN $2 IN ('declined', 'cancelled', 'unknown') THEN $4 ELSE NULL END,
+       error_message = CASE WHEN $2 = 'unknown' THEN '请检查刷卡机或终端小票后人工确认支付结果' ELSE NULL END,
+       updated_at = now() WHERE id = $1 RETURNING *`,
+      [attempt.id, status, JSON.stringify({ session }), session.status]
+    );
+    return safePaymentAttempt(attempt);
+  } catch (error) {
+    reply.code(error.statusCode || 502);
+    return { error: error.message, attempt: safePaymentAttempt(attempt) };
+  }
+});
+
+app.post("/payment-attempts/:id/cancel", async (request, reply) => {
+  if (!await requirePermission(request, reply, "take_payment")) return;
+  const attempt = await one("SELECT * FROM payment_attempts WHERE id = $1", [request.params.id]);
+  if (!attempt) { reply.code(404); return { error: "Payment attempt not found" }; }
+  if (attempt.provider !== "dojo") { reply.code(400); return { error: "Unsupported payment provider" }; }
+  if (!["created", "pending"].includes(attempt.status)) return safePaymentAttempt(attempt);
+  try {
+    if (attempt.provider_session_id) await cancelDojoTerminalSession(attempt.provider_session_id);
+    const updated = await one("UPDATE payment_attempts SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING *", [attempt.id]);
+    await auditLog(request, "payment.dojo.cancel", "payment_attempt", attempt.id, { order_id: attempt.order_id });
+    return safePaymentAttempt(updated);
+  } catch (error) {
+    reply.code(error.statusCode || 502);
+    return { error: error.message, attempt: safePaymentAttempt(attempt) };
+  }
+});
+
+app.post("/payment-attempts/:id/signature", async (request, reply) => {
+  if (!await requirePermission(request, reply, "take_payment")) return;
+  const attempt = await one("SELECT * FROM payment_attempts WHERE id = $1", [request.params.id]);
+  if (!attempt) { reply.code(404); return { error: "Payment attempt not found" }; }
+  if (attempt.provider !== "dojo" || !attempt.provider_session_id) {
+    reply.code(400);
+    return { error: "This payment attempt has no Dojo terminal session" };
+  }
+  if (typeof request.body?.accepted !== "boolean") {
+    reply.code(400);
+    return { error: "accepted must be a boolean" };
+  }
+  try {
+    const session = await respondToDojoSignature(attempt.provider_session_id, request.body.accepted);
+    const updated = await one(
+      "UPDATE payment_attempts SET provider_payload = $2::jsonb, updated_at = now() WHERE id = $1 RETURNING *",
+      [attempt.id, JSON.stringify({ session })]
+    );
+    await auditLog(request, "payment.dojo.signature", "payment_attempt", attempt.id, { accepted: request.body.accepted });
+    return safePaymentAttempt(updated);
+  } catch (error) {
+    reply.code(error.statusCode || 502);
+    return { error: error.message, attempt: safePaymentAttempt(attempt) };
+  }
+});
+
 app.post("/orders/:id/payments", async (request, reply) => {
   if (!await requirePermission(request, reply, "take_payment")) return;
   const body = request.body ?? {};
@@ -1556,51 +1923,22 @@ app.post("/orders/:id/payments", async (request, reply) => {
     reply.code(409);
     return { error: "Order is already closed" };
   }
-  const client = await pool.connect();
-  let payment;
-  let updated;
-  let paid;
-  let tableStatus;
   try {
-    await client.query("BEGIN");
-    const paymentResult = await client.query(
-      "INSERT INTO payments (order_id, method, amount, change_due) VALUES ($1, $2, $3, COALESCE($4, 0)) RETURNING *",
-      [request.params.id, body.method, body.amount, body.change_due]
-    );
-    payment = paymentResult.rows[0];
-    const orderResult = await client.query("SELECT * FROM orders WHERE id = $1 FOR UPDATE", [request.params.id]);
-    const order = orderResult.rows[0];
-    const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due), 0)::numeric AS paid FROM payments WHERE order_id = $1", [request.params.id]);
-    paid = paidResult.rows[0];
-    updated = order;
-    if (Number(paid.paid) >= Number(order.total)) {
-      const updatedResult = await client.query("UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
-      updated = updatedResult.rows[0];
-      if (updated.table_id) {
-        const settingsResult = await client.query("SELECT auto_clear_tables_after_payment FROM settings ORDER BY updated_at DESC LIMIT 1");
-        const autoClear = Boolean(settingsResult.rows[0]?.auto_clear_tables_after_payment);
-        if (autoClear) {
-          await client.query("UPDATE tables SET current_order_id = NULL, status = 'available', opened_at = NULL, updated_at = now() WHERE id = $1", [updated.table_id]);
-          tableStatus = "available";
-        } else {
-          await client.query("UPDATE tables SET status = 'needs_cleaning', updated_at = now() WHERE id = $1", [updated.table_id]);
-          tableStatus = "needs_cleaning";
-        }
-      }
-    }
-    await client.query("COMMIT");
+    const result = await recordPayment({
+      orderId: request.params.id,
+      method: body.method,
+      amount: body.amount,
+      changeDue: body.change_due ?? 0
+    });
+    await auditLog(request, "payment.create", "payment", result.payment.id, { order_id: request.params.id, method: result.payment.method, amount: result.payment.amount });
+    return { payment: result.payment, order: result.order, paid: result.paid };
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (error.statusCode) {
+      reply.code(error.statusCode);
+      return { error: error.message };
+    }
     throw error;
-  } finally {
-    client.release();
   }
-  if (updated?.table_id && updated.status === "paid") {
-    emit("table.status.updated", { table_id: updated.table_id, status: tableStatus ?? "needs_cleaning" });
-    emit("order.paid", updated);
-  }
-  await auditLog(request, "payment.create", "payment", payment.id, { order_id: request.params.id, method: payment.method, amount: payment.amount });
-  return { payment, order: updated, paid: Number(paid.paid) };
 });
 
 app.post("/orders/:id/print", async (request, reply) => {
