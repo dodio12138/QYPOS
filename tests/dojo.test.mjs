@@ -38,13 +38,26 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-test("Dojo configuration requires all terminal credentials", async () => {
+test("Dojo configuration accepts explicit terminal credentials", async () => {
   await withDojoEnv(() => {
     assert.equal(isDojoConfigured(), true);
     assert.equal(dojoConfig().version, "2026-02-27");
-    delete process.env.DOJO_RESELLER_ID;
+    delete process.env.DOJO_API_KEY;
     assert.equal(isDojoConfigured(), false);
   });
+});
+
+test("Dojo sandbox configuration supplies terminal header defaults", () => {
+  const config = dojoConfig({ DOJO_API_KEY: "sk_sandbox_test" });
+  assert.equal(config.baseUrl, "https://api.dojo.tech");
+  assert.equal(config.version, "2026-02-27");
+  assert.equal(config.softwareHouseId, "softwareHouse1");
+  assert.equal(config.resellerId, "reseller1");
+  assert.equal(isDojoConfigured({ DOJO_API_KEY: "sk_sandbox_test" }), true);
+});
+
+test("Dojo production configuration still requires assigned terminal headers", () => {
+  assert.equal(isDojoConfigured({ DOJO_API_KEY: "sk_prod_test" }), false);
 });
 
 test("Dojo terminal listing sends server-side terminal headers", async () => {

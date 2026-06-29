@@ -9,12 +9,14 @@ const FINAL_SESSION_STATUSES = new Set([
 ]);
 
 export function dojoConfig(env = process.env) {
+  const apiKey = env.DOJO_API_KEY || "";
+  const sandbox = apiKey.startsWith("sk_sandbox_");
   return {
-    apiKey: env.DOJO_API_KEY || "",
+    apiKey,
     baseUrl: (env.DOJO_API_BASE_URL || "https://api.dojo.tech").replace(/\/$/, ""),
     version: env.DOJO_API_VERSION || "2026-02-27",
-    softwareHouseId: env.DOJO_SOFTWARE_HOUSE_ID || "",
-    resellerId: env.DOJO_RESELLER_ID || ""
+    softwareHouseId: env.DOJO_SOFTWARE_HOUSE_ID || (sandbox ? "softwareHouse1" : ""),
+    resellerId: env.DOJO_RESELLER_ID || (sandbox ? "reseller1" : "")
   };
 }
 

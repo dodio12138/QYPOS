@@ -164,7 +164,7 @@ DOJO_SOFTWARE_HOUSE_ID=your_software_house_id
 DOJO_RESELLER_ID=your_reseller_id
 ```
 
-API Key 仅由后端容器读取，不要放入 `NEXT_PUBLIC_*` 环境变量。配置后运行 `docker compose up -d --build api web`。收款成功必须以 Dojo Payment Intent 的 `Captured` 状态为准；如果结果不确定，请先核对刷卡机屏幕或终端小票，再使用手工记账，避免重复扣款。
+Sandbox Key 只需配置 `DOJO_API_KEY`；QYPOS 会自动使用 Dojo Sandbox 的终端默认值（`softwareHouse1`、`reseller1`）及标准 API 地址和版本。Production Key 仍须配置 Dojo 分配的 Software House ID 与 Reseller ID。API Key 仅由后端容器读取，不要放入 `NEXT_PUBLIC_*` 环境变量。配置后运行 `docker compose up -d --build api web`。收款成功必须以 Dojo Payment Intent 的 `Captured` 状态为准；如果结果不确定，请先核对刷卡机屏幕或终端小票，再使用手工记账，避免重复扣款。
 
 ### 种子账号
 

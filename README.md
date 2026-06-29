@@ -164,7 +164,7 @@ DOJO_SOFTWARE_HOUSE_ID=your_software_house_id
 DOJO_RESELLER_ID=your_reseller_id
 ```
 
-Never expose the API key through a `NEXT_PUBLIC_*` variable. Run `docker compose up -d --build api web` after configuration. A terminal payment is recorded only after the Dojo Payment Intent reaches `Captured`; if the result is uncertain, check the terminal display or receipt before recording it manually to avoid a duplicate charge.
+For sandbox keys, only `DOJO_API_KEY` is required; QYPOS uses Dojo's sandbox terminal defaults (`softwareHouse1` and `reseller1`) plus the standard API URL/version. Production keys must use the software-house and reseller IDs assigned by Dojo. Never expose the API key through a `NEXT_PUBLIC_*` variable. Run `docker compose up -d --build api web` after configuration. A terminal payment is recorded only after the Dojo Payment Intent reaches `Captured`; if the result is uncertain, check the terminal display or receipt before recording it manually to avoid a duplicate charge.
 
 ### Seed Accounts
 
