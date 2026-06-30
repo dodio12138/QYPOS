@@ -10,8 +10,9 @@ import Redis from "ioredis";
 import pg from "pg";
 import { calculateTotals, localToday } from "@qypos/shared";
 import { defaultPrinterProfiles, printerProfiles, selectPrinter, isValidPrinter } from "./services/printers.js";
-import { normalizePermissions, requirePermission as requirePermissionWithRedis, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
+import { normalizePermissions, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
 import { assertPositivePayment } from "./services/validation.js";
+import { ADMIN_GRANT_SCOPES, CASHIER_PERMISSIONS, OWNER_PERMISSIONS, canPatchMenuItem } from "./services/role-permissions.js";
 import {
   cancelDojoTerminalSession,
   createDojoTerminalPayment,
@@ -37,6 +38,8 @@ const sockets = new Set();
 const execFileAsync = promisify(execFile);
 const backupDir = process.env.BACKUP_DIR ?? path.resolve(process.cwd(), "../../backups");
 let backupTimer = null;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ADMIN_GRANT_TTL_SECONDS = 60 * 30;
 
 async function ensureSchema() {
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0");
@@ -120,16 +123,12 @@ async function ensureSchema() {
     );
   }
   await pool.query(
-    `UPDATE roles SET permissions = '["manage_settings","manage_menu","manage_tables","manage_orders","manage_users","adjust_service_charge","view_dashboard","view_reports","export_reports","view_audit_logs","view_kitchen","update_item_status","create_order","split_order","take_payment","print_receipt"]'
-     WHERE name = 'owner'`
+    "UPDATE roles SET permissions = $1::jsonb WHERE name = 'owner'",
+    [JSON.stringify(OWNER_PERMISSIONS)]
   );
   await pool.query(
-    `UPDATE roles
-     SET permissions = CASE
-       WHEN permissions ? 'split_order' THEN permissions
-       ELSE permissions || '["split_order"]'::jsonb
-     END
-     WHERE name = 'cashier'`
+    "UPDATE roles SET permissions = $1::jsonb WHERE name = 'cashier'",
+    [JSON.stringify(CASHIER_PERMISSIONS)]
   );
   await pool.query(
     `INSERT INTO users (role_id, name, pin)
@@ -231,8 +230,26 @@ async function userFromToken(request) {
   return userFromTokenWithRedis(request, redis);
 }
 
+async function adminGrantFromRequest(request, user) {
+  const token = request.headers["x-qypos-admin-grant"] ?? request.query?.admin_grant ?? null;
+  if (!token || !user) return null;
+  const payload = await redis.get(`admin-grant:${token}`);
+  if (!payload) return null;
+  const grant = JSON.parse(payload);
+  return grant.subject_user_id === user.id ? grant : null;
+}
+
 async function requirePermission(request, reply, permission) {
-  return requirePermissionWithRedis(request, reply, redis, permission);
+  const user = await userFromToken(request);
+  if (!user) {
+    reply.code(401);
+    return null;
+  }
+  if (!permission || user.permissions.includes(permission)) return user;
+  const grant = await adminGrantFromRequest(request, user);
+  if (grant?.permissions?.includes(permission)) return user;
+  reply.code(403);
+  return null;
 }
 
 async function requireAnyPermission(request, reply, permissions) {
@@ -241,7 +258,8 @@ async function requireAnyPermission(request, reply, permissions) {
     reply.code(401);
     return null;
   }
-  if (!permissions.some((permission) => user.permissions.includes(permission))) {
+  const grant = await adminGrantFromRequest(request, user);
+  if (!permissions.some((permission) => user.permissions.includes(permission) || grant?.permissions?.includes(permission))) {
     reply.code(403);
     return null;
   }
@@ -597,11 +615,26 @@ app.post("/auth/login", async (request, reply) => {
 });
 
 app.get("/auth/me", async (request, reply) => {
-  const user = await userFromToken(request);
-  if (!user) {
+  const sessionUser = await userFromToken(request);
+  if (!sessionUser) {
     reply.code(401);
     return { error: "Not authenticated" };
   }
+  const user = await one(
+    `SELECT u.id, u.name, r.name AS role, r.permissions
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
+     WHERE u.id = $1 AND u.active = true`,
+    [sessionUser.id]
+  );
+  if (!user) {
+    reply.code(401);
+    return { error: "Account is inactive or no longer exists" };
+  }
+  user.permissions = normalizePermissions(user.permissions);
+  const header = request.headers.authorization ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (token) await redis.set(`session:${token}`, JSON.stringify(user), "KEEPTTL");
   return user;
 });
 
@@ -609,6 +642,50 @@ app.post("/auth/logout", async (request) => {
   const header = request.headers.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (token) await redis.del(`session:${token}`);
+  return { ok: true };
+});
+
+app.post("/auth/admin-grant", async (request, reply) => {
+  const subject = await userFromToken(request);
+  if (!subject) { reply.code(401); return { error: "Not authenticated" }; }
+  const body = request.body ?? {};
+  const scope = String(body.scope ?? "");
+  const permissions = ADMIN_GRANT_SCOPES[scope];
+  if (!permissions) { reply.code(400); return { error: "Invalid admin scope" }; }
+  const admin = await one(
+    `SELECT u.id, u.name, r.permissions
+     FROM users u
+     JOIN roles r ON r.id = u.role_id
+     WHERE u.name = $1 AND u.pin = $2 AND u.active = true`,
+    [String(body.name ?? "").trim(), String(body.pin ?? "").trim()]
+  );
+  if (!admin) {
+    reply.code(401);
+    return { error: "管理员账号或 PIN 不正确，或权限不足" };
+  }
+  admin.permissions = normalizePermissions(admin.permissions);
+  if (!permissions.every((permission) => admin.permissions.includes(permission))) {
+    reply.code(401);
+    return { error: "管理员账号或 PIN 不正确，或权限不足" };
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  await redis.set(`admin-grant:${token}`, JSON.stringify({
+    subject_user_id: subject.id,
+    admin_user_id: admin.id,
+    scope,
+    permissions,
+  }), "EX", ADMIN_GRANT_TTL_SECONDS);
+  await auditLog(request, "auth.admin_grant", "user", subject.id, { admin_user_id: admin.id, scope });
+  return { token, scope, expires_in: ADMIN_GRANT_TTL_SECONDS };
+});
+
+app.delete("/auth/admin-grant", async (request) => {
+  const subject = await userFromToken(request);
+  const token = request.headers["x-qypos-admin-grant"] ?? null;
+  if (subject && token) {
+    const grant = await adminGrantFromRequest(request, subject);
+    if (grant) await redis.del(`admin-grant:${token}`);
+  }
   return { ok: true };
 });
 
@@ -624,8 +701,7 @@ app.get("/users", async (request, reply) => {
 });
 
 app.get("/roles", async (request, reply) => {
-  const user = await userFromToken(request);
-  if (!user) { reply.code(401); return { error: "Unauthorized" }; }
+  if (!await requirePermission(request, reply, "manage_users")) return;
   return query("SELECT id, name FROM roles ORDER BY name");
 });
 
@@ -636,11 +712,14 @@ app.post("/users", async (request, reply) => {
   const pin = String(body.pin ?? "").trim();
   if (!name) { reply.code(400); return { error: "Name is required" }; }
   if (!pin) { reply.code(400); return { error: "PIN is required" }; }
+  const roleId = String(body.role_id ?? "");
+  const role = UUID_PATTERN.test(roleId) ? await one("SELECT id FROM roles WHERE id = $1", [roleId]) : null;
+  if (!role) { reply.code(400); return { error: "A valid role is required" }; }
   const exists = await one("SELECT id FROM users WHERE name = $1", [name]);
   if (exists) { reply.code(409); return { error: "User already exists" }; }
   const user = await one(
-    "INSERT INTO users (role_id, name, pin) VALUES ($1, $2, $3) RETURNING *",
-    [body.role_id, name, pin]
+    "INSERT INTO users (role_id, name, pin, active) VALUES ($1, $2, $3, COALESCE($4, true)) RETURNING *",
+    [role.id, name, pin, body.active]
   );
   await auditLog(request, "user.create", "user", user.id, { name: user.name });
   return user;
@@ -649,6 +728,11 @@ app.post("/users", async (request, reply) => {
 app.patch("/users/:id", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_users")) return;
   const body = request.body ?? {};
+  if (body.role_id !== undefined) {
+    const roleId = String(body.role_id ?? "");
+    const role = UUID_PATTERN.test(roleId) ? await one("SELECT id FROM roles WHERE id = $1", [roleId]) : null;
+    if (!role) { reply.code(400); return { error: "A valid role is required" }; }
+  }
   const user = await one(
     `UPDATE users SET
       name = COALESCE($2, name),
@@ -688,10 +772,11 @@ app.put("/settings", async (request, reply) => {
   const showTaxChanged = body.show_tax_on_receipt !== undefined && Boolean(body.show_tax_on_receipt) !== Boolean(currentSettings.show_tax_on_receipt);
   if (taxRateChanged || serviceRateChanged || taxIncludedChanged || showTaxChanged) {
     const actor = await userFromToken(request);
-    const confirmedUser = actor && await one(
+    const grant = await adminGrantFromRequest(request, actor);
+    const confirmedUser = grant?.permissions?.includes("manage_settings") || (actor && await one(
       "SELECT id FROM users WHERE id = $1 AND name = $2 AND pin = $3 AND active = true",
       [actor.id, String(body.confirm_name ?? "").trim(), String(body.confirm_pin ?? "")]
-    );
+    ));
     if (!confirmedUser) {
       reply.code(401);
       return { error: "修改税务或服务费设置需要输入当前账号名和 PIN" };
@@ -1226,8 +1311,13 @@ app.post("/menu/items", async (request, reply) => {
 });
 
 app.patch("/menu/items/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
   const body = request.body ?? {};
+  const actor = await requireAnyPermission(request, reply, ["manage_menu", "manage_menu_availability"]);
+  if (!actor) return;
+  if (!canPatchMenuItem(actor, body)) {
+    reply.code(403);
+    return { error: "Only menu availability can be changed with this account" };
+  }
   const item = await one(
     `UPDATE menu_items SET
       category_id = COALESCE($2, category_id),
@@ -1972,8 +2062,11 @@ app.patch("/orders/:id", async (request, reply) => {
 
 app.post("/orders/:id/recalculate", async (request, reply) => {
   const body = request.body ?? {};
-  if ("service_charge_rate" in body || "service_charge_exempt" in body || "discount" in body || "discount_amount" in body) {
+  if ("service_charge_rate" in body || "service_charge_exempt" in body) {
     if (!await requirePermission(request, reply, "adjust_service_charge")) return;
+  }
+  if (["discount", "discount_amount", "discount_fixed", "discount_rate"].some((key) => key in body)) {
+    if (!await requirePermission(request, reply, "adjust_discount")) return;
   }
   const order = await recalculateOrder(request.params.id, body);
   await auditLog(request, "order.recalculate", "order", order.id, body);
@@ -1996,7 +2089,7 @@ app.post("/orders/:id/service-charge", async (request, reply) => {
 });
 
 app.post("/orders/:id/discount", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_orders")) return;
+  if (!await requirePermission(request, reply, "adjust_discount")) return;
   const body = request.body ?? {};
   if ("discount_rate" in body) {
     await query(
@@ -2435,10 +2528,13 @@ app.post("/orders/:id/print", async (request, reply) => {
   return job;
 });
 
-app.get("/print-jobs", async () => query("SELECT id, order_id, type, status, attempts, error, created_at, updated_at FROM print_jobs ORDER BY created_at DESC LIMIT 100"));
+app.get("/print-jobs", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_prints")) return;
+  return query("SELECT id, order_id, type, status, attempts, error, created_at, updated_at FROM print_jobs ORDER BY created_at DESC LIMIT 100");
+});
 
 app.post("/print-jobs/test", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_settings")) return;
+  if (!await requirePermission(request, reply, "manage_prints")) return;
   const settings = await getSettings();
   const printer = selectPrinter(settings, request.body?.printer_id ? "test" : "receipt");
   const selectedPrinter = request.body?.printer_id
@@ -2477,7 +2573,7 @@ app.post("/print-jobs/cash-drawer", async (request, reply) => {
 });
 
 app.post("/print-jobs/:id/retry", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_settings")) return;
+  if (!await requirePermission(request, reply, "manage_prints")) return;
   const job = await one("SELECT * FROM print_jobs WHERE id = $1", [request.params.id]);
   if (!job) {
     reply.code(404);
@@ -2497,7 +2593,9 @@ app.post("/print-jobs/:id/retry", async (request, reply) => {
   return updated;
 });
 
-app.get("/kitchen/items", async () => query(
+app.get("/kitchen/items", async (request, reply) => {
+  if (!await requirePermission(request, reply, "view_kitchen")) return;
+  return query(
   `SELECT
     oi.id,
     oi.order_id,
@@ -2517,7 +2615,8 @@ app.get("/kitchen/items", async () => query(
    LEFT JOIN tables t ON t.id = o.table_id
    WHERE o.status NOT IN ('draft', 'paid', 'cancelled') AND oi.status <> 'served'
    ORDER BY oi.created_at ASC`
-));
+  );
+});
 
 app.patch("/orders/:orderId/items/:itemId/status", async (request, reply) => {
   if (!await requirePermission(request, reply, "update_item_status")) return;
@@ -2541,7 +2640,8 @@ app.patch("/orders/:orderId/items/:itemId/status", async (request, reply) => {
   return { item, order };
 });
 
-app.get("/dashboard/today", async () => {
+app.get("/dashboard/today", async (request, reply) => {
+  if (!await requirePermission(request, reply, "view_dashboard")) return;
   const today = localToday();
   const summary = await one(
     `SELECT
@@ -2721,7 +2821,7 @@ app.get("/audit-logs", async (request, reply) => {
 });
 
 app.get("/ops/health", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_settings")) return;
+  if (!await requirePermission(request, reply, "manage_ops")) return;
   const started = Date.now();
   const checks = [];
   async function check(name, action) {
@@ -2762,19 +2862,19 @@ app.get("/ops/health", async (request, reply) => {
 });
 
 app.get("/ops/backups", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_settings")) return;
+  if (!await requirePermission(request, reply, "manage_ops")) return;
   return listBackupFiles();
 });
 
 app.post("/ops/backups", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_settings")) return;
+  if (!await requirePermission(request, reply, "manage_ops")) return;
   const file = await createBackup("manual");
   await auditLog(request, "backup.create", "backup", null, file);
   return file;
 });
 
 app.get("/ops/backups/:name", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_settings")) return;
+  if (!await requirePermission(request, reply, "manage_ops")) return;
   const filename = path.basename(request.params.name);
   if (!filename.endsWith(".sql")) {
     reply.code(400);

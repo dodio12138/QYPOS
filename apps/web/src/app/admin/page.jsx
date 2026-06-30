@@ -27,6 +27,7 @@ import {
   FileDown,
   HardDrive,
   LogOut,
+  Lock,
   Undo2,
   User,
   Users,
@@ -39,16 +40,31 @@ import { api, API_URL, labelOf } from "../../lib/api";
 import qyposLogo from "../../pic/logo.png";
 
 const tabs = [
-  ["orders", ClipboardList, "订单"],
-  ["kitchen", ChefHat, "厨房"],
-  ["prints", Printer, "打印"],
-  ["menu", ReceiptText, "菜单"],
-  ["dashboard", BarChart3, "看板"],
-  ["settings", Settings, "设置"],
-  ["users", Users, "账户"],
-  ["ops", Wrench, "运维"],
-  ["layout", Armchair, "布局"]
+  ["orders", ClipboardList, "订单", ["manage_orders"]],
+  ["kitchen", ChefHat, "厨房", ["view_kitchen"]],
+  ["prints", Printer, "打印", ["manage_prints"]],
+  ["menu", ReceiptText, "菜单", ["manage_menu", "manage_menu_availability"]],
+  ["dashboard", BarChart3, "看板", ["view_dashboard"]],
+  ["settings", Settings, "设置", ["manage_settings"]],
+  ["users", Users, "账户", ["manage_users"]],
+  ["ops", Wrench, "运维", ["manage_ops"]],
+  ["layout", Armchair, "布局", ["manage_tables"]]
 ];
+const adminGatedTabs = new Set(["dashboard", "settings", "users", "ops", "layout"]);
+
+const ROLE_LABELS = {
+  owner: "管理员",
+  cashier: "收银员",
+  kitchen: "厨房",
+};
+
+function roleLabel(role) {
+  return ROLE_LABELS[role] ?? role;
+}
+
+function hasAnyPermission(user, permissions) {
+  return permissions.some((permission) => user?.permissions?.includes(permission));
+}
 
 function money(value, currency = "CNY", locale = "zh-CN") {
   return new Intl.NumberFormat(locale, { style: "currency", currency }).format(Number(value || 0));
@@ -90,14 +106,62 @@ function AdminLogin({ onLogin }) {
         <label>PIN<input value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" type="password" /></label>
         {error && <div className="inline-error">{error}</div>}
         <button className="primary" type="submit" disabled={busy}><User size={18} /><span>{busy ? "登录中" : "登录"}</span></button>
-        <p className="empty">默认 Owner / 0000</p>
+        <a className="link-button" href="/">返回前台点菜</a>
       </form>
     </main>
   );
 }
 
+function AdminGateModal({ tab, onCancel, onGranted }) {
+  const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const label = tabs.find(([id]) => id === tab)?.[2] ?? "该栏目";
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const grant = await api("/auth/admin-grant", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim(), pin, scope: tab })
+      });
+      window.sessionStorage.setItem("qypos_admin_grant", grant.token);
+      await onGranted(tab);
+    } catch (caught) {
+      setError(caught.message || "管理员验证失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && onCancel()}>
+      <form className="modal" onSubmit={submit} style={{ maxWidth: 420 }}>
+        <header className="modal-header">
+          <button type="button" onClick={onCancel} title="关闭"><X size={20} /></button>
+          <div><h2>{label} · 管理员验证</h2></div>
+        </header>
+        <div className="modal-body" style={{ display: "grid", gap: 12, padding: 20 }}>
+          <label>管理员账号<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" autoFocus /></label>
+          <label>管理员 PIN<input type="password" value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" /></label>
+          {error && <div className="inline-error">{error}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button type="button" onClick={onCancel}>取消</button>
+            <button className="primary" type="submit" disabled={busy || !name.trim() || !pin}>{busy ? "验证中…" : "验证并进入"}</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState("orders");
+  const [adminGateTarget, setAdminGateTarget] = useState(null);
+  const [adminGrantTab, setAdminGrantTab] = useState(null);
   const [online, setOnline] = useState(true);
   const [user, setUser] = useState(null);
   const [settings, setSettings] = useState(null);
@@ -119,52 +183,48 @@ export default function AdminPage() {
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
 
-  async function refresh() {
-    if (!user) return;
-    const [settingsData, menuData, layoutData, ordersData, kitchenItemsData, printJobsData, dashboardData] = await Promise.all([
-      api("/settings"),
-      api("/menu"),
-      api("/floor-layouts"),
-      api("/orders"),
-      api("/kitchen/items"),
-      api("/print-jobs"),
-      api("/dashboard/today")
-    ]);
-    setSettings(settingsData);
-    setMenu(menuData);
-    setLayout(layoutData);
-    setOrders(ordersData);
-    setKitchenItems(kitchenItemsData);
-    setPrintJobs(printJobsData);
-    setDashboard(dashboardData);
-    if (activeTab === "ops") await refreshOps();
+  async function refresh(currentUser = user, grantedTab = adminGrantTab) {
+    if (!currentUser) return;
+    const requests = {
+      settings: api("/settings"),
+      menu: api("/menu"),
+    };
+    if (hasAnyPermission(currentUser, ["manage_tables"]) || grantedTab === "layout") requests.layout = api("/floor-layouts");
+    if (hasAnyPermission(currentUser, ["manage_orders"])) requests.orders = api("/orders");
+    if (hasAnyPermission(currentUser, ["view_kitchen"])) requests.kitchen = api("/kitchen/items");
+    if (hasAnyPermission(currentUser, ["manage_prints"])) requests.prints = api("/print-jobs");
+    if (hasAnyPermission(currentUser, ["view_dashboard"]) || grantedTab === "dashboard") requests.dashboard = api("/dashboard/today");
+    if (hasAnyPermission(currentUser, ["view_audit_logs"]) || grantedTab === "dashboard") requests.audit = api("/audit-logs");
+    const data = Object.fromEntries(await Promise.all(
+      Object.entries(requests).map(async ([key, promise]) => [key, await promise])
+    ));
+    setSettings(data.settings);
+    setMenu(data.menu);
+    if (data.layout) setLayout(data.layout);
+    if (data.orders) setOrders(data.orders);
+    if (data.kitchen) setKitchenItems(data.kitchen);
+    if (data.prints) setPrintJobs(data.prints);
+    if (data.dashboard) setDashboard(data.dashboard);
+    if (data.audit) setAuditLogs(data.audit);
+    if ((activeTab === "ops" || grantedTab === "ops") && (hasAnyPermission(currentUser, ["manage_ops"]) || grantedTab === "ops")) await refreshOps(currentUser, grantedTab);
+  }
+
+  async function verifyAuth() {
+    const me = await api("/auth/me");
+    setUser(me);
+    return me;
   }
 
   async function loadProtectedData() {
-    const [me, settingsData, menuData, layoutData, ordersData, kitchenItemsData, printJobsData, dashboardData, auditData] = await Promise.all([
-      api("/auth/me"),
-      api("/settings"),
-      api("/menu"),
-      api("/floor-layouts"),
-      api("/orders"),
-      api("/kitchen/items"),
-      api("/print-jobs"),
-      api("/dashboard/today"),
-      api("/audit-logs")
-    ]);
-    setUser(me);
-    setSettings(settingsData);
-    setMenu(menuData);
-    setLayout(layoutData);
-    setOrders(ordersData);
-    setKitchenItems(kitchenItemsData);
-    setPrintJobs(printJobsData);
-    setDashboard(dashboardData);
-    setAuditLogs(auditData);
-    refreshOps().catch(() => {});
+    const me = await verifyAuth();
+    await refresh(me).catch((err) => {
+      // Data refresh failure should never log the user out
+      showNotice(err.message || "数据加载失败");
+    });
   }
 
-  async function refreshOps() {
+  async function refreshOps(currentUser = user, grantedTab = adminGrantTab) {
+    if (!hasAnyPermission(currentUser, ["manage_ops"]) && grantedTab !== "ops") return;
     const [healthData, backupData] = await Promise.all([
       api("/ops/health"),
       api("/ops/backups")
@@ -173,7 +233,8 @@ export default function AdminPage() {
     setBackups(backupData);
   }
 
-  async function refreshUsers() {
+  async function refreshUsers(currentUser = user, grantedTab = adminGrantTab) {
+    if (!hasAnyPermission(currentUser, ["manage_users"]) && grantedTab !== "users") return;
     const [usersData, rolesData] = await Promise.all([
       api("/users"),
       api("/roles")
@@ -198,13 +259,53 @@ export default function AdminPage() {
     noticeTimerRef.current = window.setTimeout(() => setNotice(""), 3000);
   }
 
+  async function revokeAdminGrant() {
+    const token = window.sessionStorage.getItem("qypos_admin_grant");
+    if (token) {
+      try { await api("/auth/admin-grant", { method: "DELETE" }); } catch { /* grant also expires server-side */ }
+    }
+    window.sessionStorage.removeItem("qypos_admin_grant");
+    setAdminGrantTab(null);
+  }
+
+  async function selectTab(id) {
+    await revokeAdminGrant();
+    const permissions = tabs.find(([tabId]) => tabId === id)?.[3] ?? [];
+    if (adminGatedTabs.has(id) && !hasAnyPermission(user, permissions)) {
+      if (adminGatedTabs.has(activeTab)) setActiveTab("orders");
+      setAdminGateTarget(id);
+      return;
+    }
+    setAdminGateTarget(null);
+    setActiveTab(id);
+    if (id === "dashboard" || id === "layout") await refresh(user);
+    if (id === "users") await refreshUsers(user);
+    if (id === "ops") await refreshOps(user);
+  }
+
+  async function enterAdminTab(id) {
+    try {
+      setAdminGrantTab(id);
+      setActiveTab(id);
+      await refresh(user, id);
+      if (id === "users") await refreshUsers(user, id);
+      setAdminGateTarget(null);
+    } catch (error) {
+      await revokeAdminGrant();
+      throw error;
+    }
+  }
+
   useEffect(() => {
+    window.sessionStorage.removeItem("qypos_admin_grant");
     setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
     const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    loadProtectedData().catch(() => setUser(null));
+    verifyAuth().then((me) => {
+      if (me) refresh(me).catch((err) => showNotice(err.message || "数据加载失败"));
+    }).catch(() => setUser(null));
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const apiPort = process.env.NEXT_PUBLIC_API_PORT || "4000";
     const socket = new WebSocket(`${wsProtocol}//${window.location.hostname}:${apiPort}/ws`);
@@ -237,9 +338,19 @@ export default function AdminPage() {
     };
   }, [user?.id]);
 
+  const allowedTabs = user ? tabs.filter(([id, , , permissions]) => adminGatedTabs.has(id) || hasAnyPermission(user, permissions)) : [];
+  useEffect(() => {
+    if (user && !allowedTabs.some(([id]) => id === activeTab)) {
+      setActiveTab(allowedTabs[0]?.[0] ?? "orders");
+    }
+  }, [user, activeTab, allowedTabs]);
+
   if (!user) {
     return <AdminLogin onLogin={async (nextUser) => {
+      // Set user immediately from login response so the UI transitions away from the login form
       setUser(nextUser);
+      // Verify auth and load data in the background; failures here won't log the user out
+      // because verifyAuth() will succeed (token is fresh) and refresh() errors are caught
       await loadProtectedData();
     }} />;
   }
@@ -252,8 +363,9 @@ export default function AdminPage() {
           <span>QYPOS</span>
         </div>
         <nav>
-          {tabs.map(([id, Icon, label]) => (
-            <button key={id} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)} title={label}>
+          {allowedTabs.map(([id, Icon, label]) => (
+            <button key={id} className={activeTab === id ? "active" : ""} onClick={() => selectTab(id)} title={label}>
+              {adminGatedTabs.has(id) && !hasAnyPermission(user, tabs.find(([tabId]) => tabId === id)?.[3] ?? []) && <Lock className="admin-lock-icon" size={14} aria-label="需要管理员验证" />}
               <Icon size={20} />
               <span>{label}</span>
             </button>
@@ -268,13 +380,14 @@ export default function AdminPage() {
             {activeTab === "settings" && settings && <p>{`${settings.currency} · Tax ${(Number(settings.tax_rate) * 100).toFixed(1)}% · Service ${(Number(settings.service_charge_rate) * 100).toFixed(1)}%`}</p>}
           </div>
           <div className="top-actions">
-            <span className="user-chip"><User size={16} />{user.name} · {user.role}</span>
+            <span className="user-chip"><User size={16} />{user.name} · {roleLabel(user.role)}</span>
             <a className="link-button" href="/">点餐前台</a>
             <button onClick={refresh} title="刷新">
               <Save size={18} />
               <span>刷新</span>
             </button>
             <button onClick={async () => {
+              await revokeAdminGrant();
               await api("/auth/logout", { method: "POST" });
               window.localStorage.removeItem("qypos_token");
               setUser(null);
@@ -296,13 +409,16 @@ export default function AdminPage() {
           await api(`/print-jobs/${job.id}/retry`, { method: "POST" });
           await refresh();
         }, "打印任务已重新入队")} />}
-        {activeTab === "menu" && <MenuAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />}
+        {activeTab === "menu" && (user.permissions.includes("manage_menu")
+          ? <MenuAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />
+          : <MenuAvailabilityAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />)}
         {activeTab === "dashboard" && <Dashboard dashboard={dashboard} report={report} setReport={setReport} auditLogs={auditLogs} locale={locale} currency={currency} />}
-        {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} onSaved={refresh} />}
+        {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} onSaved={refresh} adminAuthorized={adminGrantTab === "settings"} />}
         {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
         {activeTab === "users" && <UsersView usersList={usersList} rolesList={rolesList} onSaved={async () => { await refresh(); await refreshUsers(); }} />}
         {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} />}
       </section>
+      {adminGateTarget && <AdminGateModal tab={adminGateTarget} onCancel={() => setAdminGateTarget(null)} onGranted={enterAdminTab} />}
     </main>
   );
 }
@@ -618,6 +734,73 @@ function PrintJobsView({ jobs, locale, onRetry }) {
       ))}
       {!jobs.length && <div className="empty">暂无打印任务</div>}
     </section>
+  );
+}
+
+function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
+  const [selectedCatId, setSelectedCatId] = useState("all");
+  const [busyItemId, setBusyItemId] = useState(null);
+  const items = selectedCatId === "all"
+    ? menu.items
+    : menu.items.filter((item) => item.category_id === selectedCatId);
+
+  async function toggleItem(item) {
+    setBusyItemId(item.id);
+    try {
+      await api(`/menu/items/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: !item.active })
+      });
+      await onSaved();
+      onNotify(item.active ? "菜品已下架" : "菜品已上架");
+    } catch (error) {
+      onNotify(error.message);
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <div className="panel-title split">
+        <div className="inline-title"><ReceiptText size={18} /><h2>菜品上下架</h2></div>
+      </div>
+      <div className="order-filter-bar" style={{ marginBottom: 12 }}>
+        <button className={selectedCatId === "all" ? "selected" : ""} onClick={() => setSelectedCatId("all")}>全部</button>
+        {menu.categories.map((category) => (
+          <button
+            key={category.id}
+            className={selectedCatId === category.id ? "selected" : ""}
+            onClick={() => setSelectedCatId(category.id)}
+          >
+            {labelOf(category.name_i18n, locale)}
+          </button>
+        ))}
+      </div>
+      <div className="menu-item-list">
+        {items.map((item) => (
+          <div key={item.id} className={`menu-item-row${item.active ? "" : " inactive"}`}>
+            <div className="menu-item-row-head" style={{ cursor: "default" }}>
+              <span className="item-name">{labelOf(item.name_i18n, locale)}</span>
+              <span className={`item-badge${item.active ? " badge-active" : " badge-inactive"}`}>
+                {item.active ? "上架" : "下架"}
+              </span>
+              <span className="muted">{labelOf(menu.categories.find((category) => category.id === item.category_id)?.name_i18n, locale) || "未分类"}</span>
+              <button
+                type="button"
+                className="action-toggle"
+                disabled={busyItemId === item.id}
+                onClick={() => toggleItem(item)}
+              >
+                <Power size={16} />
+                <span>{busyItemId === item.id ? "处理中…" : item.active ? "下架" : "上架"}</span>
+              </button>
+            </div>
+          </div>
+        ))}
+        {!items.length && <div className="empty">暂无菜品</div>}
+      </div>
+    </div>
   );
 }
 
@@ -1621,16 +1804,27 @@ function VariantEditor({ item, variant, index, locale, currency, onSaved, onNoti
 }
 
 function ModifierGroupEditor({ group, index, presets, locale, currency, onSaved, onNotify, wasPresetBound }) {
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState(() => ({
     zh: labelOf(group.name_i18n, "zh-CN"),
     en: labelOf(group.name_i18n, "en-GB"),
     min_select: group.min_select,
     max_select: group.max_select,
     active: group.active
-  });
+  }));
   const [modifierDraft, setModifierDraft] = useState({ zh: "", en: "", price: "0", default_selected: false });
   const [expanded, setExpanded] = useState(true);
   const [action, setAction] = useState("");
+
+  // Sync draft when group props change externally (e.g. after preset apply)
+  useEffect(() => {
+    setDraft({
+      zh: labelOf(group.name_i18n, "zh-CN"),
+      en: labelOf(group.name_i18n, "en-GB"),
+      min_select: group.min_select,
+      max_select: group.max_select,
+      active: group.active
+    });
+  }, [group.id, group.min_select, group.max_select, group.name_i18n, group.active]);
 
   async function saveGroup(refresh = true, overrides = {}) {
     const data = { ...draft, ...overrides };
@@ -1869,7 +2063,8 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
 
   function exportUrl() {
     const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : "";
-    return `${API_URL}/reports/sales.csv?from=${from}&to=${to}&token=${token}`;
+    const grant = typeof window !== "undefined" ? window.sessionStorage.getItem("qypos_admin_grant") : "";
+    return `${API_URL}/reports/sales.csv?from=${from}&to=${to}&token=${token}&admin_grant=${grant}`;
   }
 
   return (
@@ -2323,7 +2518,8 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
 
   function downloadUrl(name) {
     const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : "";
-    return `${API_URL}/ops/backups/${encodeURIComponent(name)}?token=${token}`;
+    const grant = typeof window !== "undefined" ? window.sessionStorage.getItem("qypos_admin_grant") : "";
+    return `${API_URL}/ops/backups/${encodeURIComponent(name)}?token=${token}&admin_grant=${grant}`;
   }
 
   return (
@@ -2462,7 +2658,7 @@ echo HELLO > ${profile.device_path || "/dev/rfcomm0"}   # 打印机出纸即可�
   );
 }
 
-function SettingsView({ settings, setSettings, onSaved }) {
+function SettingsView({ settings, setSettings, onSaved, adminAuthorized = false }) {
   const originalProtectedSettings = useRef({
     tax: Number(settings.tax_rate),
     service: Number(settings.service_charge_rate),
@@ -2473,10 +2669,10 @@ function SettingsView({ settings, setSettings, onSaved }) {
   const [confirmPin, setConfirmPin] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
-  const protectedSettingsChanged = Number(settings.tax_rate) !== originalProtectedSettings.current.tax
+  const protectedSettingsChanged = !adminAuthorized && (Number(settings.tax_rate) !== originalProtectedSettings.current.tax
     || Number(settings.service_charge_rate) !== originalProtectedSettings.current.service
     || Boolean(settings.prices_include_tax) !== originalProtectedSettings.current.pricesIncludeTax
-    || Boolean(settings.show_tax_on_receipt) !== originalProtectedSettings.current.showTaxOnReceipt;
+    || Boolean(settings.show_tax_on_receipt) !== originalProtectedSettings.current.showTaxOnReceipt);
 
   async function save(event) {
     event.preventDefault();
@@ -2517,17 +2713,17 @@ function SettingsView({ settings, setSettings, onSaved }) {
     <div className="settings-top">
       <form className="settings-form" onSubmit={save}>
         <div className="settings-section settings-section-basic">
-          <div className="settings-section-title"><Settings size={17} /><div><h3>基本设置</h3><p>语言与结算显示</p></div></div>
+          <div className="settings-section-title"><Settings size={17} /><div><h3>基本设置</h3></div></div>
           <div className="settings-fields">
             <label>语言 / Locale<input value={settings.locale} onChange={(event) => setSettings({ ...settings, locale: event.target.value })} /></label>
             <label>结算币种<input value={settings.currency} onChange={(event) => setSettings({ ...settings, currency: event.target.value })} /></label>
           </div>
         </div>
         <div className="settings-section settings-section-tax">
-          <div className="settings-section-title"><CircleDollarSign size={17} /><div><h3>税务与费用</h3><p>配置 VAT、服务费及小票税务显示</p></div></div>
+          <div className="settings-section-title"><CircleDollarSign size={17} /><div><h3>税务与费用</h3></div></div>
           <div className="settings-fields">
-            <label>VAT 税率<small className="label-hint">小数，0.20 = 20%</small><input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
-            <label>服务费率<small className="label-hint">小数，0.10 = 10%；0 = 不收取</small><input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
+            <label>VAT 税率<input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
+            <label>服务费率<input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
           </div>
           <div className="settings-checkboxes">
             <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} /><b>VAT 包含在标价中（默认 20%）</b></label>
@@ -2535,23 +2731,23 @@ function SettingsView({ settings, setSettings, onSaved }) {
           </div>
           {protectedSettingsChanged && (
             <div className="settings-reauth">
-              <div><strong>需要身份确认</strong><span>税务或服务费设置已修改，请重新输入当前登录账号。</span></div>
+              <div><strong>需要身份确认</strong></div>
               <label>账号名<input value={confirmName} onChange={(event) => setConfirmName(event.target.value)} autoComplete="username" /></label>
               <label>PIN<input type="password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value)} autoComplete="current-password" /></label>
             </div>
           )}
         </div>
         <div className="settings-section settings-section-tables">
-          <div className="settings-section-title"><Armchair size={17} /><div><h3>桌台行为</h3><p>付款后的桌台处理方式</p></div></div>
+          <div className="settings-section-title"><Armchair size={17} /><div><h3>桌台行为</h3></div></div>
           <div className="settings-checkboxes">
             <label className="checkbox"><input type="checkbox" checked={Boolean(settings.auto_clear_tables_after_payment)} onChange={(event) => setSettings({ ...settings, auto_clear_tables_after_payment: event.target.checked })} />付款完成后自动清台</label>
           </div>
         </div>
         <div className="settings-section settings-section-receipt">
-          <div className="settings-section-title"><ReceiptText size={17} /><div><h3>小票内容</h3><p>店铺名称、联系方式与页脚信息</p></div></div>
+          <div className="settings-section-title"><ReceiptText size={17} /><div><h3>小票内容</h3></div></div>
           <div className="settings-fields">
-            <label>店铺名称（英文）<small className="label-hint">第一行，加大加粗，例：Granny Noodles</small><input value={settings.receipt_header || ""} onChange={(event) => setSettings({ ...settings, receipt_header: event.target.value })} /></label>
-            <label>店铺名称（中文）<small className="label-hint">第二行，例：秦云老太婆摊摊面</small><input value={settings.receipt_header_zh || ""} onChange={(event) => setSettings({ ...settings, receipt_header_zh: event.target.value })} /></label>
+            <label>店铺名称（英文）<input value={settings.receipt_header || ""} onChange={(event) => setSettings({ ...settings, receipt_header: event.target.value })} /></label>
+            <label>店铺名称（中文）<input value={settings.receipt_header_zh || ""} onChange={(event) => setSettings({ ...settings, receipt_header_zh: event.target.value })} /></label>
             <label>联系电话<input value={settings.receipt_phone || ""} onChange={(event) => setSettings({ ...settings, receipt_phone: event.target.value })} placeholder="07347 997926" /></label>
             <label>店铺地址<input value={settings.receipt_address || ""} onChange={(event) => setSettings({ ...settings, receipt_address: event.target.value })} /></label>
             <label>小票页脚<input value={settings.receipt_footer || ""} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
@@ -2620,7 +2816,8 @@ function UsersView({ usersList, rolesList, onSaved }) {
   }, []);
 
   function openNew() {
-    setForm({ name: "", pin: "", role_id: rolesList[0]?.id ?? "", active: true });
+    setForm({ name: "", pin: "", role_id: roles[0]?.id ?? "", active: true });
+    setLoadError(roles.length ? "" : "角色列表尚未加载，请稍后重试");
     setEditing("new");
   }
   function openEdit(user) {
@@ -2631,14 +2828,22 @@ function UsersView({ usersList, rolesList, onSaved }) {
 
   async function save(event) {
     event.preventDefault();
-    if (!form.name.trim() || !form.pin.trim()) return;
-    if (editing === "new") {
-      await api("/users", { method: "POST", body: JSON.stringify(form) });
-    } else {
-      await api(`/users/${editing.id}`, { method: "PATCH", body: JSON.stringify(form) });
+    if (!form.name.trim() || !form.pin.trim() || !form.role_id) {
+      setLoadError("请填写姓名、PIN 并选择角色");
+      return;
     }
-    setEditing(null);
-    await onSaved();
+    try {
+      if (editing === "new") {
+        await api("/users", { method: "POST", body: JSON.stringify(form) });
+      } else {
+        await api(`/users/${editing.id}`, { method: "PATCH", body: JSON.stringify(form) });
+      }
+      setLoadError("");
+      setEditing(null);
+      await onSaved();
+    } catch (error) {
+      setLoadError(error.message || "保存账户失败");
+    }
   }
 
   async function remove(user) {
@@ -2665,7 +2870,7 @@ function UsersView({ usersList, rolesList, onSaved }) {
             </select></label>
             <label className="checkbox"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />启用</label>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="primary" type="submit"><Save size={14} /><span>保存</span></button>
+              <button className="primary" type="submit" disabled={!roles.length}><Save size={14} /><span>保存</span></button>
               <button type="button" onClick={cancel}>取消</button>
             </div>
           </div>

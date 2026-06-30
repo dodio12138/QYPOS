@@ -218,6 +218,11 @@ nav button:hover {
   color: white;
 }
 
+.admin-lock-icon {
+  flex: 0 0 auto;
+  color: #fbbf24;
+}
+
 .workspace {
   min-width: 0;
   padding: 22px;

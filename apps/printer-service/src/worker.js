@@ -1,6 +1,7 @@
 import net from "node:net";
 import fs from "node:fs/promises";
 import { readdirSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import Redis from "ioredis";
 import pg from "pg";
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
@@ -43,8 +44,8 @@ if (cjkFonts.length) {
 
 // ── DB / Redis ────────────────────────────────────────────────────────────────
 const { Pool } = pg;
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
+let pool;
+let redis;
 
 // ── Layout constants (TM-T20II: 80mm, 203dpi → 576 dots printable width) ─────
 const PAPER_W = 576;
@@ -169,7 +170,7 @@ function buildKitchenDoc({ order, items, table, settings }) {
       const m = bilingualName(mod.name_i18n);
       doc.push(T(`  + ${mod.count > 1 ? `${mod.count}X ` : ""}${m.zh}${m.en ? ` / ${m.en}` : ""}`, { fontSize: itemFontSize, bold: nameBold }));
     }
-    if (item.notes) doc.push(T(`  ※ ${item.notes}`, { fontSize: itemFontSize, bold: itemBold }));
+    if (item.notes) doc.push(T(`  ※ ${item.notes}`, { fontSize: itemFontSize, bold: nameBold }));
   }
   if (order.notes) { doc.push(R()); doc.push(T(`备注 Notes: ${order.notes}`)); }
   doc.push(R()); doc.push(F());
@@ -450,13 +451,23 @@ async function processJob(id) {
   }
 }
 
-console.log("printer-service ready");
-while (true) {
-  try {
-    const result = await redis.brpop("print_jobs", 0);
-    if (result?.[1]) await processJob(result[1]);
-  } catch (err) {
-    console.error("[print] worker error:", err.message);
-    await new Promise(r => setTimeout(r, 2000));
+export { buildKitchenDoc, buildReceiptDoc, buildTestDoc, docToBuffer, render };
+
+async function startWorker() {
+  pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
+  console.log("printer-service ready");
+  while (true) {
+    try {
+      const result = await redis.brpop("print_jobs", 0);
+      if (result?.[1]) await processJob(result[1]);
+    } catch (err) {
+      console.error("[print] worker error:", err.message);
+      await new Promise(r => setTimeout(r, 2000));
+    }
   }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await startWorker();
 }

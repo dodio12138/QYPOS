@@ -2,9 +2,11 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
 export async function api(path, options = {}) {
   const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : null;
+  const adminGrant = typeof window !== "undefined" ? window.sessionStorage.getItem("qypos_admin_grant") : null;
   const headers = {
     ...(options.body ? { "Content-Type": "application/json" } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(adminGrant ? { "X-QYPOS-Admin-Grant": adminGrant } : {}),
     ...(options.headers || {})
   };
 

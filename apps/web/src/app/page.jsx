@@ -78,6 +78,7 @@ export default function PosPage() {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
+  const [pendingDiscount, setPendingDiscount] = useState(null);
   const [mobileStep, setMobileStep] = useState("tables");
   const [mobileStepHistory, setMobileStepHistory] = useState([]);
   const [tabletMode, setTabletMode] = useState(false);
@@ -150,6 +151,7 @@ export default function PosPage() {
   }
 
   useEffect(() => {
+    window.sessionStorage.removeItem("qypos_admin_grant");
     setTabletMode(window.localStorage.getItem("qypos_tablet_mode") === "1");
     setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
     const onOnline = () => setOnline(true);
@@ -507,14 +509,13 @@ export default function PosPage() {
 
   async function applyDiscount(patch) {
     if (!selectedOrder) return;
-    await run(async () => {
-      const updated = await api(`/orders/${selectedOrder.id}/discount`, {
-        method: "POST",
-        body: JSON.stringify(patch)
-      });
-      setSelectedOrder(await api(`/orders/${updated.id}`));
-      await refresh(false);
-    }, "折扣已更新");
+    const updated = await api(`/orders/${selectedOrder.id}/discount`, {
+      method: "POST",
+      body: JSON.stringify(patch)
+    });
+    setSelectedOrder(await api(`/orders/${updated.id}`));
+    await refresh(false);
+    setNotice("折扣已更新");
   }
 
   async function cancelOrder(reason) {
@@ -652,7 +653,7 @@ export default function PosPage() {
           onSplit={(mode) => setSplitting(mode)}
           onMerge={mergeOrder}
           onAdjustService={adjustServiceCharge}
-          onDiscount={applyDiscount}
+          onDiscount={setPendingDiscount}
           onCancelOrder={cancelOrder}
           onExit={() => {
             setSelectedOrder(null);
@@ -736,6 +737,16 @@ export default function PosPage() {
         />
       )}
 
+      {pendingDiscount && (
+        <DiscountAdminModal
+          onCancel={() => setPendingDiscount(null)}
+          onApply={async () => {
+            await applyDiscount(pendingDiscount);
+            setPendingDiscount(null);
+          }}
+        />
+      )}
+
       {paying && selectedOrder && (
         <PaymentModal
           order={selectedOrder}
@@ -776,6 +787,57 @@ export default function PosPage() {
         />
       )}
     </main>
+  );
+}
+
+function DiscountAdminModal({ onCancel, onApply }) {
+  const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    let granted = false;
+    try {
+      const grant = await api("/auth/admin-grant", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim(), pin, scope: "discount" })
+      });
+      window.sessionStorage.setItem("qypos_admin_grant", grant.token);
+      granted = true;
+      await onApply();
+    } catch (caught) {
+      setError(caught.message || "管理员验证失败");
+    } finally {
+      if (granted) {
+        try { await api("/auth/admin-grant", { method: "DELETE" }); } catch { /* grant expires server-side */ }
+      }
+      window.sessionStorage.removeItem("qypos_admin_grant");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && !busy && onCancel()}>
+      <form className="modal" onSubmit={submit} style={{ maxWidth: 420 }}>
+        <header className="modal-header">
+          <button type="button" onClick={onCancel} disabled={busy} title="关闭"><X size={20} /></button>
+          <div><h2>折扣 · 管理员验证</h2></div>
+        </header>
+        <div className="modal-body" style={{ display: "grid", gap: 12, padding: 20 }}>
+          <label>管理员账号<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" autoFocus /></label>
+          <label>管理员 PIN<input type="password" value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" /></label>
+          {error && <div className="inline-error">{error}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button type="button" onClick={onCancel} disabled={busy}>取消</button>
+            <button className="primary" type="submit" disabled={busy || !name.trim() || !pin}>{busy ? "验证并应用中…" : "验证并应用"}</button>
+          </div>
+        </div>
+      </form>
+    </div>
   );
 }
 

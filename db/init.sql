@@ -468,9 +468,9 @@ INSERT INTO restaurants (id, name, created_at) VALUES ('00000000-0000-0000-0000-
 --
 -- Data for Name: roles; Type: TABLE DATA; Schema: public; Owner: -
 --
-INSERT INTO roles (id, name, permissions) VALUES ('db34163f-e19c-4793-8465-4196ae955a4b', 'cashier', '["create_order", "split_order", "take_payment", "print_receipt"]');
+INSERT INTO roles (id, name, permissions) VALUES ('db34163f-e19c-4793-8465-4196ae955a4b', 'cashier', '["manage_prints", "manage_menu_availability", "manage_orders", "adjust_service_charge", "view_kitchen", "update_item_status", "create_order", "split_order", "take_payment", "print_receipt"]');
 INSERT INTO roles (id, name, permissions) VALUES ('6daba10f-057c-432d-a804-0e0ff49bea17', 'kitchen', '["view_kitchen", "update_item_status"]');
-INSERT INTO roles (id, name, permissions) VALUES ('bb065e2e-a231-43c5-9122-34418460fa36', 'owner', '["manage_settings", "manage_menu", "manage_tables", "manage_orders", "adjust_service_charge", "view_dashboard", "view_reports", "export_reports", "view_audit_logs", "view_kitchen", "update_item_status", "create_order", "split_order", "take_payment", "print_receipt"]');
+INSERT INTO roles (id, name, permissions) VALUES ('bb065e2e-a231-43c5-9122-34418460fa36', 'owner', '["manage_settings", "manage_prints", "manage_ops", "manage_menu", "manage_menu_availability", "manage_tables", "manage_orders", "manage_users", "adjust_service_charge", "adjust_discount", "view_dashboard", "view_reports", "export_reports", "view_audit_logs", "view_kitchen", "update_item_status", "create_order", "split_order", "take_payment", "print_receipt"]');
 --
 -- Data for Name: settings; Type: TABLE DATA; Schema: public; Owner: -
 --
