@@ -38,6 +38,7 @@ export const ADMIN_GRANT_SCOPES = {
   discount: ["adjust_discount"],
   settings: ["manage_settings", "manage_prints"],
   dashboard: ["view_dashboard", "view_reports", "export_reports", "view_audit_logs"],
+  reports: ["view_reports", "export_reports"],
   users: ["manage_users"],
   ops: ["manage_ops", "manage_settings", "manage_prints"],
   layout: ["manage_tables"],

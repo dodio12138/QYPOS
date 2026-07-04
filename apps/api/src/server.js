@@ -2643,6 +2643,9 @@ app.patch("/orders/:orderId/items/:itemId/status", async (request, reply) => {
 app.get("/dashboard/today", async (request, reply) => {
   if (!await requirePermission(request, reply, "view_dashboard")) return;
   const today = localToday();
+  const yesterday = new Date(`${today}T00:00:00Z`);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
   const summary = await one(
     `SELECT
       COALESCE(SUM(total), 0)::numeric AS revenue,
@@ -2658,6 +2661,19 @@ app.get("/dashboard/today", async (request, reply) => {
      WHERE created_at::date = $1::date AND status IN ('submitted','preparing','ready','paid')`,
     [today]
   );
+  const yesterdaySummary = await one(
+    `SELECT
+      COALESCE(SUM(total), 0)::numeric AS revenue,
+      COALESCE(SUM(discount), 0)::numeric AS discount,
+      COALESCE(SUM(net_sales), 0)::numeric AS net_sales,
+      COALESCE(SUM(tax), 0)::numeric AS tax,
+      COALESCE(SUM(service_charge), 0)::numeric AS service_charge,
+      COUNT(*)::integer AS orders,
+      COALESCE(AVG(NULLIF(total, 0)), 0)::numeric AS average_ticket
+     FROM orders
+     WHERE created_at::date = $1::date AND status IN ('submitted','preparing','ready','paid')`,
+    [yesterdayStr]
+  );
   const hotItems = await query(
     `SELECT oi.name_i18n, SUM(oi.quantity)::integer AS quantity, SUM((oi.unit_price * oi.quantity))::numeric AS sales
      FROM order_items oi
@@ -2670,7 +2686,7 @@ app.get("/dashboard/today", async (request, reply) => {
   );
   const openOrders = await query("SELECT * FROM orders WHERE status NOT IN ('paid','cancelled','split') ORDER BY created_at DESC LIMIT 20");
   const printer = await one("SELECT status, COUNT(*)::integer FROM print_jobs GROUP BY status ORDER BY status LIMIT 1");
-  return { summary, hotItems, openOrders, printer };
+  return { summary, yesterdaySummary, hotItems, openOrders, printer };
 });
 
 async function buildSalesReport(from, to) {

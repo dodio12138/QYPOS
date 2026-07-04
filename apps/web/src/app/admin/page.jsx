@@ -28,6 +28,8 @@ import {
   HardDrive,
   LogOut,
   Lock,
+  TrendingDown,
+  TrendingUp,
   Undo2,
   User,
   Users,
@@ -35,7 +37,7 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../../lib/api";
 import qyposLogo from "../../pic/logo.png";
 
@@ -45,12 +47,13 @@ const tabs = [
   ["prints", Printer, "打印", ["manage_prints"]],
   ["menu", ReceiptText, "菜单", ["manage_menu", "manage_menu_availability"]],
   ["dashboard", BarChart3, "看板", ["view_dashboard"]],
+  ["reports", TrendingUp, "分析", ["view_reports"]],
   ["settings", Settings, "设置", ["manage_settings"]],
   ["users", Users, "账户", ["manage_users"]],
   ["ops", Wrench, "运维", ["manage_ops"]],
   ["layout", Armchair, "布局", ["manage_tables"]]
 ];
-const adminGatedTabs = new Set(["dashboard", "settings", "users", "ops", "layout"]);
+const adminGatedTabs = new Set(["dashboard", "reports", "settings", "users", "ops", "layout"]);
 
 const ROLE_LABELS = {
   owner: "管理员",
@@ -68,6 +71,86 @@ function hasAnyPermission(user, permissions) {
 
 function money(value, currency = "CNY", locale = "zh-CN") {
   return new Intl.NumberFormat(locale, { style: "currency", currency }).format(Number(value || 0));
+}
+
+function getLocalToday() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/London";
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function formatDateStr(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(dateStr, delta) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  date.setDate(date.getDate() + delta);
+  return formatDateStr(date);
+}
+
+function addYears(dateStr, delta) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  date.setFullYear(date.getFullYear() + delta);
+  return formatDateStr(date);
+}
+
+function daySpan(fromStr, toStr) {
+  const from = new Date(`${fromStr}T00:00:00`);
+  const to = new Date(`${toStr}T00:00:00`);
+  return Math.round((to - from) / 86400000) + 1;
+}
+
+function pctDelta(curr, prev) {
+  const c = Number(curr || 0);
+  const p = Number(prev || 0);
+  if (!p) return null;
+  return Math.round(((c - p) / p) * 1000) / 10;
+}
+
+// ISO-ish week grouping (Mon-Sun) for weekly breakdown analysis
+function groupByWeek(byDay, locale) {
+  const weeks = new Map();
+  for (const row of (byDay || [])) {
+    const date = new Date(row.day);
+    const dow = (date.getDay() + 6) % 7; // 0 = Monday
+    const weekStart = new Date(date);
+    weekStart.setDate(date.getDate() - dow);
+    const key = formatDateStr(weekStart);
+    if (!weeks.has(key)) {
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weeks.set(key, {
+        key,
+        label: `${weekStart.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })} - ${weekEnd.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })}`,
+        orders: 0,
+        revenue: 0
+      });
+    }
+    const bucket = weeks.get(key);
+    bucket.orders += Number(row.orders || 0);
+    bucket.revenue += Number(row.revenue || 0);
+  }
+  return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
+
+// Day-of-week comparison: cumulative orders/revenue per weekday (Mon-Sun) across the whole selected range
+function groupByWeekday(byDay) {
+  const buckets = WEEKDAY_LABELS.map((label, idx) => ({ dow: idx, label, orders: 0, revenue: 0, days: 0 }));
+  for (const row of (byDay || [])) {
+    const date = new Date(row.day);
+    const dow = (date.getDay() + 6) % 7; // 0 = Monday
+    const bucket = buckets[dow];
+    bucket.orders += Number(row.orders || 0);
+    bucket.revenue += Number(row.revenue || 0);
+    bucket.days += 1;
+  }
+  return buckets;
 }
 
 function AdminLogin({ onLogin }) {
@@ -412,7 +495,8 @@ export default function AdminPage() {
         {activeTab === "menu" && (user.permissions.includes("manage_menu")
           ? <MenuAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />
           : <MenuAvailabilityAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />)}
-        {activeTab === "dashboard" && <Dashboard dashboard={dashboard} report={report} setReport={setReport} auditLogs={auditLogs} locale={locale} currency={currency} />}
+        {activeTab === "dashboard" && <Dashboard dashboard={dashboard} auditLogs={auditLogs} locale={locale} currency={currency} />}
+        {activeTab === "reports" && <ReportsAnalytics report={report} setReport={setReport} locale={locale} currency={currency} />}
         {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} onSaved={refresh} adminAuthorized={adminGrantTab === "settings"} />}
         {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
         {activeTab === "users" && <UsersView usersList={usersList} rolesList={rolesList} onSaved={async () => { await refresh(); await refreshUsers(); }} />}
@@ -1998,16 +2082,9 @@ function ModifierEditor({ modifier, index, locale, currency, onSaved, onNotify, 
   );
 }
 
-function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }) {
+function Dashboard({ dashboard, auditLogs, locale, currency }) {
   const summary = dashboard?.summary || {};
-  const today = (() => {
-    try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/London';
-      return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    } catch { return new Date().toISOString().slice(0, 10); }
-  })();
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
+  const yesterdaySummary = dashboard?.yesterdaySummary || null;
   const [auditCollapsed, setAuditCollapsed] = useState(true);
   const [auditTimeFilter, setAuditTimeFilter] = useState("all");
   const [auditUserFilter, setAuditUserFilter] = useState("all");
@@ -2056,32 +2133,44 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
     return createdAt >= new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
   });
 
-  async function loadReport(event) {
-    event.preventDefault();
-    setReport(await api(`/reports/sales?from=${from}&to=${to}`));
-  }
-
-  function exportUrl() {
-    const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : "";
-    const grant = typeof window !== "undefined" ? window.sessionStorage.getItem("qypos_admin_grant") : "";
-    return `${API_URL}/reports/sales.csv?from=${from}&to=${to}&token=${token}&admin_grant=${grant}`;
-  }
-
   return (
     <div className="dashboard">
       {[
-        ["营业额", summary.revenue],
-        ["折扣", summary.discount],
-        ["净销售额", summary.net_sales],
-        ["Tax", summary.tax],
-        ["服务费", summary.service_charge],
-        ["客单价", summary.average_ticket]
-      ].map(([label, value]) => (
-        <section className="metric" key={label}>
-          <span>{label}</span>
-          <strong>{money(value, currency, locale)}</strong>
-        </section>
-      ))}
+        ["营业额", "revenue"],
+        ["折扣", "discount"],
+        ["净销售额", "net_sales"],
+        ["Tax", "tax"],
+        ["服务费", "service_charge"],
+        ["客单价", "average_ticket"]
+      ].map(([label, key]) => {
+        const value = summary[key];
+        const currNum = Number(value || 0);
+        const prevNum = yesterdaySummary ? Number(yesterdaySummary[key] || 0) : null;
+        const delta = yesterdaySummary ? pctDelta(value, yesterdaySummary[key]) : null;
+        return (
+          <section className="metric" key={label}>
+            <span>{label}</span>
+            <strong>{money(value, currency, locale)}</strong>
+            {delta != null && (
+              <span className={`reports-delta ${delta >= 0 ? "up" : "down"}`}>
+                {delta >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                {delta >= 0 ? "+" : ""}{delta}% <small className="muted">较昨日</small>
+              </span>
+            )}
+            {delta == null && prevNum === 0 && currNum > 0 && (
+              <span className="reports-delta up">
+                <TrendingUp size={13} />
+                新增 <small className="muted">较昨日</small>
+              </span>
+            )}
+            {delta == null && prevNum === 0 && currNum === 0 && (
+              <span className="reports-delta flat">
+                持平 <small className="muted">较昨日</small>
+              </span>
+            )}
+          </section>
+        );
+      })}
       <section className="wide-list dashboard-list report-hot-items">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>热销菜品</h2>
@@ -2098,87 +2187,6 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
             </div>
           ))}
         </div>
-      </section>
-      <section className="panel dashboard-list">
-        <div className="panel-title"><h2>历史报表</h2></div>
-        <form className="report-toolbar" onSubmit={loadReport}>
-          <label>开始日期<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-          <label>结束日期<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
-          <button className="primary" type="submit"><RefreshCw size={16} /><span>生成报表</span></button>
-          <a className="link-button" href={exportUrl()}><FileDown size={16} /><span>导出 CSV</span></a>
-        </form>
-        {report && (
-          <div className="report-grid">
-            <section className="metric"><span>订单数</span><strong>{report.summary.orders}</strong></section>
-            <section className="metric"><span>营业额</span><strong>{money(report.summary.revenue, currency, locale)}</strong></section>
-            <section className="metric"><span>折扣</span><strong>{money(report.summary.discount, currency, locale)}</strong></section>
-            <section className="metric"><span>Tax</span><strong>{money(report.summary.tax, currency, locale)}</strong></section>
-            <section className="metric"><span>服务费</span><strong>{money(report.summary.service_charge || 0, currency, locale)}</strong></section>
-            <section className="metric"><span>客单价</span><strong>{money(report.summary.average_ticket ?? (report.summary.orders ? report.summary.revenue / report.summary.orders : 0), currency, locale)}</strong></section>
-            <section className="wide-list report-lines">
-              {report.byDay.map((row) => (
-                <div className="list-row" key={row.day}>
-                  <span>{new Date(row.day).toLocaleDateString(locale)}</span>
-                  <span>{row.orders} 单</span>
-                  <strong>{money(row.revenue, currency, locale)}</strong>
-                </div>
-              ))}
-            </section>
-            <section className="panel report-hot-collection" style={{marginTop:12}}>
-              <div className="panel-title"><h3>该期间热销统计</h3></div>
-              <div className="report-hot-collection-grid">
-                <div className="panel report-hot-items-col">
-                  <div className="panel-title"><h4>热销菜品</h4></div>
-                  {(report.hotItems || []).map((it) => (
-                    <div className="list-row" key={labelOf(it.name_i18n, locale)}>
-                      <div className="hot-item-name" style={{overflow:'hidden', textOverflow:'ellipsis'}}>{labelOf(it.name_i18n, locale)}</div>
-                      <div className="hot-item-stats"><span>{it.quantity} 份</span><strong>{money(it.sales, currency, locale)}</strong></div>
-                    </div>
-                  ))}
-                  {!report.hotItems?.length && <div className="empty">无数据</div>}
-                </div>
-
-                <div className="panel report-hot-modifiers-col">
-                  <div className="panel-title"><h4>热销小料</h4></div>
-                  {(report.hotModifiers || []).map((m) => (
-                    <div className="list-row" key={m.id || m.name}>
-                      <div className="hot-item-name">{m.label && typeof m.label === 'object' ? labelOf(m.label, locale) : (m.label || m.name)}</div>
-                      <div className="hot-item-stats"><span>{m.quantity || m.count || 0}</span><strong>{money(m.sales || 0, currency, locale)}</strong></div>
-                    </div>
-                  ))}
-                  {!report.hotModifiers?.length && <div className="empty">无数据</div>}
-                </div>
-
-                <div className="panel report-hot-notes-col">
-                  <div className="panel-title"><h4>常用备注频率</h4></div>
-                  {(report.notePresets || report.common_notes || []).map((n) => (
-                    <div className="list-row" key={n.label || n.name}>
-                      <div className="hot-item-name">{n.label || n.name}</div>
-                      <div className="hot-item-stats"><span>{n.count || n.frequency || ''}</span></div>
-                    </div>
-                  ))}
-                  {!((report.notePresets || report.common_notes || []).length) && <div className="empty">无数据</div>}
-                </div>
-              </div>
-            </section>
-            <section className="panel report-chart" style={{marginTop:12}}>
-              <div className="panel-title"><h3>按日单量与营业额</h3></div>
-              {report.byDay && report.byDay.length ? (
-                <div style={{padding:12}}>
-                  <CanvasDualChart data={report.byDay} locale={locale} currency={currency} />
-                </div>
-              ) : <div className="empty">无数据</div>}
-            </section>
-            <section className="panel report-time-chart" style={{marginTop:12}}>
-              <div className="panel-title"><h3>按时段（30 分钟）单量与营业额</h3></div>
-              {report.byTime && report.byTime.length ? (
-                <div style={{padding:12}}>
-                  <CanvasTimeChart data={report.byTime} locale={locale} currency={currency} />
-                </div>
-              ) : <div className="empty">无数据</div>}
-            </section>
-          </div>
-        )}
       </section>
       <section className="wide-list dashboard-list">
         <div className="audit-log-head">
@@ -2217,6 +2225,407 @@ function Dashboard({ dashboard, report, setReport, auditLogs, locale, currency }
         ))}
         {!filteredAuditLogs.length && <div className="empty">当前筛选条件下暂无审计记录</div>}
       </section>
+    </div>
+  );
+}
+
+function ReportsAnalytics({ report, setReport, locale, currency }) {
+  const today = getLocalToday();
+  const [from, setFrom] = useState(addDays(today, -6));
+  const [to, setTo] = useState(today);
+  const [preset, setPreset] = useState("7d");
+  const [compareMode, setCompareMode] = useState("mom");
+  const [comparisonReport, setComparisonReport] = useState(null);
+  const [comparisonRange, setComparisonRange] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  function comparisonRangeFor(rangeFrom, rangeTo, mode) {
+    if (mode === "yoy") {
+      return [addYears(rangeFrom, -1), addYears(rangeTo, -1)];
+    }
+    const span = daySpan(rangeFrom, rangeTo);
+    const prevTo = addDays(rangeFrom, -1);
+    const prevFrom = addDays(prevTo, -(span - 1));
+    return [prevFrom, prevTo];
+  }
+
+  async function runReport(rangeFrom, rangeTo, mode) {
+    setLoading(true);
+    try {
+      const data = await api(`/reports/sales?from=${rangeFrom}&to=${rangeTo}`);
+      setReport(data);
+      if (mode === "none") {
+        setComparisonReport(null);
+        setComparisonRange(null);
+      } else {
+        const [pf, pt] = comparisonRangeFor(rangeFrom, rangeTo, mode);
+        setComparisonRange([pf, pt]);
+        const compareData = await api(`/reports/sales?from=${pf}&to=${pt}`);
+        setComparisonReport(compareData);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    runReport(from, to, compareMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function applyPreset(id) {
+    setPreset(id);
+    let nextFrom = today;
+    const nextTo = today;
+    if (id === "today") nextFrom = today;
+    else if (id === "7d") nextFrom = addDays(today, -6);
+    else if (id === "30d") nextFrom = addDays(today, -29);
+    else if (id === "month") nextFrom = `${today.slice(0, 7)}-01`;
+    setFrom(nextFrom);
+    setTo(nextTo);
+    runReport(nextFrom, nextTo, compareMode);
+  }
+
+  async function onSubmit(event) {
+    event.preventDefault();
+    setPreset("custom");
+    await runReport(from, to, compareMode);
+  }
+
+  async function onCompareModeChange(mode) {
+    setCompareMode(mode);
+    await runReport(from, to, mode);
+  }
+
+  function exportUrl() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : "";
+    const grant = typeof window !== "undefined" ? window.sessionStorage.getItem("qypos_admin_grant") : "";
+    return `${API_URL}/reports/sales.csv?from=${from}&to=${to}&token=${token}&admin_grant=${grant}`;
+  }
+
+  const weekly = useMemo(() => groupByWeek(report?.byDay || [], locale), [report, locale]);
+  const weekdayBreakdown = useMemo(() => groupByWeekday(report?.byDay || []), [report]);
+  const maxWeekdayRevenue = Math.max(1, ...weekdayBreakdown.map((d) => d.revenue));
+  const busiestWeekday = weekdayBreakdown.reduce((best, d) => (d.revenue > (best?.revenue ?? -1) ? d : best), null);
+
+  const compareLabel = compareMode === "yoy" ? "同比 (去年同期)" : compareMode === "mom" ? "环比 (上一周期)" : "";
+
+  const summaryFields = [
+    ["营业额", "revenue"],
+    ["订单数", "orders"],
+    ["客单价", "average_ticket"],
+    ["净销售额", "net_sales"]
+  ];
+
+  return (
+    <div className="dashboard reports-analytics">
+      <section className="panel dashboard-list reports-toolbar-panel">
+        <div className="panel-title"><h2>数据分析</h2></div>
+        <div className="reports-preset-row">
+          <div className="reports-preset-group">
+            <button type="button" className={preset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>今日</button>
+            <button type="button" className={preset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>近 7 天</button>
+            <button type="button" className={preset === "30d" ? "selected" : ""} onClick={() => applyPreset("30d")}>近 30 天</button>
+            <button type="button" className={preset === "month" ? "selected" : ""} onClick={() => applyPreset("month")}>本月</button>
+          </div>
+          <div className="reports-preset-group">
+            <button type="button" className={compareMode === "mom" ? "selected" : ""} onClick={() => onCompareModeChange("mom")}>环比</button>
+            <button type="button" className={compareMode === "yoy" ? "selected" : ""} onClick={() => onCompareModeChange("yoy")}>同比</button>
+            <button type="button" className={compareMode === "none" ? "selected" : ""} onClick={() => onCompareModeChange("none")}>不比较</button>
+          </div>
+        </div>
+        <form className="report-toolbar" onSubmit={onSubmit}>
+          <label>开始日期<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPreset("custom"); }} /></label>
+          <label>结束日期<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPreset("custom"); }} /></label>
+          <button className="primary" type="submit" disabled={loading}><RefreshCw size={16} /><span>{loading ? "生成中…" : "生成报表"}</span></button>
+          <a className="link-button" href={exportUrl()}><FileDown size={16} /><span>导出 CSV</span></a>
+        </form>
+        {comparisonRange && (
+          <small className="muted">对比区间：{comparisonRange[0]} ~ {comparisonRange[1]}（{compareLabel}）</small>
+        )}
+      </section>
+
+      {report && (
+        <>
+          <section className="wide-list dashboard-list reports-summary-cards">
+            {summaryFields.map(([label, key]) => {
+              const currVal = key === "average_ticket"
+                ? (report.summary.average_ticket ?? (report.summary.orders ? report.summary.revenue / report.summary.orders : 0))
+                : report.summary[key];
+              const prevVal = comparisonReport
+                ? (key === "average_ticket"
+                  ? (comparisonReport.summary.average_ticket ?? (comparisonReport.summary.orders ? comparisonReport.summary.revenue / comparisonReport.summary.orders : 0))
+                  : comparisonReport.summary[key])
+                : null;
+              const delta = comparisonReport ? pctDelta(currVal, prevVal) : null;
+              return (
+                <section className="metric reports-summary-card" key={key}>
+                  <span>{label}</span>
+                  <strong>{key === "orders" ? Number(currVal || 0) : money(currVal, currency, locale)}</strong>
+                  {delta != null && (
+                    <span className={`reports-delta ${delta >= 0 ? "up" : "down"}`}>
+                      {delta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                      {delta >= 0 ? "+" : ""}{delta}%
+                    </span>
+                  )}
+                </section>
+              );
+            })}
+          </section>
+
+          <section className="panel dashboard-list reports-trend-panel">
+            <div className="panel-title split">
+              <h2>营业额趋势 <small className="muted">Revenue Trend</small></h2>
+              {comparisonReport && (
+                <div className="reports-trend-legend">
+                  <span><i className="reports-legend-dot current" />本期</span>
+                  <span><i className="reports-legend-dot compare" />{compareLabel}</span>
+                </div>
+              )}
+            </div>
+            <GradientTrendChart
+              data={report.byDay || []}
+              compareData={comparisonReport?.byDay || []}
+              locale={locale}
+              currency={currency}
+            />
+          </section>
+
+          <section className="panel dashboard-list reports-weekly-panel">
+            <div className="panel-title"><h2>周度分析 <small className="muted">Weekly Breakdown</small></h2></div>
+            {weekly.length ? (
+              <div className="reports-weekly-list">
+                {weekly.map((week, idx) => {
+                  const prevWeek = weekly[idx - 1];
+                  const wow = prevWeek ? pctDelta(week.revenue, prevWeek.revenue) : null;
+                  return (
+                    <div className="list-row reports-weekly-row" key={week.key}>
+                      <span>{week.label}</span>
+                      <span>{week.orders} 单</span>
+                      <strong>{money(week.revenue, currency, locale)}</strong>
+                      {wow != null && (
+                        <span className={`reports-delta ${wow >= 0 ? "up" : "down"}`}>
+                          {wow >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                          {wow >= 0 ? "+" : ""}{wow}%
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : <div className="empty">无数据</div>}
+          </section>
+
+          <section className="panel dashboard-list reports-weekday-panel">
+            <div className="panel-title split">
+              <h2>星期分布 <small className="muted">Day-of-Week Comparison</small></h2>
+              {busiestWeekday && busiestWeekday.revenue > 0 && (
+                <small className="muted">最佳：{busiestWeekday.label}</small>
+              )}
+            </div>
+            {report.byDay && report.byDay.length ? (
+              <div className="reports-weekday-list">
+                {weekdayBreakdown.map((d) => (
+                  <div className="reports-weekday-row" key={d.dow}>
+                    <span className="reports-weekday-label">{d.label}</span>
+                    <span className="reports-weekday-bar-track">
+                      <span
+                        className={`reports-weekday-bar${busiestWeekday && d.dow === busiestWeekday.dow && d.revenue > 0 ? " best" : ""}`}
+                        style={{ width: `${maxWeekdayRevenue ? (d.revenue / maxWeekdayRevenue) * 100 : 0}%` }}
+                      />
+                    </span>
+                    <span className="reports-weekday-orders">{d.orders} 单</span>
+                    <strong className="reports-weekday-revenue">{money(d.revenue, currency, locale)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : <div className="empty">无数据</div>}
+          </section>
+
+          <section className="panel report-hot-collection dashboard-list" style={{ marginTop: 0 }}>
+            <div className="panel-title"><h3>该期间热销统计</h3></div>
+            <div className="report-hot-collection-grid">
+              <div className="panel report-hot-items-col">
+                <div className="panel-title"><h4>热销菜品</h4></div>
+                {(report.hotItems || []).map((it) => (
+                  <div className="list-row" key={labelOf(it.name_i18n, locale)}>
+                    <div className="hot-item-name" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{labelOf(it.name_i18n, locale)}</div>
+                    <div className="hot-item-stats"><span>{it.quantity} 份</span><strong>{money(it.sales, currency, locale)}</strong></div>
+                  </div>
+                ))}
+                {!report.hotItems?.length && <div className="empty">无数据</div>}
+              </div>
+
+              <div className="panel report-hot-modifiers-col">
+                <div className="panel-title"><h4>热销小料</h4></div>
+                {(report.hotModifiers || []).map((m) => (
+                  <div className="list-row" key={m.id || m.name}>
+                    <div className="hot-item-name">{m.label && typeof m.label === "object" ? labelOf(m.label, locale) : (m.label || m.name)}</div>
+                    <div className="hot-item-stats"><span>{m.quantity || m.count || 0}</span><strong>{money(m.sales || 0, currency, locale)}</strong></div>
+                  </div>
+                ))}
+                {!report.hotModifiers?.length && <div className="empty">无数据</div>}
+              </div>
+
+              <div className="panel report-hot-notes-col">
+                <div className="panel-title"><h4>常用备注频率</h4></div>
+                {(report.notePresets || report.common_notes || []).map((n) => (
+                  <div className="list-row" key={n.label || n.name}>
+                    <div className="hot-item-name">{n.label || n.name}</div>
+                    <div className="hot-item-stats"><span>{n.count || n.frequency || ""}</span></div>
+                  </div>
+                ))}
+                {!((report.notePresets || report.common_notes || []).length) && <div className="empty">无数据</div>}
+              </div>
+            </div>
+          </section>
+
+          <section className="panel report-chart dashboard-list">
+            <div className="panel-title"><h3>按日单量与营业额</h3></div>
+            {report.byDay && report.byDay.length ? (
+              <div style={{ padding: 12 }}>
+                <CanvasDualChart data={report.byDay} locale={locale} currency={currency} />
+              </div>
+            ) : <div className="empty">无数据</div>}
+          </section>
+
+          <section className="panel report-time-chart dashboard-list">
+            <div className="panel-title"><h3>按时段（30 分钟）单量与营业额</h3></div>
+            {report.byTime && report.byTime.length ? (
+              <div style={{ padding: 12 }}>
+                <CanvasTimeChart data={report.byTime} locale={locale} currency={currency} />
+              </div>
+            ) : <div className="empty">无数据</div>}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+function GradientTrendChart({ data, compareData, locale, currency }) {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const tipRef = useRef(null);
+  const days = (data || []).slice().sort((a, b) => new Date(a.day) - new Date(b.day));
+  const compareDays = (compareData || []).slice().sort((a, b) => new Date(a.day) - new Date(b.day));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    function draw() {
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(260, Math.floor(rect.width));
+      const h = 240;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+      if (!days.length) return;
+      const pad = 32;
+      const maxLen = Math.max(days.length, compareDays.length, 1);
+      const maxRevenue = Math.max(1, ...days.map((d) => Number(d.revenue || 0)), ...compareDays.map((d) => Number(d.revenue || 0)));
+      const plotW = w - pad * 2;
+      const plotH = h - pad * 2;
+      const step = plotW / Math.max(1, maxLen - 1);
+      const pointAt = (series, i) => {
+        const rv = Number(series[i]?.revenue || 0);
+        return { x: pad + i * step, y: pad + (plotH - (rv / maxRevenue) * plotH) };
+      };
+
+      if (compareDays.length) {
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        compareDays.forEach((_, i) => {
+          const { x, y } = pointAt(compareDays, i);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      const gradient = ctx.createLinearGradient(0, pad, 0, pad + plotH);
+      gradient.addColorStop(0, "rgba(185, 28, 28, 0.35)");
+      gradient.addColorStop(1, "rgba(185, 28, 28, 0)");
+      ctx.beginPath();
+      days.forEach((_, i) => {
+        const { x, y } = pointAt(days, i);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(pad + (days.length - 1) * step, pad + plotH);
+      ctx.lineTo(pad, pad + plotH);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.strokeStyle = "#b91c1c";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      days.forEach((_, i) => {
+        const { x, y } = pointAt(days, i);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = "#b91c1c";
+      days.forEach((_, i) => {
+        const { x, y } = pointAt(days, i);
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+      });
+
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      days.forEach((d, i) => {
+        if (days.length > 14 && i % Math.ceil(days.length / 10) !== 0) return;
+        const label = new Date(d.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" });
+        ctx.fillText(label, pad + i * step, h - 8);
+      });
+    }
+
+    draw();
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [data, compareData, locale]);
+
+  return (
+    <div ref={containerRef} style={{ width: "100%", height: 240, position: "relative" }}
+      onMouseMove={(e) => {
+        const container = containerRef.current;
+        const tip = tipRef.current;
+        if (!container || !tip || !days.length) return;
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const pad = 32;
+        const w = Math.max(260, Math.floor(rect.width));
+        const plotW = w - pad * 2;
+        const maxLen = Math.max(days.length, compareDays.length, 1);
+        const step = plotW / Math.max(1, maxLen - 1);
+        const idx = Math.min(days.length - 1, Math.max(0, Math.round((x - pad) / step)));
+        const d = days[idx];
+        const cd = compareDays[idx];
+        if (!d) { tip.style.display = "none"; return; }
+        tip.innerHTML = `<div style="font-weight:600">${new Date(d.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })}</div><div>营业额: ${money(d.revenue || 0, currency, locale)}</div><div>单量: ${d.orders || 0}</div>${cd ? `<div style="color:#cbd5e1">对比: ${money(cd.revenue || 0, currency, locale)}</div>` : ""}`;
+        tip.style.display = "block";
+        let left = x + 12;
+        if (left + 160 > rect.width) left = x - 172;
+        tip.style.left = `${Math.max(4, left)}px`;
+        tip.style.top = "8px";
+      }}
+      onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = "none"; }}
+    >
+      <canvas ref={canvasRef} />
+      {!days.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>暂无数据</div>}
+      <div ref={tipRef} style={{ display: "none", position: "absolute", pointerEvents: "none", background: "rgba(17,24,39,0.9)", color: "#fff", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }} />
     </div>
   );
 }
@@ -2352,7 +2761,7 @@ function CanvasTimeChart({ data, locale, currency }) {
     function draw() {
       const rect = container.getBoundingClientRect();
       const w = Math.max(300, Math.floor(rect.width));
-      const h = 220;
+      const h = 280;
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       canvas.style.width = `${w}px`;
@@ -2418,7 +2827,7 @@ function CanvasTimeChart({ data, locale, currency }) {
   }, [data, locale]);
 
   return (
-    <div ref={containerRef} style={{ width: "100%", height: 220, position: 'relative' }}
+    <div ref={containerRef} style={{ width: "100%", height: 280, position: 'relative' }}
       onMouseMove={(e) => {
         const container = containerRef.current;
         const canvas = canvasRef.current;
@@ -2429,7 +2838,7 @@ function CanvasTimeChart({ data, locale, currency }) {
         const y = e.clientY - rect.top;
         const pad = 36;
         const w = Math.max(300, Math.floor(rect.width));
-        const h = 220;
+        const h = 280;
         const slots = (data || []).slice();
         if (!slots.length) { tip.style.display = 'none'; return; }
         const plotW = w - pad * 2;
