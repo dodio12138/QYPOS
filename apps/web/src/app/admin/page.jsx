@@ -153,6 +153,90 @@ function groupByWeekday(byDay) {
   return buckets;
 }
 
+function formatClockMinute(totalMinutes) {
+  const normalized = ((Number(totalMinutes) % 1440) + 1440) % 1440;
+  const hours = String(Math.floor(normalized / 60)).padStart(2, "0");
+  const minutes = String(normalized % 60).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function buildTimeBucketSeries(byTime, intervalMinutes) {
+  const slots = (byTime || []).map((row, index) => ({
+    orders: Number(row.orders || 0),
+    revenue: Number(row.revenue || 0),
+    slot: row.slot || row.label || formatClockMinute(index * 30)
+  }));
+  if (Number(intervalMinutes) <= 30) {
+    return slots.map((row) => ({ ...row }));
+  }
+
+  const bucketSize = Math.max(1, Math.round(Number(intervalMinutes) / 30));
+  const buckets = [];
+  for (let index = 0; index < slots.length; index += bucketSize) {
+    const chunk = slots.slice(index, index + bucketSize);
+    if (!chunk.length) continue;
+    const start = index * 30;
+    const end = start + Number(intervalMinutes);
+    buckets.push({
+      slot: `${formatClockMinute(start)}-${formatClockMinute(end)}`,
+      orders: chunk.reduce((sum, row) => sum + Number(row.orders || 0), 0),
+      revenue: chunk.reduce((sum, row) => sum + Number(row.revenue || 0), 0)
+    });
+  }
+  return buckets;
+}
+
+function normalizeHotItemName(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim().toLowerCase();
+  return String(value["zh-CN"] || value["en-GB"] || Object.values(value)[0] || "").trim().toLowerCase();
+}
+
+function hotItemKeyFor(item) {
+  if (!item) return "";
+  return item.item_key || item.item_id || `name:${normalizeHotItemName(item.name_i18n)}`;
+}
+
+function combineTrendRows(trendRowsList, keyField, labelField, fallbackLabel) {
+  const buckets = new Map();
+  for (const rows of trendRowsList || []) {
+    for (const row of rows || []) {
+      const key = String(row?.[keyField] || "");
+      if (!key) continue;
+      const existing = buckets.get(key) || { [keyField]: key, [labelField]: row?.[labelField] || fallbackLabel || key, orders: 0, revenue: 0 };
+      existing.orders += Number(row?.orders || 0);
+      existing.revenue += Number(row?.revenue || 0);
+      if (!existing[labelField] && row?.[labelField]) existing[labelField] = row[labelField];
+      buckets.set(key, existing);
+    }
+  }
+  return [...buckets.values()];
+}
+
+function combineHotItemTrends(items, trendsByKey) {
+  const loadedItems = items.filter((item) => trendsByKey[hotItemKeyFor(item)]?.data);
+  if (!loadedItems.length) return null;
+  const daily = combineTrendRows(
+    loadedItems.map((item) => trendsByKey[hotItemKeyFor(item)]?.data?.byDay || []),
+    "day",
+    "day",
+    ""
+  ).sort((a, b) => String(a.day).localeCompare(String(b.day)));
+  const byTime = combineTrendRows(
+    loadedItems.map((item) => trendsByKey[hotItemKeyFor(item)]?.data?.byTime || []),
+    "slot",
+    "slot",
+    ""
+  ).sort((a, b) => String(a.slot).localeCompare(String(b.slot)));
+  const summary = loadedItems.reduce((acc, item) => {
+    const trend = trendsByKey[hotItemKeyFor(item)]?.data;
+    acc.orders += Number(trend?.summary?.orders || 0);
+    acc.revenue += Number(trend?.summary?.revenue || 0);
+    return acc;
+  }, { orders: 0, revenue: 0 });
+  return { summary, byDay: daily, byTime };
+}
+
 function AdminLogin({ onLogin }) {
   const [name, setName] = useState("Owner");
   const [pin, setPin] = useState("0000");
@@ -640,6 +724,8 @@ function OrdersView({ orders, locale, currency }) {
   const [search, setSearch] = useState("");
   const [detailOrder, setDetailOrder] = useState(null);
   const [loadingId, setLoadingId] = useState(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   async function openDetail(order) {
     setLoadingId(order.id);
@@ -668,6 +754,16 @@ function OrdersView({ orders, locale, currency }) {
       if (sortBy === "amount_asc") return Number(a.total) - Number(b.total);
       return 0;
     });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pagedOrders = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterStatus, filterType, sortBy, search]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
   return (
     <>
@@ -730,7 +826,7 @@ function OrdersView({ orders, locale, currency }) {
           <span style={{ textAlign: "right" }}>金额</span>
         </div>
         {filtered.length === 0 && <div className="empty" style={{ padding: "24px 0" }}>暂无订单</div>}
-        {filtered.map((order) => (
+        {pagedOrders.map((order) => (
           <button
             key={order.id}
             className="orders-table-row"
@@ -751,6 +847,13 @@ function OrdersView({ orders, locale, currency }) {
           </button>
         ))}
       </div>
+      {filtered.length > pageSize && (
+        <div className="orders-pagination">
+          <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>上一页</button>
+          <span>{page} / {totalPages}</span>
+          <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages}>下一页</button>
+        </div>
+      )}
     </>
   );
 }
@@ -2235,6 +2338,10 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
   const [to, setTo] = useState(today);
   const [preset, setPreset] = useState("7d");
   const [compareMode, setCompareMode] = useState("mom");
+  const [trendMetric, setTrendMetric] = useState("revenue");
+  const [timeSlotInterval, setTimeSlotInterval] = useState(30);
+  const [selectedHotItemKeys, setSelectedHotItemKeys] = useState([]);
+  const [selectedHotItemTrends, setSelectedHotItemTrends] = useState({});
   const [comparisonReport, setComparisonReport] = useState(null);
   const [comparisonRange, setComparisonRange] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -2303,12 +2410,86 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
     return `${API_URL}/reports/sales.csv?from=${from}&to=${to}&token=${token}&admin_grant=${grant}`;
   }
 
+  const hotItems = report?.hotItems || [];
+  const selectedHotItems = useMemo(
+    () => selectedHotItemKeys.map((key) => hotItems.find((item) => hotItemKeyFor(item) === key)).filter(Boolean),
+    [hotItems, selectedHotItemKeys]
+  );
+  const combinedHotTrend = useMemo(
+    () => combineHotItemTrends(selectedHotItems, selectedHotItemTrends),
+    [selectedHotItemTrends, selectedHotItems]
+  );
+  const combinedHotTrendLoading = selectedHotItems.some((item) => !selectedHotItemTrends[hotItemKeyFor(item)] || selectedHotItemTrends[hotItemKeyFor(item)]?.loading);
+  const combinedHotTrendError = selectedHotItems.find((item) => selectedHotItemTrends[hotItemKeyFor(item)]?.error)?.error || "";
+
+  useEffect(() => {
+    setSelectedHotItemKeys((current) => current.filter((key) => hotItems.some((item) => hotItemKeyFor(item) === key)));
+  }, [hotItems]);
+
+  useEffect(() => {
+    if (!selectedHotItemKeys.length) {
+      setSelectedHotItemTrends({});
+      return;
+    }
+    let cancelled = false;
+    setSelectedHotItemTrends((current) => {
+      const next = {};
+      for (const key of selectedHotItemKeys) {
+        next[key] = current[key] ? { ...current[key], loading: true, error: "" } : { data: null, loading: true, error: "" };
+      }
+      return next;
+    });
+    selectedHotItemKeys.forEach((key) => {
+      api(`/reports/sales/items/${encodeURIComponent(key)}?from=${from}&to=${to}`)
+        .then((data) => {
+          if (!cancelled) {
+            setSelectedHotItemTrends((current) => ({
+              ...current,
+              [key]: { data, loading: false, error: "" }
+            }));
+          }
+        })
+        .catch((caught) => {
+          if (!cancelled) {
+            setSelectedHotItemTrends((current) => ({
+              ...current,
+              [key]: { data: null, loading: false, error: caught.message || "加载单品趋势失败" }
+            }));
+          }
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [from, to, selectedHotItemKeys]);
+
   const weekly = useMemo(() => groupByWeek(report?.byDay || [], locale), [report, locale]);
   const weekdayBreakdown = useMemo(() => groupByWeekday(report?.byDay || []), [report]);
+  const timeChartData = useMemo(
+    () => buildTimeBucketSeries(report?.byTime || [], timeSlotInterval),
+    [report, timeSlotInterval]
+  );
   const maxWeekdayRevenue = Math.max(1, ...weekdayBreakdown.map((d) => d.revenue));
   const busiestWeekday = weekdayBreakdown.reduce((best, d) => (d.revenue > (best?.revenue ?? -1) ? d : best), null);
 
   const compareLabel = compareMode === "yoy" ? "同比 (去年同期)" : compareMode === "mom" ? "环比 (上一周期)" : "";
+
+  const dineInOrders = Number(report?.summary?.dine_in_orders || 0);
+  const takeawayOrders = Number(report?.summary?.takeaway_orders || 0);
+  const totalOrders = Number(report?.summary?.orders || 0);
+  const serviceMixTotal = Math.max(1, dineInOrders + takeawayOrders);
+  const peakDay = (report?.byDay || []).reduce((best, row) => Number(row.orders || 0) > Number(best?.orders || -1) ? row : best, null);
+  const peakSlot = (report?.byTime || []).reduce((best, row) => Number(row.revenue || 0) > Number(best?.revenue || -1) ? row : best, null);
+  const dailyAverageOrders = totalOrders && (report?.byDay || []).length
+    ? totalOrders / (report.byDay.length || 1)
+    : 0;
+  const revenueDelta = comparisonReport ? pctDelta(report.summary.revenue, comparisonReport.summary.revenue) : null;
+  const ordersDelta = comparisonReport ? pctDelta(report.summary.orders, comparisonReport.summary.orders) : null;
+  const alertItems = [
+    revenueDelta != null && revenueDelta < -10 ? `营业额较${compareLabel}下降 ${Math.abs(revenueDelta)}%` : null,
+    ordersDelta != null && ordersDelta < -10 ? `订单数较${compareLabel}下降 ${Math.abs(ordersDelta)}%` : null,
+    peakSlot ? `峰值时段：${peakSlot.slot}，营业额 ${money(peakSlot.revenue, currency, locale)}` : null
+  ].filter(Boolean);
 
   const summaryFields = [
     ["营业额", "revenue"],
@@ -2373,22 +2554,38 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
             })}
           </section>
 
-          <section className="panel dashboard-list reports-trend-panel">
+          <section className="panel dashboard-list reports-insights-panel">
             <div className="panel-title split">
-              <h2>营业额趋势 <small className="muted">Revenue Trend</small></h2>
-              {comparisonReport && (
-                <div className="reports-trend-legend">
-                  <span><i className="reports-legend-dot current" />本期</span>
-                  <span><i className="reports-legend-dot compare" />{compareLabel}</span>
-                </div>
-              )}
+              <h2>经营洞察 <small className="muted">Business Insights</small></h2>
+              <small className="muted">围绕结构、峰值和变化的摘要</small>
             </div>
-            <GradientTrendChart
-              data={report.byDay || []}
-              compareData={comparisonReport?.byDay || []}
-              locale={locale}
-              currency={currency}
-            />
+            <div className="reports-insight-grid">
+              <article className="reports-insight-card">
+                <span>订单结构</span>
+                <strong>{dineInOrders} / {takeawayOrders}</strong>
+                <small>堂食 {Math.round((dineInOrders / serviceMixTotal) * 100)}% · 外带 {Math.round((takeawayOrders / serviceMixTotal) * 100)}%</small>
+              </article>
+              <article className="reports-insight-card">
+                <span>峰值日期</span>
+                <strong>{peakDay ? new Date(peakDay.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" }) : "-"}</strong>
+                <small>{peakDay ? `${peakDay.orders} 单 · ${money(peakDay.revenue, currency, locale)}` : "暂无数据"}</small>
+              </article>
+              <article className="reports-insight-card">
+                <span>峰值时段</span>
+                <strong>{peakSlot ? peakSlot.slot : "-"}</strong>
+                <small>{peakSlot ? `${peakSlot.orders} 单 · ${money(peakSlot.revenue, currency, locale)}` : "暂无数据"}</small>
+              </article>
+              <article className="reports-insight-card">
+                <span>日均单量</span>
+                <strong>{dailyAverageOrders ? dailyAverageOrders.toFixed(1) : "0.0"}</strong>
+                <small>按当前区间天数平均</small>
+              </article>
+            </div>
+            {alertItems.length > 0 && (
+              <div className="reports-insight-alerts">
+                {alertItems.map((item) => <span key={item}>{item}</span>)}
+              </div>
+            )}
           </section>
 
           <section className="panel dashboard-list reports-weekly-panel">
@@ -2443,17 +2640,42 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
           </section>
 
           <section className="panel report-hot-collection dashboard-list" style={{ marginTop: 0 }}>
-            <div className="panel-title"><h3>该期间热销统计</h3></div>
+            <div className="panel-title split">
+              <h3>该期间热销统计</h3>
+              <small className="muted">支持多选，点击可叠加/取消</small>
+            </div>
             <div className="report-hot-collection-grid">
               <div className="panel report-hot-items-col">
-                <div className="panel-title"><h4>热销菜品</h4></div>
-                {(report.hotItems || []).map((it) => (
-                  <div className="list-row" key={labelOf(it.name_i18n, locale)}>
-                    <div className="hot-item-name" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{labelOf(it.name_i18n, locale)}</div>
-                    <div className="hot-item-stats"><span>{it.quantity} 份</span><strong>{money(it.sales, currency, locale)}</strong></div>
-                  </div>
-                ))}
-                {!report.hotItems?.length && <div className="empty">无数据</div>}
+                <div className="panel-title split">
+                  <h4>热销菜品</h4>
+                  {selectedHotItemKeys.length > 0 && (
+                    <button type="button" className="link-button" onClick={() => setSelectedHotItemKeys([])}>清空选择</button>
+                  )}
+                </div>
+                <div className="report-hot-scroll">
+                  {(hotItems || []).map((it, index) => {
+                    const itemKey = hotItemKeyFor(it);
+                    const active = selectedHotItemKeys.includes(itemKey);
+                    return (
+                      <button
+                        type="button"
+                        className={`list-row report-hot-item-button ${active ? "selected" : ""}`}
+                        key={itemKey || `${labelOf(it.name_i18n, locale)}-${index}`}
+                        aria-pressed={active}
+                        title={itemKey.startsWith("name:") ? "无商品 ID，按菜名查看趋势" : ""}
+                        onClick={() => {
+                          setSelectedHotItemKeys((current) => current.includes(itemKey)
+                            ? current.filter((key) => key !== itemKey)
+                            : [...current, itemKey]);
+                        }}
+                      >
+                        <div className="hot-item-name" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{labelOf(it.name_i18n, locale)}</div>
+                        <div className="hot-item-stats"><span>{it.quantity} 份</span><strong>{money(it.sales, currency, locale)}</strong></div>
+                      </button>
+                    );
+                  })}
+                  {!hotItems.length && <div className="empty">无数据</div>}
+                </div>
               </div>
 
               <div className="panel report-hot-modifiers-col">
@@ -2480,20 +2702,106 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
             </div>
           </section>
 
-          <section className="panel report-chart dashboard-list">
-            <div className="panel-title"><h3>按日单量与营业额</h3></div>
+          <section className="panel report-item-trends dashboard-list">
+            <div className="panel-title split">
+              <h3>{selectedHotItems.length ? `单品趋势（已选 ${selectedHotItems.length} 项）` : "单品趋势"}</h3>
+              <small className="muted">点击左侧热销菜品可多选并查看每日与时段走势</small>
+            </div>
+            {!selectedHotItems.length ? (
+              <div className="empty">点击热销菜品查看单品趋势</div>
+            ) : combinedHotTrendLoading ? (
+              <div className="empty">加载中…</div>
+            ) : combinedHotTrendError ? (
+              <div className="empty">{combinedHotTrendError}</div>
+            ) : combinedHotTrend ? (
+              <section className="panel report-item-trend-card">
+                <div className="panel-title split">
+                  <h4>已选菜品合计</h4>
+                  <button type="button" className="link-button" onClick={() => setSelectedHotItemKeys([])}>清空选择</button>
+                </div>
+                <div className="report-selected-tags">
+                  {selectedHotItems.map((item) => (
+                    <button
+                      type="button"
+                      key={hotItemKeyFor(item)}
+                      className="report-selected-tag"
+                      onClick={() => setSelectedHotItemKeys((current) => current.filter((key) => key !== hotItemKeyFor(item)))}
+                    >
+                      {labelOf(item.name_i18n, locale)} ×
+                    </button>
+                  ))}
+                </div>
+                <div className="report-item-summary">
+                  <span>累计数量 {combinedHotTrend.summary?.orders ?? 0}</span>
+                  <span>累计销售额 {money(combinedHotTrend.summary?.revenue ?? 0, currency, locale)}</span>
+                </div>
+                <div className="report-item-trend-stack">
+                  <section className="panel report-item-trend-mini-card">
+                    <div className="panel-title"><h5>每日趋势</h5></div>
+                    <div style={{ padding: 12 }}>
+                      <DualSeriesTrendChart
+                        data={combinedHotTrend.byDay || []}
+                        locale={locale}
+                        currency={currency}
+                        countLabel="数量"
+                        amountLabel="销售额"
+                        xLabel={(row) => new Date(row.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })}
+                        height={220}
+                      />
+                    </div>
+                  </section>
+                  <section className="panel report-item-trend-mini-card">
+                    <div className="panel-title"><h5>按时段趋势</h5></div>
+                    <div style={{ padding: 12 }}>
+                      <DualSeriesTrendChart
+                        data={combinedHotTrend.byTime || []}
+                        locale={locale}
+                        currency={currency}
+                        countLabel="数量"
+                        amountLabel="销售额"
+                        xLabel={(row) => row.slot || row.label || ""}
+                        height={240}
+                      />
+                    </div>
+                  </section>
+                </div>
+              </section>
+            ) : (
+              <div className="empty">请选择热销菜品</div>
+            )}
+          </section>
+
+          <section className="panel report-chart dashboard-list report-daily-trend-panel">
+            <div className="panel-title split">
+              <h3>{trendMetric === "revenue" ? "每日营业额趋势" : trendMetric === "orders" ? "每日单量趋势" : "每日客单价趋势"}</h3>
+              <div className="reports-trend-switch">
+                <button type="button" className={trendMetric === "revenue" ? "selected" : ""} onClick={() => setTrendMetric("revenue")}>营业额</button>
+                <button type="button" className={trendMetric === "orders" ? "selected" : ""} onClick={() => setTrendMetric("orders")}>单量</button>
+                <button type="button" className={trendMetric === "avg_ticket" ? "selected" : ""} onClick={() => setTrendMetric("avg_ticket")}>客单价</button>
+              </div>
+            </div>
             {report.byDay && report.byDay.length ? (
               <div style={{ padding: 12 }}>
-                <CanvasDualChart data={report.byDay} locale={locale} currency={currency} />
+                <DailyTrendChart data={report.byDay} metric={trendMetric} locale={locale} currency={currency} />
               </div>
             ) : <div className="empty">无数据</div>}
           </section>
 
           <section className="panel report-time-chart dashboard-list">
-            <div className="panel-title"><h3>按时段（30 分钟）单量与营业额</h3></div>
+            <div className="panel-title split">
+              <h3>按时段（{timeSlotInterval} 分钟）单量、营业额与客单价</h3>
+            </div>
+            <div className="report-time-actions">
+              <button type="button" className={`report-time-toggle interval ${timeSlotInterval === 30 ? "active" : "inactive"}`} onClick={() => setTimeSlotInterval(30)}>
+                30 分钟
+              </button>
+              <button type="button" className={`report-time-toggle interval ${timeSlotInterval === 60 ? "active" : "inactive"}`} onClick={() => setTimeSlotInterval(60)}>
+                60 分钟
+              </button>
+            </div>
             {report.byTime && report.byTime.length ? (
               <div style={{ padding: 12 }}>
-                <CanvasTimeChart data={report.byTime} locale={locale} currency={currency} />
+                <CanvasTimeChart data={timeChartData} locale={locale} currency={currency} />
               </div>
             ) : <div className="empty">无数据</div>}
           </section>
@@ -2706,7 +3014,7 @@ function CanvasDualChart({ data, locale, currency }) {
     ro.observe(container);
     window.addEventListener("orientationchange", draw);
     return () => { ro.disconnect(); window.removeEventListener("orientationchange", draw); };
-  }, [data, locale]);
+  }, [data, locale, visibleSeries.orders, visibleSeries.revenue, visibleSeries.avgTicket]);
 
   return (
     <div ref={containerRef} style={{ width: "100%", height: 200, position: 'relative' }}
@@ -2747,10 +3055,294 @@ function CanvasDualChart({ data, locale, currency }) {
   );
 }
 
+function DailyTrendChart({ data, metric, locale, currency }) {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const tipRef = useRef(null);
+  const days = (data || []).slice().sort((a, b) => new Date(a.day) - new Date(b.day));
+  const title = metric === "orders" ? "单量" : metric === "avg_ticket" ? "客单价" : "营业额";
+  const color = metric === "orders" ? "#2563eb" : metric === "avg_ticket" ? "#0f766e" : "#b91c1c";
+  const areaColor = metric === "orders" ? [37, 99, 235] : metric === "avg_ticket" ? [15, 118, 110] : [185, 28, 28];
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    function draw() {
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(300, Math.floor(rect.width));
+      const h = 240;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+      if (!days.length) return;
+
+      const pad = 32;
+      const plotW = w - pad * 2;
+      const plotH = h - pad * 2;
+      const values = days.map((d) => metric === "orders"
+        ? Number(d.orders || 0)
+        : metric === "avg_ticket"
+          ? (Number(d.orders || 0) ? Number(d.revenue || 0) / Number(d.orders || 0) : 0)
+          : Number(d.revenue || 0));
+      const maxValue = Math.max(1, ...values);
+      const step = plotW / Math.max(1, days.length - 1);
+      const pointAt = (index) => {
+        const value = values[index] || 0;
+        return {
+          x: pad + index * step,
+          y: pad + (plotH - (value / maxValue) * plotH)
+        };
+      };
+
+      const gradient = ctx.createLinearGradient(0, pad, 0, pad + plotH);
+      gradient.addColorStop(0, `rgba(${areaColor[0]}, ${areaColor[1]}, ${areaColor[2]}, 0.34)`);
+      gradient.addColorStop(1, `rgba(${areaColor[0]}, ${areaColor[1]}, ${areaColor[2]}, 0)`);
+      ctx.beginPath();
+      days.forEach((_, index) => {
+        const { x, y } = pointAt(index);
+        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(pad + (days.length - 1) * step, pad + plotH);
+      ctx.lineTo(pad, pad + plotH);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      days.forEach((_, index) => {
+        const { x, y } = pointAt(index);
+        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      days.forEach((_, index) => {
+        const { x, y } = pointAt(index);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+      days.forEach((day, index) => {
+        if (days.length > 14 && index % Math.ceil(days.length / 10) !== 0) return;
+        const label = new Date(day.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" });
+        ctx.fillText(label, pad + index * step, h - 8);
+      });
+    }
+
+    draw();
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [days, metric, locale]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ width: "100%", height: 240, position: "relative" }}
+      onMouseMove={(e) => {
+        const container = containerRef.current;
+        const tip = tipRef.current;
+        if (!container || !tip || !days.length) return;
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const pad = 32;
+        const w = Math.max(300, Math.floor(rect.width));
+        const plotW = w - pad * 2;
+        const step = plotW / Math.max(1, days.length - 1);
+        const idx = Math.min(days.length - 1, Math.max(0, Math.round((x - pad) / step)));
+        const day = days[idx];
+        if (!day) {
+          tip.style.display = "none";
+          return;
+        }
+        const value = metric === "orders"
+          ? Number(day.orders || 0)
+          : metric === "avg_ticket"
+            ? (Number(day.orders || 0) ? Number(day.revenue || 0) / Number(day.orders || 0) : 0)
+            : Number(day.revenue || 0);
+        tip.innerHTML = `<div style="font-weight:600">${new Date(day.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })}</div><div>${title}: ${metric === "orders" ? value : money(value, currency, locale)}</div>`;
+        tip.style.display = "block";
+        const tipRect = tip.getBoundingClientRect();
+        let left = x + 12;
+        if (left + tipRect.width > rect.width) left = x - tipRect.width - 12;
+        if (left < 6) left = 6;
+        let top = y - tipRect.height - 8;
+        if (top < 6) top = y + 8;
+        tip.style.left = `${left}px`;
+        tip.style.top = `${top}px`;
+      }}
+      onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = "none"; }}
+    >
+      <canvas ref={canvasRef} />
+      {!days.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>暂无数据</div>}
+      <div ref={tipRef} style={{ display: "none", position: "absolute", pointerEvents: "none", background: "rgba(17,24,39,0.9)", color: "#fff", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }} />
+    </div>
+  );
+}
+
+function DualSeriesTrendChart({ data, locale, currency, countLabel, amountLabel, xLabel, height = 240 }) {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const tipRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    function draw() {
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(300, Math.floor(rect.width));
+      const h = height;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+
+      const series = (data || []).slice();
+      if (!series.length) return;
+
+      const pad = 32;
+      const plotW = w - pad * 2;
+      const plotH = h - pad * 2;
+      const countValues = series.map((row) => Number(row.orders || 0));
+      const amountValues = series.map((row) => Number(row.revenue || 0));
+      const maxCount = Math.max(1, ...countValues);
+      const maxAmount = Math.max(1, ...amountValues);
+      const step = plotW / Math.max(1, series.length - 1);
+      const pointAt = (values, index, maxValue) => {
+        const value = Number(values[index] || 0);
+        return {
+          x: pad + index * step,
+          y: pad + (plotH - ((maxValue ? value / maxValue : 0) * plotH))
+        };
+      };
+
+      ctx.fillStyle = "#60a5fa";
+      series.forEach((row, index) => {
+        const bw = Math.max(2, step * 0.6);
+        const barH = maxCount ? (countValues[index] / maxCount) * plotH : 0;
+        const x = pad + index * step - bw / 2;
+        const y = pad + (plotH - barH);
+        ctx.fillRect(x, y, bw, barH);
+      });
+
+      const gradient = ctx.createLinearGradient(0, pad, 0, pad + plotH);
+      gradient.addColorStop(0, "rgba(16, 185, 129, 0.34)");
+      gradient.addColorStop(1, "rgba(16, 185, 129, 0)");
+      ctx.beginPath();
+      series.forEach((row, index) => {
+        const { x, y } = pointAt(amountValues, index, maxAmount);
+        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(pad + (series.length - 1) * step, pad + plotH);
+      ctx.lineTo(pad, pad + plotH);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.strokeStyle = "#10b981";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      series.forEach((row, index) => {
+        const { x, y } = pointAt(amountValues, index, maxAmount);
+        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = "#10b981";
+      series.forEach((row, index) => {
+        const { x, y } = pointAt(amountValues, index, maxAmount);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.fillStyle = "#334155";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      series.forEach((row, index) => {
+        if (series.length > 14 && index % Math.ceil(series.length / 10) !== 0) return;
+        const label = typeof xLabel === "function" ? xLabel(row) : (row.slot || row.day || row.label || "");
+        ctx.fillText(label, pad + index * step, h - 8);
+      });
+    }
+
+    draw();
+    const ro = new ResizeObserver(() => draw());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [data, height, xLabel, locale, currency, countLabel, amountLabel]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ width: "100%", height, position: "relative" }}
+      onMouseMove={(e) => {
+        const container = containerRef.current;
+        const tip = tipRef.current;
+        if (!container || !tip) return;
+        const rect = container.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const pad = 32;
+        const w = Math.max(300, Math.floor(rect.width));
+        const series = (data || []).slice();
+        if (!series.length) { tip.style.display = "none"; return; }
+        const plotW = w - pad * 2;
+        const step = plotW / Math.max(1, series.length - 1);
+        const idx = Math.round((x - pad) / step);
+        if (idx < 0 || idx >= series.length) { tip.style.display = "none"; return; }
+        const row = series[idx];
+        const countValue = Number(row.orders || 0);
+        const amountValue = Number(row.revenue || 0);
+        const label = typeof xLabel === "function" ? xLabel(row) : (row.slot || row.day || row.label || "");
+        tip.innerHTML = `<div style="font-weight:600">${label}</div><div>${countLabel}: ${countValue}</div><div>${amountLabel}: ${money(amountValue, currency, locale)}</div>`;
+        tip.style.display = "block";
+        const tipRect = tip.getBoundingClientRect();
+        let left = x + 12;
+        if (left + tipRect.width > rect.width) left = x - tipRect.width - 12;
+        if (left < 6) left = 6;
+        let top = y - tipRect.height - 8;
+        if (top < 6) top = y + 8;
+        tip.style.left = `${left}px`;
+        tip.style.top = `${top}px`;
+      }}
+      onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = "none"; }}
+    >
+      <canvas ref={canvasRef} />
+      <div ref={tipRef} style={{ display: "none", position: "absolute", pointerEvents: "none", background: "rgba(17,24,39,0.9)", color: "#fff", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }} />
+    </div>
+  );
+}
+
 function CanvasTimeChart({ data, locale, currency }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const tipRef = useRef(null);
+  const [visibleSeries, setVisibleSeries] = useState({ orders: true, revenue: true, avgTicket: true });
+
+  function toggleSeries(key) {
+    setVisibleSeries((current) => ({ ...current, [key]: !current[key] }));
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2772,47 +3364,91 @@ function CanvasTimeChart({ data, locale, currency }) {
       const pad = 36;
       const slots = (data || []).slice();
       if (!slots.length) return;
-      const maxOrders = Math.max(...slots.map((s) => s.orders || 0));
-      const maxRevenue = Math.max(...slots.map((s) => Number(s.revenue || 0)));
+      const hasVisibleSeries = visibleSeries.orders || visibleSeries.revenue || visibleSeries.avgTicket;
+      if (!hasVisibleSeries) {
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "13px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("请选择至少一个指标", w / 2, h / 2);
+        return;
+      }
+      const ordersSeries = slots.map((s) => Number(s.orders || 0));
+      const revenueSeries = slots.map((s) => Number(s.revenue || 0));
+      const avgTicketSeries = slots.map((s) => {
+        const orders = Number(s.orders || 0);
+        const revenue = Number(s.revenue || 0);
+        return orders ? revenue / orders : 0;
+      });
+      const maxOrders = visibleSeries.orders ? Math.max(...ordersSeries, 1) : 1;
+      const maxRevenue = visibleSeries.revenue ? Math.max(...revenueSeries, 1) : 1;
+      const maxAvgTicket = visibleSeries.avgTicket ? Math.max(...avgTicketSeries, 1) : 1;
       const plotW = w - pad * 2;
       const plotH = h - pad * 2;
       const step = plotW / Math.max(1, slots.length - 1);
+      const pointAt = (series, index, maxValue) => {
+        const value = Number(series[index] || 0);
+        return {
+          x: pad + index * step,
+          y: pad + (plotH - ((maxValue ? value / maxValue : 0) * plotH))
+        };
+      };
 
       // bars for orders
-      ctx.fillStyle = "#60a5fa";
-      slots.forEach((s, i) => {
-        const bw = Math.max(2, step * 0.6);
-        const barH = maxOrders ? (s.orders / maxOrders) * plotH : 0;
-        const x = pad + i * step - bw / 2;
-        const y = pad + (plotH - barH);
-        ctx.fillRect(x, y, bw, barH);
-      });
+      if (visibleSeries.orders) {
+        ctx.fillStyle = "#60a5fa";
+        slots.forEach((s, i) => {
+          const bw = Math.max(2, step * 0.6);
+          const barH = maxOrders ? (ordersSeries[i] / maxOrders) * plotH : 0;
+          const x = pad + i * step - bw / 2;
+          const y = pad + (plotH - barH);
+          ctx.fillRect(x, y, bw, barH);
+        });
+      }
 
       // revenue line
-      ctx.strokeStyle = "#10b981";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      slots.forEach((s, i) => {
-        const rv = Number(s.revenue || 0);
-        const x = pad + i * step;
-        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-      ctx.fillStyle = "#10b981";
-      slots.forEach((s, i) => {
-        const rv = Number(s.revenue || 0);
-        const x = pad + i * step;
-        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
-        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
-      });
+      if (visibleSeries.revenue) {
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        slots.forEach((s, i) => {
+          const { x, y } = pointAt(revenueSeries, i, maxRevenue);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.fillStyle = "#10b981";
+        slots.forEach((s, i) => {
+          const { x, y } = pointAt(revenueSeries, i, maxRevenue);
+          ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+        });
+      }
 
-      // x labels (every 2 ticks show label to avoid overlap)
+      // avg ticket line
+      if (visibleSeries.avgTicket) {
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = "#f59e0b";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        slots.forEach((s, i) => {
+          const { x, y } = pointAt(avgTicketSeries, i, maxAvgTicket);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#f59e0b";
+        slots.forEach((s, i) => {
+          const { x, y } = pointAt(avgTicketSeries, i, maxAvgTicket);
+          ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+
+      const labelStep = Math.max(1, Math.ceil(slots.length / 12));
+
+      // x labels (limit roughly to about 12 visible labels to avoid overlap)
       ctx.fillStyle = "#334155";
       ctx.font = "10px sans-serif";
       ctx.textAlign = "center";
       slots.forEach((s, i) => {
-        if (i % 2 !== 0) return; // show every 1 hour to reduce clutter
+        if (i % labelStep !== 0) return;
         const label = s.slot || s.time || s.label || '';
         const x = pad + i * step;
         ctx.fillText(label, x, h - 16);
@@ -2824,7 +3460,7 @@ function CanvasTimeChart({ data, locale, currency }) {
     ro.observe(container);
     window.addEventListener("orientationchange", draw);
     return () => { ro.disconnect(); window.removeEventListener("orientationchange", draw); };
-  }, [data, locale]);
+  }, [data, locale, visibleSeries.orders, visibleSeries.revenue, visibleSeries.avgTicket]);
 
   return (
     <div ref={containerRef} style={{ width: "100%", height: 280, position: 'relative' }}
@@ -2846,7 +3482,10 @@ function CanvasTimeChart({ data, locale, currency }) {
         const idx = Math.round((x - pad) / step);
         if (idx < 0 || idx >= slots.length) { tip.style.display = 'none'; return; }
         const s = slots[idx];
-        tip.innerHTML = `<div style="font-weight:600">${s.slot || s.label || ''}</div><div>单量: ${s.orders || 0}</div><div>营业额: ${money(s.revenue||0, currency, locale)}</div>`;
+        const orders = Number(s.orders || 0);
+        const revenue = Number(s.revenue || 0);
+        const avgTicket = orders ? revenue / orders : 0;
+        tip.innerHTML = `<div style="font-weight:600">${s.slot || s.label || ''}</div><div>单量: ${orders}</div><div>营业额: ${money(revenue, currency, locale)}</div><div>客单价: ${money(avgTicket, currency, locale)}</div>`;
         tip.style.display = 'block';
         const tipRect = tip.getBoundingClientRect();
         let left = x + 12;
@@ -2859,6 +3498,17 @@ function CanvasTimeChart({ data, locale, currency }) {
       }}
       onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = 'none'; }}
     >
+      <div className="report-time-actions">
+        <button type="button" className={`report-time-toggle orders ${visibleSeries.orders ? "active" : "inactive"}`} onClick={() => toggleSeries("orders")}>
+          <i className="report-time-dot orders" />单量
+        </button>
+        <button type="button" className={`report-time-toggle revenue ${visibleSeries.revenue ? "active" : "inactive"}`} onClick={() => toggleSeries("revenue")}>
+          <i className="report-time-dot revenue" />营业额
+        </button>
+        <button type="button" className={`report-time-toggle avg-ticket ${visibleSeries.avgTicket ? "active" : "inactive"}`} onClick={() => toggleSeries("avgTicket")}>
+          <i className="report-time-dot avg-ticket" />客单价
+        </button>
+      </div>
       <canvas ref={canvasRef} />
       <div ref={tipRef} style={{ display: 'none', position: 'absolute', pointerEvents: 'none', background: 'rgba(0,0,0,0.85)', color: '#fff', padding: '6px 8px', borderRadius: 6, fontSize: 12, zIndex: 50 }} />
     </div>

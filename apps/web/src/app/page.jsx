@@ -1027,7 +1027,9 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
   const [orderFilter, setOrderFilter] = useState("active");
   const [voidMode, setVoidMode] = useState(false);
   const [voidReason, setVoidReason] = useState("");
+  const [orderPage, setOrderPage] = useState(1);
   const canVoid = Boolean(user?.permissions?.includes("manage_orders"));
+  const orderPageSize = 20;
 
   useEffect(() => { setVoidMode(false); setVoidReason(""); }, [order?.id]);
 
@@ -1047,7 +1049,17 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
     if (orderFilter === "paid") return item.status === "paid";
     return item.status !== "split"; // "all" — split parent orders are historical noise
   });
+  const totalOrderPages = Math.max(1, Math.ceil(filteredOrders.length / orderPageSize));
+  const pagedOrders = filteredOrders.slice((orderPage - 1) * orderPageSize, orderPage * orderPageSize);
   const tableById = new Map(tables.map((table) => [table.id, table]));
+
+  useEffect(() => {
+    setOrderPage(1);
+  }, [orderFilter]);
+
+  useEffect(() => {
+    setOrderPage((current) => Math.min(current, totalOrderPages));
+  }, [totalOrderPages]);
 
   function orderLocation(targetOrder) {
     if (targetOrder.service_type === "dine_in") {
@@ -1082,7 +1094,7 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
           </div>
           <div className="quick-orders">
             {filteredOrders.length === 0 && <div className="empty" style={{fontSize:13}}>暂无订单</div>}
-            {filteredOrders.map((item) => (
+            {pagedOrders.map((item) => (
               <button key={item.id} onClick={() => onSelectOrder(item.id)}
                 className={["paid","cancelled"].includes(item.status) ? "order-done" : ""}>
                 <span>
@@ -1094,6 +1106,13 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
               </button>
             ))}
           </div>
+          {filteredOrders.length > orderPageSize && (
+            <div className="quick-orders-pagination">
+              <button type="button" onClick={() => setOrderPage((current) => Math.max(1, current - 1))} disabled={orderPage <= 1}>上一页</button>
+              <span>{orderPage} / {totalOrderPages}</span>
+              <button type="button" onClick={() => setOrderPage((current) => Math.min(totalOrderPages, current + 1))} disabled={orderPage >= totalOrderPages}>下一页</button>
+            </div>
+          )}
         </>
       )}
 
