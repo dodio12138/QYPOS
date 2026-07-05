@@ -23,10 +23,12 @@ function authed(token, options = {}) {
 }
 
 test("POS API core flow", { skip: !API_BASE }, async () => {
+  const loginName = process.env.TEST_ADMIN_NAME || "Owner";
+  const loginPin = process.env.TEST_ADMIN_PIN || "0000";
   const login = await request("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "Owner", pin: "0000" })
+    body: JSON.stringify({ name: loginName, pin: loginPin })
   });
   const token = login.token;
   assert.ok(token);
@@ -293,7 +295,7 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
     body: JSON.stringify({ type: "receipt" })
   }));
 
-  const kitchenItems = await request("/kitchen/items");
+  const kitchenItems = await request("/kitchen/items", authed(token));
   const kitchenItem = kitchenItems.find((item) => item.order_id === order.id);
   assert.ok(kitchenItem);
 
@@ -341,7 +343,7 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
     /Order is already closed/
   );
 
-  const printJobs = await request("/print-jobs");
+  const printJobs = await request("/print-jobs", authed(token));
   assert.ok(printJobs.some((job) => job.order_id === order.id && job.type === "kitchen"));
   assert.ok(printJobs.some((job) => job.order_id === order.id && job.type === "receipt"));
 
@@ -349,4 +351,9 @@ test("POS API core flow", { skip: !API_BASE }, async () => {
   assert.ok(Number(report.summary.orders) >= 1);
   const audits = await request("/audit-logs", authed(token));
   assert.ok(audits.some((log) => log.action === "order.discount.adjust"));
+
+  // Clean up the menu fixtures created above so repeated test runs don't
+  // leave permanent "Integration" clutter in the live menu.
+  await request(`/menu/items/${menuItem.id}/destroy`, authed(token, { method: "DELETE" }));
+  await request(`/menu/categories/${category.id}/destroy`, authed(token, { method: "DELETE" }));
 });

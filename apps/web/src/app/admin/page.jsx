@@ -42,27 +42,97 @@ import { api, API_URL, labelOf } from "../../lib/api";
 import qyposLogo from "../../pic/logo.png";
 
 const tabs = [
-  ["orders", ClipboardList, "订单", ["manage_orders"]],
-  ["kitchen", ChefHat, "厨房", ["view_kitchen"]],
-  ["prints", Printer, "打印", ["manage_prints"]],
-  ["menu", ReceiptText, "菜单", ["manage_menu", "manage_menu_availability"]],
-  ["dashboard", BarChart3, "看板", ["view_dashboard"]],
-  ["reports", TrendingUp, "分析", ["view_reports"]],
-  ["settings", Settings, "设置", ["manage_settings"]],
-  ["users", Users, "账户", ["manage_users"]],
-  ["ops", Wrench, "运维", ["manage_ops"]],
-  ["layout", Armchair, "布局", ["manage_tables"]]
+  ["orders", ClipboardList, { "zh-CN": "订单", "en-GB": "Orders" }, ["manage_orders"]],
+  ["kitchen", ChefHat, { "zh-CN": "厨房", "en-GB": "Kitchen" }, ["view_kitchen"]],
+  ["prints", Printer, { "zh-CN": "打印", "en-GB": "Prints" }, ["manage_prints"]],
+  ["menu", ReceiptText, { "zh-CN": "菜单", "en-GB": "Menu" }, ["manage_menu", "manage_menu_availability"]],
+  ["dashboard", BarChart3, { "zh-CN": "看板", "en-GB": "Dashboard" }, ["view_dashboard"]],
+  ["reports", TrendingUp, { "zh-CN": "分析", "en-GB": "Reports" }, ["view_reports"]],
+  ["settings", Settings, { "zh-CN": "设置", "en-GB": "Settings" }, ["manage_settings"]],
+  ["users", Users, { "zh-CN": "账户", "en-GB": "Users" }, ["manage_users"]],
+  ["ops", Wrench, { "zh-CN": "运维", "en-GB": "Ops" }, ["manage_ops"]],
+  ["layout", Armchair, { "zh-CN": "布局", "en-GB": "Layout" }, ["manage_tables"]]
 ];
 const adminGatedTabs = new Set(["dashboard", "reports", "settings", "users", "ops", "layout"]);
 
 const ROLE_LABELS = {
-  owner: "管理员",
-  cashier: "收银员",
-  kitchen: "厨房",
+  owner: { "zh-CN": "管理员", "en-GB": "Owner" },
+  cashier: { "zh-CN": "收银员", "en-GB": "Cashier" },
+  kitchen: { "zh-CN": "厨房", "en-GB": "Kitchen" },
 };
 
-function roleLabel(role) {
-  return ROLE_LABELS[role] ?? role;
+function roleLabel(role, locale = "zh-CN") {
+  const value = ROLE_LABELS[role];
+  if (!value) return role;
+  return value[locale] || value["zh-CN"] || value["en-GB"] || role;
+}
+
+function tabLabelOf(tab, locale = "zh-CN") {
+  const label = tab?.[2];
+  if (!label) return "";
+  if (typeof label === "string") return label;
+  return label[locale] || label["zh-CN"] || label["en-GB"] || "";
+}
+
+function t(locale, zh, en) {
+  return locale === "en-GB" ? en : zh;
+}
+
+function orderStatusLabel(status, locale) {
+  const labels = {
+    draft: { "zh-CN": "草稿", "en-GB": "Draft" },
+    submitted: { "zh-CN": "已下单", "en-GB": "Submitted" },
+    paid: { "zh-CN": "已付款", "en-GB": "Paid" },
+    cancelled: { "zh-CN": "已取消", "en-GB": "Cancelled" }
+  };
+  return labels[status]?.[locale] || labels[status]?.["zh-CN"] || status;
+}
+
+function serviceTypeLabel(type, locale) {
+  return type === "dine_in"
+    ? t(locale, "堂食", "Dine-in")
+    : t(locale, "外带", "Takeaway");
+}
+
+function kitchenStatusLabel(status, locale) {
+  const labels = {
+    ordered: { "zh-CN": "待制作", "en-GB": "Queued" },
+    preparing: { "zh-CN": "制作中", "en-GB": "Preparing" },
+    ready_to_serve: { "zh-CN": "待上菜", "en-GB": "Ready to serve" },
+    served: { "zh-CN": "已上菜", "en-GB": "Served" },
+    cancelled: { "zh-CN": "已取消", "en-GB": "Cancelled" }
+  };
+  return labels[status]?.[locale] || labels[status]?.["zh-CN"] || status;
+}
+
+function printJobStatusLabel(status, locale) {
+  const labels = {
+    queued: { "zh-CN": "排队中", "en-GB": "Queued" },
+    printing: { "zh-CN": "打印中", "en-GB": "Printing" },
+    succeeded: { "zh-CN": "已完成", "en-GB": "Succeeded" },
+    failed: { "zh-CN": "失败", "en-GB": "Failed" }
+  };
+  return labels[status]?.[locale] || labels[status]?.["zh-CN"] || status;
+}
+
+function printJobTypeLabel(type, locale) {
+  const labels = {
+    kitchen: { "zh-CN": "厨房单", "en-GB": "Kitchen ticket" },
+    receipt: { "zh-CN": "收银小票", "en-GB": "Receipt" },
+    test: { "zh-CN": "测试打印", "en-GB": "Test print" }
+  };
+  return labels[type]?.[locale] || labels[type]?.["zh-CN"] || type;
+}
+
+function LocaleSwitcher({ locale, onSwitch, disabled }) {
+  const nextLocale = locale === "en-GB" ? "zh-CN" : "en-GB";
+  return (
+    <div className="locale-switcher" role="group" aria-label="Language switch">
+      <button type="button" className={locale === "zh-CN" ? "selected" : ""} onClick={() => onSwitch("zh-CN")} disabled={disabled || locale === "zh-CN"} aria-pressed={locale === "zh-CN"}>中文</button>
+      <button type="button" className={locale === "en-GB" ? "selected" : ""} onClick={() => onSwitch("en-GB")} disabled={disabled || locale === "en-GB"} aria-pressed={locale === "en-GB"}>English</button>
+      <button type="button" className="locale-switcher-toggle" onClick={() => onSwitch(nextLocale)} disabled={disabled}>{locale === "zh-CN" ? "EN" : "中文"}</button>
+    </div>
+  );
 }
 
 function hasAnyPermission(user, permissions) {
@@ -137,11 +207,15 @@ function groupByWeek(byDay, locale) {
   return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
+function weekdayLabels(locale) {
+  return locale === "en-GB"
+    ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    : ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
+}
 
 // Day-of-week comparison: cumulative orders/revenue per weekday (Mon-Sun) across the whole selected range
-function groupByWeekday(byDay) {
-  const buckets = WEEKDAY_LABELS.map((label, idx) => ({ dow: idx, label, orders: 0, revenue: 0, days: 0 }));
+function groupByWeekday(byDay, locale) {
+  const buckets = weekdayLabels(locale).map((label, idx) => ({ dow: idx, label, orders: 0, revenue: 0, days: 0 }));
   for (const row of (byDay || [])) {
     const date = new Date(row.day);
     const dow = (date.getDay() + 6) % 7; // 0 = Monday
@@ -268,23 +342,23 @@ function AdminLogin({ onLogin }) {
           <img className="brand-logo login-logo" src={qyposLogo.src} alt="QYPOS" />
           <span>QYPOS</span>
         </div>
-        <h1>后台登录</h1>
-        <label>员工名<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" /></label>
+        <h1>{t("zh-CN", "后台登录", "Admin Login")}</h1>
+        <label>{t("zh-CN", "员工名", "Username")}<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" /></label>
         <label>PIN<input value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" type="password" /></label>
         {error && <div className="inline-error">{error}</div>}
-        <button className="primary" type="submit" disabled={busy}><User size={18} /><span>{busy ? "登录中" : "登录"}</span></button>
-        <a className="link-button" href="/">返回前台点菜</a>
+        <button className="primary" type="submit" disabled={busy}><User size={18} /><span>{busy ? t("zh-CN", "登录中", "Logging in") : t("zh-CN", "登录", "Log in")}</span></button>
+        <a className="link-button" href="/">{t("zh-CN", "返回前台点菜", "Back to POS")}</a>
       </form>
     </main>
   );
 }
 
-function AdminGateModal({ tab, onCancel, onGranted }) {
+function AdminGateModal({ tab, locale, onCancel, onGranted }) {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const label = tabs.find(([id]) => id === tab)?.[2] ?? "该栏目";
+  const label = tabLabelOf(tabs.find(([id]) => id === tab), locale) || t(locale, "该栏目", "This section");
 
   async function submit(event) {
     event.preventDefault();
@@ -298,7 +372,7 @@ function AdminGateModal({ tab, onCancel, onGranted }) {
       window.sessionStorage.setItem("qypos_admin_grant", grant.token);
       await onGranted(tab);
     } catch (caught) {
-      setError(caught.message || "管理员验证失败");
+      setError(caught.message || t(locale, "管理员验证失败", "Admin verification failed"));
     } finally {
       setBusy(false);
     }
@@ -308,16 +382,16 @@ function AdminGateModal({ tab, onCancel, onGranted }) {
     <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && onCancel()}>
       <form className="modal" onSubmit={submit} style={{ maxWidth: 420 }}>
         <header className="modal-header">
-          <button type="button" onClick={onCancel} title="关闭"><X size={20} /></button>
-          <div><h2>{label} · 管理员验证</h2></div>
+          <button type="button" onClick={onCancel} title={t(locale, "关闭", "Close")}><X size={20} /></button>
+          <div><h2>{label} · {t(locale, "管理员验证", "Admin verification")}</h2></div>
         </header>
         <div className="modal-body" style={{ display: "grid", gap: 12, padding: 20 }}>
-          <label>管理员账号<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" autoFocus /></label>
-          <label>管理员 PIN<input type="password" value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" /></label>
+          <label>{t(locale, "管理员账号", "Admin account")}<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" autoFocus /></label>
+          <label>PIN<input type="password" value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" /></label>
           {error && <div className="inline-error">{error}</div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button type="button" onClick={onCancel}>取消</button>
-            <button className="primary" type="submit" disabled={busy || !name.trim() || !pin}>{busy ? "验证中…" : "验证并进入"}</button>
+            <button type="button" onClick={onCancel}>{t(locale, "取消", "Cancel")}</button>
+            <button className="primary" type="submit" disabled={busy || !name.trim() || !pin}>{busy ? t(locale, "验证中…", "Verifying…") : t(locale, "验证并进入", "Verify and enter")}</button>
           </div>
         </div>
       </form>
@@ -349,6 +423,11 @@ export default function AdminPage() {
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.lang = locale.startsWith("en") ? "en" : "zh-CN";
+    document.documentElement.dataset.locale = locale;
+  }, [locale]);
 
   async function refresh(currentUser = user, grantedTab = adminGrantTab) {
     if (!currentUser) return;
@@ -386,7 +465,7 @@ export default function AdminPage() {
     const me = await verifyAuth();
     await refresh(me).catch((err) => {
       // Data refresh failure should never log the user out
-      showNotice(err.message || "数据加载失败");
+      showNotice(err.message || t(locale, "数据加载失败", "Failed to load data"));
     });
   }
 
@@ -471,7 +550,7 @@ export default function AdminPage() {
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     verifyAuth().then((me) => {
-      if (me) refresh(me).catch((err) => showNotice(err.message || "数据加载失败"));
+      if (me) refresh(me).catch((err) => showNotice(err.message || t(locale, "数据加载失败", "Failed to load data")));
     }).catch(() => setUser(null));
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const apiPort = process.env.NEXT_PUBLIC_API_PORT || "4000";
@@ -530,73 +609,70 @@ export default function AdminPage() {
           <span>QYPOS</span>
         </div>
         <nav>
-          {allowedTabs.map(([id, Icon, label]) => (
-            <button key={id} className={activeTab === id ? "active" : ""} onClick={() => selectTab(id)} title={label}>
-              {adminGatedTabs.has(id) && !hasAnyPermission(user, tabs.find(([tabId]) => tabId === id)?.[3] ?? []) && <Lock className="admin-lock-icon" size={14} aria-label="需要管理员验证" />}
+          {allowedTabs.map((tab) => {
+            const [id, Icon] = tab;
+            const label = tabLabelOf(tab, locale);
+            return (
+              <button key={id} className={activeTab === id ? "active" : ""} onClick={() => selectTab(id)} title={label}>
+              {adminGatedTabs.has(id) && !hasAnyPermission(user, tabs.find(([tabId]) => tabId === id)?.[3] ?? []) && <Lock className="admin-lock-icon" size={14} aria-label={t(locale, "需要管理员验证", "Admin verification required")} />}
               <Icon size={20} />
               <span>{label}</span>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </nav>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>{tabs.find(([id]) => id === activeTab)?.[2]}</h1>
+            <h1>{tabLabelOf(tabs.find(([id]) => id === activeTab), locale)}</h1>
             {activeTab === "settings" && settings && <p>{`${settings.currency} · Tax ${(Number(settings.tax_rate) * 100).toFixed(1)}% · Service ${(Number(settings.service_charge_rate) * 100).toFixed(1)}%`}</p>}
           </div>
           <div className="top-actions">
-            <span className="user-chip"><User size={16} />{user.name} · {roleLabel(user.role)}</span>
-            <a className="link-button" href="/">点餐前台</a>
-            <button onClick={refresh} title="刷新">
+            <span className="user-chip"><User size={16} />{user.name} · {roleLabel(user.role, locale)}</span>
+            <a className="link-button" href="/">{locale === "en-GB" ? "POS" : "点餐前台"}</a>
+            <button onClick={refresh} title={locale === "en-GB" ? "Refresh" : "刷新"}>
               <Save size={18} />
-              <span>刷新</span>
+              <span>{locale === "en-GB" ? "Refresh" : "刷新"}</span>
             </button>
             <button onClick={async () => {
               await revokeAdminGrant();
               await api("/auth/logout", { method: "POST" });
               window.localStorage.removeItem("qypos_token");
               setUser(null);
-            }} title="退出">
+            }} title={locale === "en-GB" ? "Sign out" : "退出"}>
               <LogOut size={18} />
-              <span>退出</span>
+              <span>{locale === "en-GB" ? "Sign out" : "退出"}</span>
             </button>
           </div>
         </header>
 
-        {!online && <div className="offline-banner"><WifiOff size={16} />当前离线，部分操作会失败，请检查网络或本地服务。</div>}
+        {!online && <div className="offline-banner"><WifiOff size={16} />{t(locale, "当前离线，部分操作会失败，请检查网络或本地服务。", "You're offline. Some actions may fail. Check the network or local service.")}</div>}
         {notice && <button className="notice toast" onClick={() => setNotice("")}>{notice}</button>}
         {activeTab === "orders" && <OrdersView orders={orders} locale={locale} currency={currency} />}
         {activeTab === "kitchen" && <KitchenView items={kitchenItems} locale={locale} onStatus={async (item, status) => run(async () => {
           await api(`/orders/${item.order_id}/items/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
           await refresh();
-        }, "厨房状态已更新")} />}
+        }, t(locale, "厨房状态已更新", "Kitchen status updated"))} />}
         {activeTab === "prints" && <PrintJobsView jobs={printJobs} locale={locale} onRetry={async (job) => run(async () => {
           await api(`/print-jobs/${job.id}/retry`, { method: "POST" });
           await refresh();
-        }, "打印任务已重新入队")} />}
+        }, t(locale, "打印任务已重新入队", "Print job requeued"))} />}
         {activeTab === "menu" && (user.permissions.includes("manage_menu")
           ? <MenuAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />
           : <MenuAvailabilityAdmin menu={menu} locale={locale} currency={currency} onSaved={refresh} onNotify={showNotice} />)}
         {activeTab === "dashboard" && <Dashboard dashboard={dashboard} auditLogs={auditLogs} locale={locale} currency={currency} />}
         {activeTab === "reports" && <ReportsAnalytics report={report} setReport={setReport} locale={locale} currency={currency} />}
-        {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} onSaved={refresh} adminAuthorized={adminGrantTab === "settings"} />}
+        {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} locale={locale} onSaved={refresh} adminAuthorized={adminGrantTab === "settings"} />}
         {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
         {activeTab === "users" && <UsersView usersList={usersList} rolesList={rolesList} onSaved={async () => { await refresh(); await refreshUsers(); }} />}
         {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} />}
       </section>
-      {adminGateTarget && <AdminGateModal tab={adminGateTarget} onCancel={() => setAdminGateTarget(null)} onGranted={enterAdminTab} />}
+      {adminGateTarget && <AdminGateModal tab={adminGateTarget} locale={locale} onCancel={() => setAdminGateTarget(null)} onGranted={enterAdminTab} />}
     </main>
   );
 }
-
-const ORDER_STATUS_LABEL = {
-  draft: "草稿",
-  submitted: "已下单",
-  paid: "已付款",
-  cancelled: "已取消",
-};
 
 const ORDER_STATUS_COLOR = {
   draft: "chip-warn",
@@ -623,7 +699,7 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
         method: "POST",
         body: JSON.stringify({ type: "receipt" })
       });
-      setPrintFeedback("小票已发送到打印队列");
+      setPrintFeedback(t(locale, "小票已发送到打印队列", "Receipt sent to the print queue"));
     } catch (error) {
       setPrintFeedback(error.message);
     } finally {
@@ -638,9 +714,9 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
             <h2 style={{ marginBottom: 4 }}>{order.order_no}</h2>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span className={`admin-chip ${ORDER_STATUS_COLOR[order.status] || "chip-grey"}`}>
-                {ORDER_STATUS_LABEL[order.status] || order.status}
+                {orderStatusLabel(order.status, locale)}
               </span>
-              <span className="admin-chip chip-grey">{order.service_type === "dine_in" ? "堂食" : "外带"}</span>
+              <span className="admin-chip chip-grey">{serviceTypeLabel(order.service_type, locale)}</span>
               <span style={{ color: "var(--muted)", fontSize: 13 }}>
                 {new Date(order.created_at).toLocaleString(locale)}
               </span>
@@ -650,7 +726,7 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
         </div>
 
         <div className="order-detail-items">
-          {(order.items || []).length === 0 && <div className="empty">无菜品记录</div>}
+          {(order.items || []).length === 0 && <div className="empty">{t(locale, "无菜品记录", "No items")}</div>}
           {(order.items || []).map((item) => {
             const quantity = Number(item.quantity || 0);
             const modifiers = [];
@@ -667,49 +743,49 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
               <div className="order-detail-item" key={item.id}>
                 <div className="order-detail-item-head">
                   <div className="order-detail-item-name">
-                    <strong>{item.name_i18n?.["zh-CN"] || item.name_i18n?.["en-GB"] || "-"}</strong>
-                    {item.variant_name_i18n?.["zh-CN"] && <small>规格：{item.variant_name_i18n["zh-CN"]}</small>}
+                    <strong>{labelOf(item.name_i18n, locale) || "-"}</strong>
+                    {item.variant_name_i18n && <small>{t(locale, "规格：", "Option: ")}{labelOf(item.variant_name_i18n, locale)}</small>}
                   </div>
-                  <span>数量 ×{quantity}</span>
+                  <span>{t(locale, "数量", "Qty")} ×{quantity}</span>
                 </div>
                 <div className="order-detail-price-breakdown">
-                  <span>基础单价</span><strong>{money(baseUnitPrice, currency, locale)}</strong>
+                  <span>{t(locale, "基础单价", "Base price")}</span><strong>{money(baseUnitPrice, currency, locale)}</strong>
                   {modifiers.map((modifier) => (
                     <div className="order-detail-modifier" key={modifier.key}>
-                      <span>＋ {modifier.group_name_i18n?.["zh-CN"] ? `${modifier.group_name_i18n["zh-CN"]}：` : ""}{modifier.name_i18n?.["zh-CN"] || modifier.name_i18n?.["en-GB"]}{modifier.count > 1 ? ` ×${modifier.count}` : ""}</span>
+                      <span>＋ {modifier.group_name_i18n ? `${labelOf(modifier.group_name_i18n, locale)}：` : ""}{labelOf(modifier.name_i18n, locale)}{modifier.count > 1 ? ` ×${modifier.count}` : ""}</span>
                       <strong>{money(Number(modifier.price_delta || 0) * modifier.count, currency, locale)}</strong>
                     </div>
                   ))}
-                  <span>每份合计</span><strong>{money(unitTotal, currency, locale)}</strong>
-                  <span className="line-total-label">本项合计</span><strong className="line-total-value">{money(unitTotal * quantity, currency, locale)}</strong>
+                  <span>{t(locale, "每份合计", "Per item")}</span><strong>{money(unitTotal, currency, locale)}</strong>
+                  <span className="line-total-label">{t(locale, "本项合计", "Line total")}</span><strong className="line-total-value">{money(unitTotal * quantity, currency, locale)}</strong>
                 </div>
-                {item.notes && <div className="order-detail-note">备注：{item.notes}</div>}
+                {item.notes && <div className="order-detail-note">{t(locale, "备注：", "Notes: ")}{item.notes}</div>}
               </div>
             );
           })}
         </div>
 
         <div className="order-detail-totals">
-          <div><span>小计</span><span>{money(subtotal, currency, locale)}</span></div>
-          {serviceCharge > 0 && <div><span>服务费</span><span>{money(serviceCharge, currency, locale)}</span></div>}
-          {discount > 0 && <div><span>折扣</span><span>-{money(discount, currency, locale)}</span></div>}
-          <div className="total-row"><span>合计</span><strong>{money(total, currency, locale)}</strong></div>
+          <div><span>{t(locale, "小计", "Subtotal")}</span><span>{money(subtotal, currency, locale)}</span></div>
+          {serviceCharge > 0 && <div><span>{t(locale, "服务费", "Service charge")}</span><span>{money(serviceCharge, currency, locale)}</span></div>}
+          {discount > 0 && <div><span>{t(locale, "折扣", "Discount")}</span><span>-{money(discount, currency, locale)}</span></div>}
+          <div className="total-row"><span>{t(locale, "合计", "Total")}</span><strong>{money(total, currency, locale)}</strong></div>
         </div>
 
         {(order.payments || []).length > 0 && (
           <div className="order-detail-payments">
-            <h3>支付记录</h3>
+            <h3>{t(locale, "支付记录", "Payments")}</h3>
             {order.payments.map((p) => (
               <div key={p.id} className="payment-row">
                 <span>{p.method}</span>
                 <span>{money(p.amount, currency, locale)}</span>
-                {p.change_due > 0 && <small>找零 {money(p.change_due, currency, locale)}</small>}
+                {p.change_due > 0 && <small>{t(locale, "找零 ", "Change ")}{money(p.change_due, currency, locale)}</small>}
               </div>
             ))}
           </div>
         )}
         <div className="order-detail-actions">
-          <button type="button" onClick={printReceipt} disabled={printing}><Printer size={16} /><span>{printing ? "发送中…" : "打印小票"}</span></button>
+          <button type="button" onClick={printReceipt} disabled={printing}><Printer size={16} /><span>{printing ? t(locale, "发送中…", "Sending…") : t(locale, "打印小票", "Print receipt")}</span></button>
           {printFeedback && <span>{printFeedback}</span>}
         </div>
       </div>
@@ -779,53 +855,53 @@ function OrdersView({ orders, locale, currency }) {
       <div className="orders-toolbar">
         <div className="orders-filters">
           <div className="filter-group">
-            <label>状态</label>
+            <label>{t(locale, "状态", "Status")}</label>
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-              <option value="all">全部</option>
-              <option value="draft">草稿</option>
-              <option value="submitted">已下单</option>
-              <option value="paid">已付款</option>
-              <option value="cancelled">已取消</option>
+              <option value="all">{t(locale, "全部", "All")}</option>
+              <option value="draft">{t(locale, "草稿", "Draft")}</option>
+              <option value="submitted">{t(locale, "已下单", "Submitted")}</option>
+              <option value="paid">{t(locale, "已付款", "Paid")}</option>
+              <option value="cancelled">{t(locale, "已取消", "Cancelled")}</option>
             </select>
           </div>
           <div className="filter-group">
-            <label>类型</label>
+            <label>{t(locale, "类型", "Type")}</label>
             <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-              <option value="all">全部</option>
-              <option value="dine_in">堂食</option>
-              <option value="takeaway">外带</option>
+              <option value="all">{t(locale, "全部", "All")}</option>
+              <option value="dine_in">{t(locale, "堂食", "Dine-in")}</option>
+              <option value="takeaway">{t(locale, "外带", "Takeaway")}</option>
             </select>
           </div>
           <div className="filter-group">
-            <label>排序</label>
+            <label>{t(locale, "排序", "Sort")}</label>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              <option value="time_desc">时间 ↓ 最新</option>
-              <option value="time_asc">时间 ↑ 最早</option>
-              <option value="amount_desc">金额 ↓ 最高</option>
-              <option value="amount_asc">金额 ↑ 最低</option>
+              <option value="time_desc">{t(locale, "时间 ↓ 最新", "Time ↓ Newest")}</option>
+              <option value="time_asc">{t(locale, "时间 ↑ 最早", "Time ↑ Oldest")}</option>
+              <option value="amount_desc">{t(locale, "金额 ↓ 最高", "Amount ↓ Highest")}</option>
+              <option value="amount_asc">{t(locale, "金额 ↑ 最低", "Amount ↑ Lowest")}</option>
             </select>
           </div>
         </div>
         <div className="orders-search">
           <Search size={15} />
           <input
-            placeholder="搜索单号…"
+            placeholder={t(locale, "搜索单号…", "Search order no…")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <span className="orders-count">{filtered.length} 条</span>
+        <span className="orders-count">{filtered.length} {t(locale, "条", "orders")}</span>
       </div>
 
       <div className="orders-table">
         <div className="orders-table-head">
-          <span>单号</span>
-          <span>类型</span>
-          <span>状态</span>
-          <span>时间</span>
-          <span style={{ textAlign: "right" }}>金额</span>
+          <span>{t(locale, "单号", "Order no.")}</span>
+          <span>{t(locale, "类型", "Type")}</span>
+          <span>{t(locale, "状态", "Status")}</span>
+          <span>{t(locale, "时间", "Time")}</span>
+          <span style={{ textAlign: "right" }}>{t(locale, "金额", "Amount")}</span>
         </div>
-        {filtered.length === 0 && <div className="empty" style={{ padding: "24px 0" }}>暂无订单</div>}
+        {filtered.length === 0 && <div className="empty" style={{ padding: "24px 0" }}>{t(locale, "暂无订单", "No orders")}</div>}
         {pagedOrders.map((order) => (
           <button
             key={order.id}
@@ -834,10 +910,10 @@ function OrdersView({ orders, locale, currency }) {
             disabled={loadingId === order.id}
           >
             <span className="order-no-cell">{order.order_no}</span>
-            <span>{order.service_type === "dine_in" ? "堂食" : "外带"}</span>
+            <span>{serviceTypeLabel(order.service_type, locale)}</span>
             <span>
               <em className={`admin-chip ${ORDER_STATUS_COLOR[order.status] || "chip-grey"}`}>
-                {ORDER_STATUS_LABEL[order.status] || order.status}
+                {orderStatusLabel(order.status, locale)}
               </em>
             </span>
             <span className="order-time-cell">
@@ -849,9 +925,9 @@ function OrdersView({ orders, locale, currency }) {
       </div>
       {filtered.length > pageSize && (
         <div className="orders-pagination">
-          <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>上一页</button>
+          <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>{t(locale, "上一页", "Previous")}</button>
           <span>{page} / {totalPages}</span>
-          <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages}>下一页</button>
+          <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages}>{t(locale, "下一页", "Next")}</button>
         </div>
       )}
     </>
@@ -860,11 +936,11 @@ function OrdersView({ orders, locale, currency }) {
 
 function KitchenView({ items, locale, onStatus }) {
   const statusLabels = {
-    ordered: "待制作",
-    preparing: "制作中",
-    ready_to_serve: "待上菜",
-    served: "已上菜",
-    cancelled: "已取消"
+    ordered: t(locale, "待制作", "Queued"),
+    preparing: t(locale, "制作中", "Preparing"),
+    ready_to_serve: t(locale, "待上菜", "Ready to serve"),
+    served: t(locale, "已上菜", "Served"),
+    cancelled: t(locale, "已取消", "Cancelled")
   };
 
   return (
@@ -875,33 +951,33 @@ function KitchenView({ items, locale, onStatus }) {
             <h2>{labelOf(item.name_i18n, locale)}</h2>
             <strong>x{item.quantity}</strong>
           </div>
-          <p>{item.service_type === "dine_in" ? `桌台 ${item.table_label || "-"}` : `外带 ${item.pickup_no || "-"}`}</p>
+          <p>{item.service_type === "dine_in" ? `${t(locale, "桌台", "Table")} ${item.table_label || "-"}` : `${t(locale, "外带", "Takeaway")} ${item.pickup_no || "-"}`}</p>
           <p>{item.order_no} · {statusLabels[item.status] || item.status}</p>
           {item.notes && <small>{item.notes}</small>}
           <time>{new Date(item.created_at).toLocaleTimeString(locale)}</time>
           <div className="ticket-actions">
-            <button onClick={() => onStatus(item, "preparing")} disabled={item.status === "preparing"}>制作中</button>
-            <button onClick={() => onStatus(item, "ready_to_serve")} disabled={item.status === "ready_to_serve"}>待上菜</button>
-            <button className="primary" onClick={() => onStatus(item, "served")}>已上菜</button>
+            <button onClick={() => onStatus(item, "preparing")} disabled={item.status === "preparing"}>{t(locale, "制作中", "Preparing")}</button>
+            <button onClick={() => onStatus(item, "ready_to_serve")} disabled={item.status === "ready_to_serve"}>{t(locale, "待上菜", "Ready to serve")}</button>
+            <button className="primary" onClick={() => onStatus(item, "served")}>{t(locale, "已上菜", "Served")}</button>
           </div>
         </article>
       ))}
-      {!items.length && <div className="empty">暂无待处理菜品</div>}
+      {!items.length && <div className="empty">{t(locale, "暂无待处理菜品", "No pending items")}</div>}
     </section>
   );
 }
 
 function PrintJobsView({ jobs, locale, onRetry }) {
   const statusLabels = {
-    queued: "排队中",
-    printing: "打印中",
-    succeeded: "已完成",
-    failed: "失败"
+    queued: printJobStatusLabel("queued", locale),
+    printing: printJobStatusLabel("printing", locale),
+    succeeded: printJobStatusLabel("succeeded", locale),
+    failed: printJobStatusLabel("failed", locale)
   };
   const typeLabels = {
-    kitchen: "厨房单",
-    receipt: "收银小票",
-    test: "测试打印"
+    kitchen: printJobTypeLabel("kitchen", locale),
+    receipt: printJobTypeLabel("receipt", locale),
+    test: printJobTypeLabel("test", locale)
   };
 
   return (
@@ -911,15 +987,15 @@ function PrintJobsView({ jobs, locale, onRetry }) {
           <span>{typeLabels[job.type] || job.type}</span>
           <span>{statusLabels[job.status] || job.status}</span>
           <span>{new Date(job.created_at).toLocaleString(locale)}</span>
-          <span>{job.attempts} 次</span>
+            <span>{job.attempts} {t(locale, "次", "tries")}</span>
           {job.error ? <small className="print-error"><AlertCircle size={14} />{job.error}</small> : <small>-</small>}
           <button onClick={() => onRetry(job)} disabled={job.status === "queued" || job.status === "printing"}>
             <RefreshCw size={16} />
-            <span>重试</span>
+            <span>{t(locale, "重试", "Retry")}</span>
           </button>
         </div>
       ))}
-      {!jobs.length && <div className="empty">暂无打印任务</div>}
+      {!jobs.length && <div className="empty">{t(locale, "暂无打印任务", "No print jobs")}</div>}
     </section>
   );
 }
@@ -939,7 +1015,7 @@ function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
         body: JSON.stringify({ active: !item.active })
       });
       await onSaved();
-      onNotify(item.active ? "菜品已下架" : "菜品已上架");
+      onNotify(item.active ? t(locale, "菜品已下架", "Item deactivated") : t(locale, "菜品已上架", "Item activated"));
     } catch (error) {
       onNotify(error.message);
     } finally {
@@ -949,11 +1025,11 @@ function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
 
   return (
     <div className="panel" style={{ marginTop: 16 }}>
-      <div className="panel-title split">
-        <div className="inline-title"><ReceiptText size={18} /><h2>菜品上下架</h2></div>
-      </div>
+        <div className="panel-title split">
+          <div className="inline-title"><ReceiptText size={18} /><h2>{t(locale, "菜品上下架", "Item availability")}</h2></div>
+        </div>
       <div className="order-filter-bar" style={{ marginBottom: 12 }}>
-        <button className={selectedCatId === "all" ? "selected" : ""} onClick={() => setSelectedCatId("all")}>全部</button>
+        <button className={selectedCatId === "all" ? "selected" : ""} onClick={() => setSelectedCatId("all")}>{t(locale, "全部", "All")}</button>
         {menu.categories.map((category) => (
           <button
             key={category.id}
@@ -970,7 +1046,7 @@ function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
             <div className="menu-item-row-head" style={{ cursor: "default" }}>
               <span className="item-name">{labelOf(item.name_i18n, locale)}</span>
               <span className={`item-badge${item.active ? " badge-active" : " badge-inactive"}`}>
-                {item.active ? "上架" : "下架"}
+                {item.active ? t(locale, "上架", "Active") : t(locale, "下架", "Inactive")}
               </span>
               <span className="muted">{labelOf(menu.categories.find((category) => category.id === item.category_id)?.name_i18n, locale) || "未分类"}</span>
               <button
@@ -980,12 +1056,12 @@ function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
                 onClick={() => toggleItem(item)}
               >
                 <Power size={16} />
-                <span>{busyItemId === item.id ? "处理中…" : item.active ? "下架" : "上架"}</span>
+                <span>{busyItemId === item.id ? t(locale, "处理中…", "Working…") : item.active ? t(locale, "下架", "Deactivate") : t(locale, "上架", "Activate")}</span>
               </button>
             </div>
           </div>
         ))}
-        {!items.length && <div className="empty">暂无菜品</div>}
+        {!items.length && <div className="empty">{t(locale, "暂无菜品", "No items")}</div>}
       </div>
     </div>
   );
@@ -1054,22 +1130,22 @@ function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
 
   return (
     <div className="menu-admin-stack">
-      <OptionPresetsAdmin presets={menu.option_presets ?? []} onSaved={onSaved} onNotify={onNotify} />
+      <OptionPresetsAdmin presets={menu.option_presets ?? []} locale={locale} onSaved={onSaved} onNotify={onNotify} />
       <div className="menu-split">
       <aside className="menu-sidebar">
-        <div className="menu-sidebar-head">
-          <span>分类管理</span>
-          <button type="button" title="新建分类" onClick={() => setShowCatForm((v) => !v)}>
+          <div className="menu-sidebar-head">
+            <span>{t(locale, "分类管理", "Categories")}</span>
+            <button type="button" title={t(locale, "新建分类", "New category")} onClick={() => setShowCatForm((v) => !v)}>
             <Plus size={14} />
           </button>
         </div>
         {showCatForm && (
           <form className="menu-cat-form" onSubmit={saveCategory}>
-            <input placeholder="中文名" value={categoryZh} onChange={(e) => setCategoryZh(e.target.value)} required />
+            <input placeholder={t(locale, "中文名", "Chinese name")} value={categoryZh} onChange={(e) => setCategoryZh(e.target.value)} required />
             <input placeholder="English" value={categoryEn} onChange={(e) => setCategoryEn(e.target.value)} />
             <div className="menu-cat-form-actions">
-              <button className="primary" type="submit">保存</button>
-              <button type="button" onClick={() => setShowCatForm(false)}>取消</button>
+              <button className="primary" type="submit">{t(locale, "保存", "Save")}</button>
+              <button type="button" onClick={() => setShowCatForm(false)}>{t(locale, "取消", "Cancel")}</button>
             </div>
           </form>
         )}
@@ -1078,7 +1154,7 @@ function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
           className={`menu-sidebar-item${selectedCatId === null ? " active" : ""}`}
           onClick={() => setSelectedCatId(null)}
         >
-          <span>全部</span>
+          <span>{t(locale, "全部", "All")}</span>
           <span className="cat-count">{menu.items.length}</span>
         </button>
         {menu.categories.map((cat) => {
@@ -1099,7 +1175,7 @@ function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
               <button
                 type="button"
                 className="cat-delete-btn"
-                title="删除分类"
+                title={t(locale, "删除分类", "Delete category")}
                 onClick={() => deleteCategory(cat, count)}
               >
                 <Trash2 size={12} />
@@ -1110,23 +1186,23 @@ function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
         {selectedCat && (
           <CategoryEditor key={selectedCat.id} category={selectedCat} locale={locale} onSaved={onSaved} />
         )}
-        <NotePresetsAdmin presets={menu.note_presets ?? []} onSaved={onSaved} />
+        <NotePresetsAdmin presets={menu.note_presets ?? []} locale={locale} onSaved={onSaved} />
       </aside>
 
       <div className="menu-items-pane">
         <div className="menu-toolbar">
           <h2>
-            {selectedCat ? labelOf(selectedCat.name_i18n, locale) : "全部菜品"}
+            {selectedCat ? labelOf(selectedCat.name_i18n, locale) : t(locale, "全部菜品", "All items")}
             <span className="muted"> ({filteredItems.length})</span>
           </h2>
           <button type="button" onClick={() => setShowItemForm((v) => !v)}>
-            <Plus size={16} /><span>新建菜品</span>
+            <Plus size={16} /><span>{t(locale, "新建菜品", "New item")}</span>
           </button>
         </div>
         {showItemForm && (
           <form className="form-panel menu-new-item-form" onSubmit={saveItem}>
             <div className="inline-editor">
-              <label>分类
+              <label>{t(locale, "分类", "Category")}
                 <select
                   value={newItem.categoryId || selectedCatId || firstCatId || ""}
                   onChange={(e) => setNewItem({ ...newItem, categoryId: e.target.value })}
@@ -1134,15 +1210,15 @@ function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
                   {menu.categories.map((c) => <option key={c.id} value={c.id}>{labelOf(c.name_i18n, locale)}</option>)}
                 </select>
               </label>
-              <label>中文名<input value={newItem.nameZh} onChange={(e) => setNewItem({ ...newItem, nameZh: e.target.value })} required /></label>
+              <label>{t(locale, "中文名", "Chinese name")}<input value={newItem.nameZh} onChange={(e) => setNewItem({ ...newItem, nameZh: e.target.value })} required /></label>
               <label>English<input value={newItem.nameEn} onChange={(e) => setNewItem({ ...newItem, nameEn: e.target.value })} /></label>
-              {!newItem.variantPresetId && <label>标准价格<input type="number" step="0.01" value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} /></label>}
-              <label>规格预设<select value={newItem.variantPresetId} onChange={(e) => setNewItem({ ...newItem, variantPresetId: e.target.value })}>
-                <option value="">不使用</option>
+              {!newItem.variantPresetId && <label>{t(locale, "标准价格", "Base price")}<input type="number" step="0.01" value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} /></label>}
+              <label>{t(locale, "规格预设", "Option preset")}<select value={newItem.variantPresetId} onChange={(e) => setNewItem({ ...newItem, variantPresetId: e.target.value })}>
+                <option value="">{t(locale, "不使用", "None")}</option>
                 {(menu.option_presets ?? []).filter((preset) => preset.kind === "variants" && preset.active !== false).map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
               </select></label>
-              <button className="primary" type="submit"><Plus size={16} /><span>保存</span></button>
-              <button type="button" onClick={() => setShowItemForm(false)}>取消</button>
+              <button className="primary" type="submit"><Plus size={16} /><span>{t(locale, "保存", "Save")}</span></button>
+              <button type="button" onClick={() => setShowItemForm(false)}>{t(locale, "取消", "Cancel")}</button>
             </div>
           </form>
         )}
@@ -1161,7 +1237,7 @@ function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
               onNotify={onNotify}
             />
           ))}
-          {!filteredItems.length && <div className="empty">暂无菜品</div>}
+          {!filteredItems.length && <div className="empty">{t(locale, "暂无菜品", "No items")}</div>}
         </div>
       </div>
       </div>
@@ -1186,7 +1262,7 @@ function MenuItemRow({ item, categories, optionPresets, locale, currency, expand
     try {
       await api(`/menu/items/${item.id}`, { method: "PATCH", body: JSON.stringify({ active: !item.active }) });
       await onSaved();
-      onNotify(item.active ? "产品已停用" : "产品已启用");
+      onNotify(item.active ? t(locale, "产品已停用", "Item disabled") : t(locale, "产品已启用", "Item enabled"));
     } catch (error) {
       onNotify(error.message);
     } finally {
@@ -1195,12 +1271,12 @@ function MenuItemRow({ item, categories, optionPresets, locale, currency, expand
   }
 
   async function destroyItem() {
-    if (!window.confirm(`永久删除"${labelOf(item.name_i18n, locale)}"？此操作无法恢复，历史订单记录将保留但不再关联该菜品。`)) return;
+    if (!window.confirm(t(locale, `永久删除"${labelOf(item.name_i18n, locale)}"？此操作无法恢复，历史订单记录将保留但不再关联该菜品。`, `Delete "${labelOf(item.name_i18n, locale)}" permanently? This cannot be undone. Historical orders will remain, but the item will no longer be linked.`))) return;
     setItemAction("destroy");
     try {
       await api(`/menu/items/${item.id}/destroy`, { method: "DELETE" });
       await onSaved();
-      onNotify("产品已永久删除");
+      onNotify(t(locale, "产品已永久删除", "Item deleted permanently"));
     } catch (err) {
       onNotify(err.message);
     } finally {
@@ -1214,10 +1290,10 @@ function MenuItemRow({ item, categories, optionPresets, locale, currency, expand
         <ChevronRight size={15} className={`expand-icon${expanded ? " rotated" : ""}`} />
         <span className="item-name">{labelOf(item.name_i18n, locale)}</span>
         <span className={`item-badge${item.active ? " badge-active" : " badge-inactive"}`}>
-          {item.active ? "上架" : "下架"}
+          {item.active ? t(locale, "上架", "Active") : t(locale, "下架", "Inactive")}
         </span>
         <span className="item-price muted">{priceLabel}</span>
-        <span className="muted item-spec-count">{item.variants.length} 规格</span>
+        <span className="muted item-spec-count">{item.variants.length} {t(locale, "规格", "options")}</span>
       </div>
       {expanded && (
         <div className="menu-item-row-body">
@@ -1239,7 +1315,7 @@ function MenuItemRow({ item, categories, optionPresets, locale, currency, expand
   );
 }
 
-function OptionPresetsAdmin({ presets, onSaved, onNotify }) {
+function OptionPresetsAdmin({ presets, locale, onSaved, onNotify }) {
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
   const [kind, setKind] = useState("variants");
@@ -1271,20 +1347,20 @@ function OptionPresetsAdmin({ presets, onSaved, onNotify }) {
     <section className="option-presets-panel">
       <div className="option-presets-head">
         <div>
-          <h2>规格与加料预设库</h2>
-          <p>产品绑定预设后会自动同步；直接修改产品配置时，该类型的绑定会自动断开。</p>
+          <h2>{t(locale, "规格与加料预设库", "Options & extras presets")}</h2>
+          <p>{t(locale, "产品绑定预设后会自动同步；直接修改产品配置时，该类型的绑定会自动断开。", "Linked products sync automatically. Editing an item directly will detach that preset type.")}</p>
         </div>
-        <button type="button" onClick={() => setShowCreate((value) => !value)}><Plus size={15} /><span>新建预设</span></button>
+        <button type="button" onClick={() => setShowCreate((value) => !value)}><Plus size={15} /><span>{t(locale, "新建预设", "New preset")}</span></button>
       </div>
       {showCreate && (
         <form className="option-preset-create" onSubmit={createPreset}>
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="预设名称，例如：面条大小规格" required />
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={t(locale, "预设名称，例如：面条大小规格", "Preset name, e.g. noodle size options")} required />
           <select value={kind} onChange={(event) => setKind(event.target.value)}>
-            <option value="variants">产品规格</option>
-            <option value="modifiers">加料小项</option>
+            <option value="variants">{t(locale, "产品规格", "Item options")}</option>
+            <option value="modifiers">{t(locale, "加料小项", "Extras")}</option>
           </select>
-          <button className="primary" type="submit" disabled={busy}>创建</button>
-          <button type="button" onClick={() => setShowCreate(false)}>取消</button>
+          <button className="primary" type="submit" disabled={busy}>{t(locale, "创建", "Create")}</button>
+          <button type="button" onClick={() => setShowCreate(false)}>{t(locale, "取消", "Cancel")}</button>
         </form>
       )}
       {error && <div className="inline-error">{error}</div>}
@@ -1297,15 +1373,16 @@ function OptionPresetsAdmin({ presets, onSaved, onNotify }) {
             onToggle={() => setExpandedId((id) => id === preset.id ? null : preset.id)}
             onSaved={onSaved}
             onNotify={onNotify}
+            locale={locale}
           />
         ))}
-        {!presets.length && <div className="empty">暂无规格或加料预设</div>}
+        {!presets.length && <div className="empty">{t(locale, "暂无规格或加料预设", "No option or extra presets")}</div>}
       </div>
     </section>
   );
 }
 
-function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify }) {
+function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify, locale }) {
   const [name, setName] = useState(preset.name);
   const [payload, setPayload] = useState(() => structuredClone(preset.payload || []));
   const [busy, setBusy] = useState(false);
@@ -1329,7 +1406,7 @@ function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify }) {
         body: JSON.stringify({ name, payload })
       });
       await onSaved();
-      onNotify(result.synced_items ? `预设已保存，并同步到 ${result.synced_items} 个产品` : "预设已保存");
+      onNotify(result.synced_items ? t(locale, `预设已保存，并同步到 ${result.synced_items} 个产品`, `Preset saved and synced to ${result.synced_items} items`) : t(locale, "预设已保存", "Preset saved"));
     } catch (caught) {
       setError(caught.message);
     } finally {
@@ -1338,10 +1415,10 @@ function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify }) {
   }
 
   async function remove() {
-    if (!window.confirm(`删除预设“${preset.name}”？绑定产品会保留当前配置，但不再继续同步。`)) return;
+    if (!window.confirm(t(locale, `删除预设“${preset.name}”？绑定产品会保留当前配置，但不再继续同步。`, `Delete preset "${preset.name}"? Bound items will keep the current configuration but stop syncing.`))) return;
     await api(`/menu/option-presets/${preset.id}`, { method: "DELETE" });
     await onSaved();
-    onNotify("预设已删除，相关产品已转为独立配置");
+    onNotify(t(locale, "预设已删除，相关产品已转为独立配置", "Preset deleted; linked items are now standalone"));
   }
 
   function addVariant() {
@@ -1410,27 +1487,27 @@ function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify }) {
       <button type="button" className="option-preset-summary" onClick={onToggle}>
         <ChevronRight size={15} className={expanded ? "rotated" : ""} />
         <strong>{preset.name}</strong>
-        <span>{preset.kind === "variants" ? "产品规格" : "加料小项"}</span>
-        <em>{(preset.payload || []).length} 项</em>
+        <span>{preset.kind === "variants" ? t(locale, "产品规格", "Item options") : t(locale, "加料小项", "Extras")}</span>
+        <em>{(preset.payload || []).length} {t(locale, "项", "items")}</em>
       </button>
       {expanded && (
         <div className="option-preset-body">
-          <label>预设名称<input value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label>{t(locale, "预设名称", "Preset name")}<input value={name} onChange={(event) => setName(event.target.value)} /></label>
           {preset.kind === "variants" ? (
             <div className="option-preset-rows">
               {payload.map((variant, index) => (
                 <div className="option-preset-row" key={index}>
                   <div className="option-row-order">
-                    <button type="button" title="上移" disabled={index === 0} onClick={() => moveRow(index, -1)}><ChevronUp size={13} /></button>
-                    <button type="button" title="下移" disabled={index === payload.length - 1} onClick={() => moveRow(index, 1)}><ChevronDown size={13} /></button>
+                    <button type="button" title={t(locale, "上移", "Move up")} disabled={index === 0} onClick={() => moveRow(index, -1)}><ChevronUp size={13} /></button>
+                    <button type="button" title={t(locale, "下移", "Move down")} disabled={index === payload.length - 1} onClick={() => moveRow(index, 1)}><ChevronDown size={13} /></button>
                   </div>
-                  <input value={labelOf(variant.name_i18n, "zh-CN")} onChange={(event) => updateRow(index, { name_i18n: { ...variant.name_i18n, "zh-CN": event.target.value } })} placeholder="中文规格" />
+                  <input value={labelOf(variant.name_i18n, "zh-CN")} onChange={(event) => updateRow(index, { name_i18n: { ...variant.name_i18n, "zh-CN": event.target.value } })} placeholder={t(locale, "中文规格", "Chinese option")} />
                   <input value={labelOf(variant.name_i18n, "en-GB")} onChange={(event) => updateRow(index, { name_i18n: { ...variant.name_i18n, "en-GB": event.target.value } })} placeholder="English" />
-                  <input type="number" step="0.01" value={variant.price} onChange={(event) => updateRow(index, { price: Number(event.target.value) })} placeholder="价格" />
+                  <input type="number" step="0.01" value={variant.price} onChange={(event) => updateRow(index, { price: Number(event.target.value) })} placeholder={t(locale, "价格", "Price")} />
                   <button type="button" onClick={() => setPayload((current) => current.filter((_row, rowIndex) => rowIndex !== index))}><Trash2 size={14} /></button>
                 </div>
               ))}
-              <button type="button" className="option-preset-add" onClick={addVariant}><Plus size={14} />添加规格</button>
+              <button type="button" className="option-preset-add" onClick={addVariant}><Plus size={14} />{t(locale, "添加规格", "Add option")}</button>
             </div>
           ) : (
             <div className="option-preset-rows">
@@ -1438,25 +1515,25 @@ function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify }) {
                 <div className="option-preset-group" key={groupIndex}>
                   <div className="option-preset-row group-row">
                     <div className="option-row-order">
-                      <button type="button" title="上移" disabled={groupIndex === 0} onClick={() => moveRow(groupIndex, -1)}><ChevronUp size={13} /></button>
-                      <button type="button" title="下移" disabled={groupIndex === payload.length - 1} onClick={() => moveRow(groupIndex, 1)}><ChevronDown size={13} /></button>
+                      <button type="button" title={t(locale, "上移", "Move up")} disabled={groupIndex === 0} onClick={() => moveRow(groupIndex, -1)}><ChevronUp size={13} /></button>
+                      <button type="button" title={t(locale, "下移", "Move down")} disabled={groupIndex === payload.length - 1} onClick={() => moveRow(groupIndex, 1)}><ChevronDown size={13} /></button>
                     </div>
-                    <input value={labelOf(group.name_i18n, "zh-CN")} onChange={(event) => updateRow(groupIndex, { name_i18n: { ...group.name_i18n, "zh-CN": event.target.value } })} placeholder="加料组" />
+                    <input value={labelOf(group.name_i18n, "zh-CN")} onChange={(event) => updateRow(groupIndex, { name_i18n: { ...group.name_i18n, "zh-CN": event.target.value } })} placeholder={t(locale, "加料组", "Modifier group")} />
                     <input value={labelOf(group.name_i18n, "en-GB")} onChange={(event) => updateRow(groupIndex, { name_i18n: { ...group.name_i18n, "en-GB": event.target.value } })} placeholder="English" />
-                    <label>最少<input type="number" min="0" value={group.min_select} onChange={(event) => updateRow(groupIndex, { min_select: Number(event.target.value) })} /></label>
-                    <label>最多<input type="number" min="1" value={group.max_select} onChange={(event) => updateRow(groupIndex, { max_select: Number(event.target.value) })} /></label>
-                    <label className="preset-required-toggle"><input type="checkbox" checked={Number(group.min_select) > 0} onChange={(event) => updateRow(groupIndex, { min_select: event.target.checked ? Math.max(1, Number(group.min_select || 0)) : 0 })} />必选</label>
+                    <label>{t(locale, "最少", "Min")}<input type="number" min="0" value={group.min_select} onChange={(event) => updateRow(groupIndex, { min_select: Number(event.target.value) })} /></label>
+                    <label>{t(locale, "最多", "Max")}<input type="number" min="1" value={group.max_select} onChange={(event) => updateRow(groupIndex, { max_select: Number(event.target.value) })} /></label>
+                    <label className="preset-required-toggle"><input type="checkbox" checked={Number(group.min_select) > 0} onChange={(event) => updateRow(groupIndex, { min_select: event.target.checked ? Math.max(1, Number(group.min_select || 0)) : 0 })} />{t(locale, "必选", "Required")}</label>
                     <button type="button" onClick={() => setPayload((current) => current.filter((_row, index) => index !== groupIndex))}><Trash2 size={14} /></button>
                   </div>
                   {(group.modifiers || []).map((modifier, modifierIndex) => (
                     <div className="option-preset-row child-row" key={modifierIndex}>
                       <div className="option-row-order">
-                        <button type="button" title="上移" disabled={modifierIndex === 0} onClick={() => moveModifier(groupIndex, modifierIndex, -1)}><ChevronUp size={13} /></button>
-                        <button type="button" title="下移" disabled={modifierIndex === group.modifiers.length - 1} onClick={() => moveModifier(groupIndex, modifierIndex, 1)}><ChevronDown size={13} /></button>
+                        <button type="button" title={t(locale, "上移", "Move up")} disabled={modifierIndex === 0} onClick={() => moveModifier(groupIndex, modifierIndex, -1)}><ChevronUp size={13} /></button>
+                        <button type="button" title={t(locale, "下移", "Move down")} disabled={modifierIndex === group.modifiers.length - 1} onClick={() => moveModifier(groupIndex, modifierIndex, 1)}><ChevronDown size={13} /></button>
                       </div>
-                      <input value={labelOf(modifier.name_i18n, "zh-CN")} onChange={(event) => updateModifier(groupIndex, modifierIndex, { name_i18n: { ...modifier.name_i18n, "zh-CN": event.target.value } })} placeholder="小料名称" />
+                      <input value={labelOf(modifier.name_i18n, "zh-CN")} onChange={(event) => updateModifier(groupIndex, modifierIndex, { name_i18n: { ...modifier.name_i18n, "zh-CN": event.target.value } })} placeholder={t(locale, "小料名称", "Modifier name")} />
                       <input value={labelOf(modifier.name_i18n, "en-GB")} onChange={(event) => updateModifier(groupIndex, modifierIndex, { name_i18n: { ...modifier.name_i18n, "en-GB": event.target.value } })} placeholder="English" />
-                      <input type="number" step="0.01" value={modifier.price_delta} onChange={(event) => updateModifier(groupIndex, modifierIndex, { price_delta: Number(event.target.value) })} placeholder="加价" />
+                      <input type="number" step="0.01" value={modifier.price_delta} onChange={(event) => updateModifier(groupIndex, modifierIndex, { price_delta: Number(event.target.value) })} placeholder={t(locale, "加价", "Price delta")} />
                       <label className="preset-default-toggle"><input type="checkbox" checked={modifier.default_selected === true} onChange={(event) => {
                         const checked = event.target.checked;
                         if (checked && Number(group.max_select) === 1) {
@@ -1464,20 +1541,20 @@ function OptionPresetCard({ preset, expanded, onToggle, onSaved, onNotify }) {
                         } else {
                           updateModifier(groupIndex, modifierIndex, { default_selected: checked });
                         }
-                      }} />默认</label>
+                      }} />{t(locale, "默认", "Default")}</label>
                       <button type="button" onClick={() => updateRow(groupIndex, { modifiers: group.modifiers.filter((_modifier, index) => index !== modifierIndex) })}><Trash2 size={14} /></button>
                     </div>
                   ))}
-                  <button type="button" className="option-preset-add child-add" onClick={() => addModifier(groupIndex)}><Plus size={14} />添加小料</button>
+                  <button type="button" className="option-preset-add child-add" onClick={() => addModifier(groupIndex)}><Plus size={14} />{t(locale, "添加小料", "Add modifier")}</button>
                 </div>
               ))}
-              {!payload.length && <button type="button" className="option-preset-add" onClick={addGroup}><Plus size={14} />添加加料组模板</button>}
+              {!payload.length && <button type="button" className="option-preset-add" onClick={addGroup}><Plus size={14} />{t(locale, "添加加料组模板", "Add modifier group template")}</button>}
             </div>
           )}
           {error && <div className="inline-error">{error}</div>}
           <div className="option-preset-actions">
-            <button className="primary" type="button" onClick={save} disabled={busy}><Save size={14} />保存预设</button>
-            <button className="danger" type="button" onClick={remove}><Trash2 size={14} />删除预设</button>
+            <button className="primary" type="button" onClick={save} disabled={busy}><Save size={14} />{t(locale, "保存预设", "Save preset")}</button>
+            <button className="danger" type="button" onClick={remove}><Trash2 size={14} />{t(locale, "删除预设", "Delete preset")}</button>
           </div>
         </div>
       )}
@@ -1509,16 +1586,16 @@ function CategoryEditor({ category, locale, onSaved }) {
 
   return (
     <div className="cat-editor-panel">
-      <p className="muted cat-editor-title">编辑分类</p>
-      <label>中文<input value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => save({ zh: draft.zh })} /></label>
+      <p className="muted cat-editor-title">{t(locale, "编辑分类", "Edit category")}</p>
+      <label>{t(locale, "中文", "Chinese")}<input value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => save({ zh: draft.zh })} /></label>
       <label>English<input value={draft.en} onChange={(e) => setDraft({ ...draft, en: e.target.value })} onBlur={() => save({ en: draft.en })} /></label>
-      <label>排序<input type="number" value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} onBlur={() => save({ sort_order: draft.sort_order })} /></label>
-      <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); save({ active: v }); }} />启用</label>
+      <label>{t(locale, "排序", "Sort")}<input type="number" value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} onBlur={() => save({ sort_order: draft.sort_order })} /></label>
+      <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); save({ active: v }); }} />{t(locale, "启用", "Enabled")}</label>
     </div>
   );
 }
 
-function NotePresetsAdmin({ presets, onSaved }) {
+function NotePresetsAdmin({ presets, locale, onSaved }) {
   const [showForm, setShowForm] = useState(false);
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1578,7 +1655,7 @@ function NotePresetsAdmin({ presets, onSaved }) {
   }
 
   async function destroyPreset(preset) {
-    if (!window.confirm(`删除备注词条"${preset.label}"？`)) return;
+    if (!window.confirm(t(locale, `删除备注词条"${preset.label}"？`, `Delete note preset "${preset.label}"?`))) return;
     try {
       await api(`/note-presets/${preset.id}`, { method: "DELETE" });
       await onSaved();
@@ -1590,31 +1667,31 @@ function NotePresetsAdmin({ presets, onSaved }) {
   return (
     <div className="cat-editor-panel" style={{ marginTop: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <p className="muted cat-editor-title" style={{ margin: 0 }}>备注词条管理</p>
-        <button type="button" title="新建词条" onClick={() => setShowForm((v) => !v)}>
+        <p className="muted cat-editor-title" style={{ margin: 0 }}>{t(locale, "备注词条管理", "Note presets")}</p>
+        <button type="button" title={t(locale, "新建词条", "New note")} onClick={() => setShowForm((v) => !v)}>
           <Plus size={14} />
         </button>
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-        点菜时可一键加到菜品备注，仅在厨房打印单上显示。
+        {t(locale, "点菜时可一键加到菜品备注，仅在厨房打印单上显示。", "Add to item notes with one click; shown only on kitchen tickets.")}
       </p>
       {showForm && (
         <form onSubmit={addPreset} style={{ display: "grid", gap: 6, marginBottom: 8 }}>
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="例如：白人辣、去葱"
+            placeholder={t(locale, "例如：白人辣、去葱", "For example: mild, no scallions")}
             autoFocus
             required
           />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="primary" type="submit" disabled={busy}>保存</button>
-            <button type="button" onClick={() => { setShowForm(false); setLabel(""); setError(""); }}>取消</button>
+            <button className="primary" type="submit" disabled={busy}>{t(locale, "保存", "Save")}</button>
+            <button type="button" onClick={() => { setShowForm(false); setLabel(""); setError(""); }}>{t(locale, "取消", "Cancel")}</button>
           </div>
           {error && <div className="inline-error">{error}</div>}
         </form>
       )}
-      {!presets.length && <div className="empty" style={{ padding: "8px 0" }}>暂无词条</div>}
+      {!presets.length && <div className="empty" style={{ padding: "8px 0" }}>{t(locale, "暂无词条", "No notes")}</div>}
       {presets.map((preset, index) => (
         <div
           key={preset.id}
@@ -1622,26 +1699,26 @@ function NotePresetsAdmin({ presets, onSaved }) {
           style={{ paddingRight: 6 }}
         >
           <div className="cat-order-controls">
-            <button type="button" title="上移" disabled={busy || index === 0} onClick={() => movePreset(index, -1)}>
+            <button type="button" title={t(locale, "上移", "Move up")} disabled={busy || index === 0} onClick={() => movePreset(index, -1)}>
               <ChevronUp size={13} />
             </button>
-            <button type="button" title="下移" disabled={busy || index === presets.length - 1} onClick={() => movePreset(index, 1)}>
+            <button type="button" title={t(locale, "下移", "Move down")} disabled={busy || index === presets.length - 1} onClick={() => movePreset(index, 1)}>
               <ChevronDown size={13} />
             </button>
           </div>
           <button
             type="button"
             className="cat-select-btn"
-            title={preset.active ? "点击停用" : "点击启用"}
+            title={preset.active ? t(locale, "点击停用", "Click to disable") : t(locale, "点击启用", "Click to enable")}
             onClick={() => togglePreset(preset)}
           >
             <span>{preset.label}</span>
-            <span className="cat-count">{preset.active ? "启用" : "停用"}</span>
+            <span className="cat-count">{preset.active ? t(locale, "启用", "Enabled") : t(locale, "停用", "Disabled")}</span>
           </button>
           <button
             type="button"
             className="cat-delete-btn"
-            title="删除词条"
+            title={t(locale, "删除词条", "Delete note")}
             onClick={() => destroyPreset(preset)}
           >
             <Trash2 size={12} />
@@ -1652,7 +1729,7 @@ function NotePresetsAdmin({ presets, onSaved }) {
   );
 }
 
-function PresetControls({ item, kind, presets, currentPresetId, onSaved, onNotify }) {
+function PresetControls({ item, kind, presets, currentPresetId, locale, onSaved, onNotify }) {
   const available = presets.filter((preset) => preset.kind === kind && preset.active !== false);
   const [presetId, setPresetId] = useState(currentPresetId || "");
   const [busy, setBusy] = useState(false);
@@ -1665,7 +1742,7 @@ function PresetControls({ item, kind, presets, currentPresetId, onSaved, onNotif
   async function applyPreset() {
     if (!presetId) return;
     const preset = available.find((entry) => entry.id === presetId);
-    if (!window.confirm(`绑定“${preset?.name || "该预设"}”并替换当前${kind === "variants" ? "规格" : "加料小项"}？以后修改该预设时，此产品会自动同步。`)) return;
+    if (!window.confirm(t(locale, `绑定“${preset?.name || "该预设"}”并替换当前${kind === "variants" ? "规格" : "加料小项"}？以后修改该预设时，此产品会自动同步。`, `Bind "${preset?.name || "this preset"}" and replace the current ${kind === "variants" ? "options" : "extras"}? Future preset edits will sync to this item.`))) return;
     setBusy(true);
     try {
       await api(`/menu/items/${item.id}/apply-option-preset`, {
@@ -1673,7 +1750,7 @@ function PresetControls({ item, kind, presets, currentPresetId, onSaved, onNotif
         body: JSON.stringify({ preset_id: presetId, replace: true })
       });
       await onSaved();
-      onNotify(`已绑定预设“${preset?.name}”`);
+      onNotify(t(locale, `已绑定预设“${preset?.name}”`, `Bound preset "${preset?.name}"`));
     } catch (error) {
       onNotify(error.message);
     } finally {
@@ -1682,7 +1759,7 @@ function PresetControls({ item, kind, presets, currentPresetId, onSaved, onNotif
   }
 
   async function saveAsPreset() {
-    const name = window.prompt(`为当前${kind === "variants" ? "产品规格" : "加料小项"}输入新预设名称：`);
+    const name = window.prompt(t(locale, `为当前${kind === "variants" ? "产品规格" : "加料小项"}输入新预设名称：`, `Enter a new preset name for the current ${kind === "variants" ? "item options" : "extras"}:`));
     if (!name?.trim()) return;
     setBusy(true);
     try {
@@ -1691,7 +1768,7 @@ function PresetControls({ item, kind, presets, currentPresetId, onSaved, onNotif
         body: JSON.stringify({ name: name.trim(), kind })
       });
       await onSaved();
-      onNotify(`已保存并绑定新预设“${name.trim()}”`);
+      onNotify(t(locale, `已保存并绑定新预设“${name.trim()}”`, `Saved and bound new preset "${name.trim()}"`));
     } catch (error) {
       onNotify(error.message);
     } finally {
@@ -1701,21 +1778,21 @@ function PresetControls({ item, kind, presets, currentPresetId, onSaved, onNotif
 
   return (
     <div className="item-preset-controls">
-      <span className="preset-control-label">预设</span>
+      <span className="preset-control-label">{t(locale, "预设", "Preset")}</span>
       <select value={presetId} onChange={(event) => setPresetId(event.target.value)} disabled={busy || !available.length}>
-        <option value="">{available.length ? "选择要绑定的预设" : "暂无预设"}</option>
+        <option value="">{available.length ? t(locale, "选择要绑定的预设", "Select a preset to bind") : t(locale, "暂无预设", "No presets")}</option>
         {available.map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
       </select>
-      <button type="button" onClick={applyPreset} disabled={busy || !presetId}>绑定预设</button>
-      <button type="button" onClick={saveAsPreset} disabled={busy}>保存当前为预设</button>
+      <button type="button" onClick={applyPreset} disabled={busy || !presetId}>{t(locale, "绑定预设", "Bind preset")}</button>
+      <button type="button" onClick={saveAsPreset} disabled={busy}>{t(locale, "保存当前为预设", "Save current as preset")}</button>
       <span className={`preset-binding-status${boundPreset ? " bound" : " detached"}`}>
-        {boundPreset ? `已绑定：${boundPreset.name}` : "独立配置"}
+        {boundPreset ? t(locale, `已绑定：${boundPreset.name}`, `Bound: ${boundPreset.name}`) : t(locale, "独立配置", "Standalone configuration")}
       </span>
     </div>
   );
 }
 
-function ModifierGroupPresetControls({ group, presets, onSaved, onNotify }) {
+function ModifierGroupPresetControls({ group, presets, locale, onSaved, onNotify }) {
   const available = presets.filter((preset) => preset.kind === "modifiers" && preset.active !== false && (preset.payload || []).length === 1);
   const [presetId, setPresetId] = useState(group.preset_id || "");
   const [busy, setBusy] = useState(false);
@@ -1726,7 +1803,7 @@ function ModifierGroupPresetControls({ group, presets, onSaved, onNotify }) {
   async function applyPreset() {
     if (!presetId) return;
     const preset = available.find((entry) => entry.id === presetId);
-    if (!window.confirm(`将加料组“${labelOf(group.name_i18n, "zh-CN")}”绑定到“${preset?.name}”？当前组设置和选项会被替换。`)) return;
+    if (!window.confirm(t(locale, `将加料组“${labelOf(group.name_i18n, "zh-CN")}”绑定到“${preset?.name}”？当前组设置和选项会被替换。`, `Bind modifier group "${labelOf(group.name_i18n, locale)}" to "${preset?.name}"? The current group settings and options will be replaced.`))) return;
     setBusy(true);
     try {
       await api(`/menu/modifier-groups/${group.id}/apply-option-preset`, {
@@ -1734,7 +1811,7 @@ function ModifierGroupPresetControls({ group, presets, onSaved, onNotify }) {
         body: JSON.stringify({ preset_id: presetId })
       });
       await onSaved();
-      onNotify(`加料组已绑定预设“${preset?.name}”`);
+      onNotify(t(locale, `加料组已绑定预设“${preset?.name}”`, `Modifier group bound to preset "${preset?.name}"`));
     } catch (error) {
       onNotify(error.message);
     } finally {
@@ -1743,7 +1820,7 @@ function ModifierGroupPresetControls({ group, presets, onSaved, onNotify }) {
   }
 
   async function saveAsPreset() {
-    const name = window.prompt("为当前加料组输入新预设名称：");
+    const name = window.prompt(t(locale, "为当前加料组输入新预设名称：", "Enter a new preset name for the current modifier group:"));
     if (!name?.trim()) return;
     setBusy(true);
     try {
@@ -1752,7 +1829,7 @@ function ModifierGroupPresetControls({ group, presets, onSaved, onNotify }) {
         body: JSON.stringify({ name: name.trim() })
       });
       await onSaved();
-      onNotify(`已保存并绑定新预设“${name.trim()}”`);
+      onNotify(t(locale, `已保存并绑定新预设“${name.trim()}”`, `Saved and bound new preset "${name.trim()}"`));
     } catch (error) {
       onNotify(error.message);
     } finally {
@@ -1762,15 +1839,15 @@ function ModifierGroupPresetControls({ group, presets, onSaved, onNotify }) {
 
   return (
     <div className="item-preset-controls modifier-group-preset-controls">
-      <span className="preset-control-label">组预设</span>
+      <span className="preset-control-label">{t(locale, "组预设", "Group preset")}</span>
       <select value={presetId} onChange={(event) => setPresetId(event.target.value)} disabled={busy || !available.length}>
-        <option value="">{available.length ? "选择预设" : "暂无组预设"}</option>
+        <option value="">{available.length ? t(locale, "选择预设", "Select a preset") : t(locale, "暂无组预设", "No group presets")}</option>
         {available.map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
       </select>
-      <button type="button" onClick={applyPreset} disabled={busy || !presetId}>绑定</button>
-      <button type="button" onClick={saveAsPreset} disabled={busy}>保存为预设</button>
+      <button type="button" onClick={applyPreset} disabled={busy || !presetId}>{t(locale, "绑定", "Bind")}</button>
+      <button type="button" onClick={saveAsPreset} disabled={busy}>{t(locale, "保存为预设", "Save as preset")}</button>
       <span className={`preset-binding-status${boundPreset ? " bound" : " detached"}`}>
-        {boundPreset ? `已绑定：${boundPreset.name}` : "独立配置"}
+        {boundPreset ? t(locale, `已绑定：${boundPreset.name}`, `Bound: ${boundPreset.name}`) : t(locale, "独立配置", "Standalone configuration")}
       </span>
     </div>
   );
@@ -1786,7 +1863,7 @@ function MenuItemEditor({ item, categories, optionPresets, locale, currency, onS
     active: item.active
   });
   const [variantDraft, setVariantDraft] = useState({ zh: "", en: "", price: "0" });
-  const [groupDraft, setGroupDraft] = useState({ zh: "加料", en: "Extras", min: 0, max: 1 });
+  const [groupDraft, setGroupDraft] = useState({ zh: t(locale, "加料", "Extras"), en: "Extras", min: 0, max: 1 });
 
   const saveItem = useCallback(async (overrides = {}) => {
     const data = { ...draft, ...overrides };
@@ -1855,19 +1932,19 @@ function MenuItemEditor({ item, categories, optionPresets, locale, currency, onS
   return (
     <div className={`menu-editor${item.active ? "" : " inactive"}`}>
       <div className="inline-editor item-main-editor">
-        <label>中文<input value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => autoSave("zh", draft.zh)} /></label>
+        <label>{t(locale, "中文", "Chinese")}<input value={draft.zh} onChange={(e) => setDraft({ ...draft, zh: e.target.value })} onBlur={() => autoSave("zh", draft.zh)} /></label>
         <label>English<input value={draft.en} onChange={(e) => setDraft({ ...draft, en: e.target.value })} onBlur={() => autoSave("en", draft.en)} /></label>
-        <label>分类<select value={draft.category_id || ""} onChange={(e) => { const v = e.target.value; setDraft({ ...draft, category_id: v }); saveItem({ category_id: v }); }}>
+        <label>{t(locale, "分类", "Category")}<select value={draft.category_id || ""} onChange={(e) => { const v = e.target.value; setDraft({ ...draft, category_id: v }); saveItem({ category_id: v }); }}>
           {categories.map((category) => <option key={category.id} value={category.id}>{labelOf(category.name_i18n, locale)}</option>)}
         </select></label>
-        <label>厨房分组<input value={draft.kitchen_group} onChange={(e) => setDraft({ ...draft, kitchen_group: e.target.value })} onBlur={() => autoSave("kitchen_group", draft.kitchen_group)} /></label>
-        <label>排序<input type="number" value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} onBlur={() => autoSave("sort_order", draft.sort_order)} /></label>
-        <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); saveItem({ active: v }); }} />上架</label>
+        <label>{t(locale, "厨房分组", "Kitchen group")}<input value={draft.kitchen_group} onChange={(e) => setDraft({ ...draft, kitchen_group: e.target.value })} onBlur={() => autoSave("kitchen_group", draft.kitchen_group)} /></label>
+        <label>{t(locale, "排序", "Sort")}<input type="number" value={draft.sort_order} onChange={(e) => setDraft({ ...draft, sort_order: e.target.value })} onBlur={() => autoSave("sort_order", draft.sort_order)} /></label>
+        <label className="checkbox"><input type="checkbox" checked={draft.active} onChange={(e) => { const v = e.target.checked; setDraft({ ...draft, active: v }); saveItem({ active: v }); }} />{t(locale, "上架", "Active")}</label>
         <button className="action-toggle" type="button" onClick={onToggleActive} disabled={Boolean(itemAction)}>
-          <Power size={16} /><span>{itemAction === "toggle" ? "处理中…" : item.active ? "停用产品" : "启用产品"}</span>
+          <Power size={16} /><span>{itemAction === "toggle" ? t(locale, "处理中…", "Working…") : item.active ? t(locale, "停用产品", "Disable item") : t(locale, "启用产品", "Enable item")}</span>
         </button>
         {!item.active && onDestroy && (
-          <button type="button" className="action-delete" onClick={onDestroy} disabled={Boolean(itemAction)}><Trash2 size={16} /><span>{itemAction === "destroy" ? "删除中…" : "永久删除"}</span></button>
+          <button type="button" className="action-delete" onClick={onDestroy} disabled={Boolean(itemAction)}><Trash2 size={16} /><span>{itemAction === "destroy" ? t(locale, "删除中…", "Deleting…") : t(locale, "永久删除", "Delete permanently")}</span></button>
         )}
       </div>
 
@@ -1881,21 +1958,21 @@ function MenuItemEditor({ item, categories, optionPresets, locale, currency, onS
             </div>
           </div>
           <div className="section-preset-bar">
-            <PresetControls item={item} kind="variants" presets={optionPresets} currentPresetId={item.variant_preset_id} onSaved={onSaved} onNotify={onNotify} />
+            <PresetControls item={item} kind="variants" presets={optionPresets} currentPresetId={item.variant_preset_id} locale={locale} onSaved={onSaved} onNotify={onNotify} />
           </div>
         </div>
         <div className="item-sub-list">
-          {!item.variants.length && <div className="editor-empty-state">还没有规格，请在下方添加，或直接应用一个规格预设。</div>}
+          {!item.variants.length && <div className="editor-empty-state">{t(locale, "还没有规格，请在下方添加，或直接应用一个规格预设。", "No options yet. Add one below or apply an option preset.")}</div>}
           {item.variants.map((variant, index) => (
             <VariantEditor key={variant.id} index={index} item={item} variant={variant} locale={locale} currency={currency} onSaved={onSaved} onNotify={onNotify} wasPresetBound={Boolean(item.variant_preset_id)} onMove={moveVariant} total={item.variants.length} />
           ))}
         </div>
         <form className="item-sub-add" onSubmit={addVariant}>
-          <span className="sub-add-label">新规格</span>
-          <input className="sub-field" placeholder="规格名" value={variantDraft.zh} onChange={(event) => setVariantDraft({ ...variantDraft, zh: event.target.value })} required />
+          <span className="sub-add-label">{t(locale, "新规格", "New option")}</span>
+          <input className="sub-field" placeholder={t(locale, "规格名", "Option name")} value={variantDraft.zh} onChange={(event) => setVariantDraft({ ...variantDraft, zh: event.target.value })} required />
           <input className="sub-field" placeholder="English" value={variantDraft.en} onChange={(event) => setVariantDraft({ ...variantDraft, en: event.target.value })} />
-          <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="价格" value={variantDraft.price} onChange={(event) => setVariantDraft({ ...variantDraft, price: event.target.value })} />
-          <button type="submit"><Plus size={14} /><span>添加规格</span></button>
+          <input className="sub-field sub-field-price" type="number" step="0.01" placeholder={t(locale, "价格", "Price")} value={variantDraft.price} onChange={(event) => setVariantDraft({ ...variantDraft, price: event.target.value })} />
+          <button type="submit"><Plus size={14} /><span>{t(locale, "添加规格", "Add option")}</span></button>
         </form>
       </div>
 
@@ -1904,25 +1981,25 @@ function MenuItemEditor({ item, categories, optionPresets, locale, currency, onS
           <div className="editor-subsection-heading-copy">
             <span className="editor-section-step">2</span>
             <div>
-              <h3>加料与小项 <span className="editor-section-count">{item.modifier_groups.length} 组</span></h3>
-              <p>先建立分组，再在组内配置顾客可以选择的加料选项</p>
+              <h3>{t(locale, "加料与小项", "Extras & modifiers")} <span className="editor-section-count">{item.modifier_groups.length} {t(locale, "组", "groups")}</span></h3>
+              <p>{t(locale, "先建立分组，再在组内配置顾客可以选择的加料选项", "Create groups first, then configure the add-ons customers can choose")}</p>
             </div>
           </div>
         </div>
         <div className="modifier-groups-list">
-        {!item.modifier_groups.length && <div className="editor-empty-state">还没有加料组，请先创建分组，再向组内添加选项。</div>}
+        {!item.modifier_groups.length && <div className="editor-empty-state">{t(locale, "还没有加料组，请先创建分组，再向组内添加选项。", "No modifier groups yet. Create a group first, then add options.")}</div>}
         {item.modifier_groups.map((group, index) => (
           <ModifierGroupEditor key={group.id} index={index} group={group} presets={optionPresets} locale={locale} currency={currency} onSaved={onSaved} onNotify={onNotify} wasPresetBound={Boolean(group.preset_id || item.modifier_preset_id)} />
         ))}
         </div>
         <form className="item-sub-add" onSubmit={addGroup}>
-          <span className="sub-add-label">新加料组</span>
-          <input className="sub-field" placeholder="组名" value={groupDraft.zh} onChange={(event) => setGroupDraft({ ...groupDraft, zh: event.target.value })} />
+          <span className="sub-add-label">{t(locale, "新加料组", "New modifier group")}</span>
+          <input className="sub-field" placeholder={t(locale, "组名", "Group name")} value={groupDraft.zh} onChange={(event) => setGroupDraft({ ...groupDraft, zh: event.target.value })} />
           <input className="sub-field" placeholder="English" value={groupDraft.en} onChange={(event) => setGroupDraft({ ...groupDraft, en: event.target.value })} />
-          <label className="sub-num-label">最少<input className="sub-field sub-field-num" type="number" min="0" value={groupDraft.min} onChange={(event) => setGroupDraft({ ...groupDraft, min: event.target.value })} /></label>
-          <label className="sub-num-label">最多<input className="sub-field sub-field-num" type="number" min="1" value={groupDraft.max} onChange={(event) => setGroupDraft({ ...groupDraft, max: event.target.value })} /></label>
-          <label className="checkbox group-required-toggle"><input type="checkbox" checked={Number(groupDraft.min) > 0} onChange={(event) => setGroupDraft({ ...groupDraft, min: event.target.checked ? Math.max(1, Number(groupDraft.min || 0)) : 0 })} />必选组</label>
-          <button type="submit"><Plus size={14} /><span>添加小项组</span></button>
+          <label className="sub-num-label">{t(locale, "最少", "Min")}<input className="sub-field sub-field-num" type="number" min="0" value={groupDraft.min} onChange={(event) => setGroupDraft({ ...groupDraft, min: event.target.value })} /></label>
+          <label className="sub-num-label">{t(locale, "最多", "Max")}<input className="sub-field sub-field-num" type="number" min="1" value={groupDraft.max} onChange={(event) => setGroupDraft({ ...groupDraft, max: event.target.value })} /></label>
+          <label className="checkbox group-required-toggle"><input type="checkbox" checked={Number(groupDraft.min) > 0} onChange={(event) => setGroupDraft({ ...groupDraft, min: event.target.checked ? Math.max(1, Number(groupDraft.min || 0)) : 0 })} />{t(locale, "必选组", "Required")}</label>
+          <button type="submit"><Plus size={14} /><span>{t(locale, "添加小项组", "Add modifier group")}</span></button>
         </form>
       </div>
     </div>
@@ -1983,9 +2060,9 @@ function VariantEditor({ item, variant, index, locale, currency, onSaved, onNoti
       <input className="sub-field sub-field-name" placeholder="English" value={draft.en} onChange={(e) => setDraft({ ...draft, en: e.target.value })} onBlur={() => save({ en: draft.en })} />
       <input className="sub-field sub-field-price" type="number" step="0.01" placeholder="价格" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} onBlur={() => save({ price: draft.price })} />
       <span className="sub-price-display muted">{money(draft.price, currency, locale)}</span>
-      <button className="action-save" type="button" disabled={Boolean(action)} onClick={() => runVariantAction("save", () => save({}, false), "规格已保存")}><Save size={14} /><span>{action === "save" ? "保存中…" : "保存"}</span></button>
-      <button className="action-toggle" type="button" disabled={Boolean(action)} onClick={() => runVariantAction("toggle", () => save({ active: !draft.active }, false), draft.active ? "规格已停用" : "规格已启用")}><Power size={14} /><span>{action === "toggle" ? "处理中…" : draft.active ? "停用" : "启用"}</span></button>
-      <button className="action-delete" type="button" disabled={Boolean(action)} onClick={destroyVariant}><Trash2 size={14} /><span>{action === "destroy" ? "删除中…" : "删除"}</span></button>
+      <button className="action-save" type="button" disabled={Boolean(action)} onClick={() => runVariantAction("save", () => save({}, false), t(locale, "规格已保存", "Option saved"))}><Save size={14} /><span>{action === "save" ? t(locale, "保存中…", "Saving…") : t(locale, "保存", "Save")}</span></button>
+      <button className="action-toggle" type="button" disabled={Boolean(action)} onClick={() => runVariantAction("toggle", () => save({ active: !draft.active }, false), draft.active ? t(locale, "规格已停用", "Option disabled") : t(locale, "规格已启用", "Option enabled"))}><Power size={14} /><span>{action === "toggle" ? t(locale, "处理中…", "Working…") : draft.active ? t(locale, "停用", "Disable") : t(locale, "启用", "Enable")}</span></button>
+      <button className="action-delete" type="button" disabled={Boolean(action)} onClick={destroyVariant}><Trash2 size={14} /><span>{action === "destroy" ? t(locale, "删除中…", "Deleting…") : t(locale, "删除", "Delete")}</span></button>
     </div>
   );
 }
@@ -2084,7 +2161,7 @@ function ModifierGroupEditor({ group, index, presets, locale, currency, onSaved,
           <span className="modifier-group-name">{draft.zh || "未命名加料组"}</span>
           <span className="modifier-group-rule">{Number(draft.min_select) > 0 ? "必选" : "可选"} · {Number(draft.max_select) === 1 ? "单选" : `最多 ${draft.max_select} 项`} · {group.modifiers.length} 个选项</span>
         </button>
-        <ModifierGroupPresetControls group={group} presets={presets} onSaved={onSaved} onNotify={onNotify} />
+        <ModifierGroupPresetControls group={group} presets={presets} locale={locale} onSaved={onSaved} onNotify={onNotify} />
         <div className="item-sub-group-actions">
           <button className="action-save" type="button" disabled={Boolean(action)} onClick={() => runGroupAction("save", () => saveGroup(false), "加料组已保存")}><Save size={14} /><span>{action === "save" ? "保存中…" : "保存组"}</span></button>
           <button className="action-toggle" type="button" disabled={Boolean(action)} onClick={() => runGroupAction("toggle", () => saveGroup(false, { active: !draft.active }), draft.active ? "加料组已停用" : "加料组已启用")}><Power size={14} /><span>{action === "toggle" ? "处理中…" : draft.active ? "停用" : "启用"}</span></button>
@@ -2239,12 +2316,12 @@ function Dashboard({ dashboard, auditLogs, locale, currency }) {
   return (
     <div className="dashboard">
       {[
-        ["营业额", "revenue"],
-        ["折扣", "discount"],
-        ["净销售额", "net_sales"],
+        [t(locale, "营业额", "Revenue"), "revenue"],
+        [t(locale, "折扣", "Discount"), "discount"],
+        [t(locale, "净销售额", "Net sales"), "net_sales"],
         ["Tax", "tax"],
-        ["服务费", "service_charge"],
-        ["客单价", "average_ticket"]
+        [t(locale, "服务费", "Service charge"), "service_charge"],
+        [t(locale, "客单价", "Average ticket"), "average_ticket"]
       ].map(([label, key]) => {
         const value = summary[key];
         const currNum = Number(value || 0);
@@ -2257,18 +2334,18 @@ function Dashboard({ dashboard, auditLogs, locale, currency }) {
             {delta != null && (
               <span className={`reports-delta ${delta >= 0 ? "up" : "down"}`}>
                 {delta >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-                {delta >= 0 ? "+" : ""}{delta}% <small className="muted">较昨日</small>
+                {delta >= 0 ? "+" : ""}{delta}% <small className="muted">{t(locale, "较昨日", "vs yesterday")}</small>
               </span>
             )}
             {delta == null && prevNum === 0 && currNum > 0 && (
               <span className="reports-delta up">
                 <TrendingUp size={13} />
-                新增 <small className="muted">较昨日</small>
+                {t(locale, "新增", "New")} <small className="muted">{t(locale, "较昨日", "vs yesterday")}</small>
               </span>
             )}
             {delta == null && prevNum === 0 && currNum === 0 && (
               <span className="reports-delta flat">
-                持平 <small className="muted">较昨日</small>
+                {t(locale, "持平", "Flat")} <small className="muted">{t(locale, "较昨日", "vs yesterday")}</small>
               </span>
             )}
           </section>
@@ -2276,15 +2353,15 @@ function Dashboard({ dashboard, auditLogs, locale, currency }) {
       })}
       <section className="wide-list dashboard-list report-hot-items">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>热销菜品</h2>
-          <small className="muted">顶部为今日热销</small>
+          <h2 style={{ margin: 0 }}>{t(locale, "热销菜品", "Top items")}</h2>
+          <small className="muted">{t(locale, "顶部为今日热销", "Top items for today")}</small>
         </div>
         <div className="hot-items-grid" style={{ marginTop: 10 }}>
           {(dashboard?.hotItems || []).map((item) => (
             <div className="hot-item-card" key={labelOf(item.name_i18n, locale)}>
               <strong style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#000' }}>{labelOf(item.name_i18n, locale)}</strong>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                <span className="muted">销量 {item.quantity}</span>
+                <span className="muted">{t(locale, "销量", "Qty")} {item.quantity}</span>
                 <strong style={{ fontSize: 14, color: '#000' }}>{money(item.sales, currency, locale)}</strong>
               </div>
             </div>
@@ -2293,29 +2370,29 @@ function Dashboard({ dashboard, auditLogs, locale, currency }) {
       </section>
       <section className="wide-list dashboard-list">
         <div className="audit-log-head">
-          <div><h2>审计日志</h2><span>{filteredAuditLogs.length} 条</span></div>
+          <div><h2>{t(locale, "审计日志", "Audit log")}</h2><span>{filteredAuditLogs.length} {t(locale, "条", "entries")}</span></div>
           <div className="audit-log-filters">
-            <label>时间<select value={auditTimeFilter} onChange={(event) => { setAuditTimeFilter(event.target.value); setAuditCollapsed(true); }}>
-              <option value="all">全部时间</option>
-              <option value="today">今天</option>
-              <option value="yesterday">昨天</option>
-              <option value="7d">近 7 天</option>
-              <option value="30d">近 30 天</option>
-              <option value="custom">自定义范围</option>
+            <label>{t(locale, "时间", "Time")}<select value={auditTimeFilter} onChange={(event) => { setAuditTimeFilter(event.target.value); setAuditCollapsed(true); }}>
+              <option value="all">{t(locale, "全部时间", "All time")}</option>
+              <option value="today">{t(locale, "今天", "Today")}</option>
+              <option value="yesterday">{t(locale, "昨天", "Yesterday")}</option>
+              <option value="7d">{t(locale, "近 7 天", "Last 7 days")}</option>
+              <option value="30d">{t(locale, "近 30 天", "Last 30 days")}</option>
+              <option value="custom">{t(locale, "自定义范围", "Custom range")}</option>
             </select></label>
             {auditTimeFilter === "custom" && <>
-              <label>开始时间<input type="datetime-local" value={auditFrom} max={auditTo || undefined} onChange={(event) => { setAuditFrom(event.target.value); setAuditCollapsed(true); }} /></label>
-              <label>结束时间<input type="datetime-local" value={auditTo} min={auditFrom || undefined} onChange={(event) => { setAuditTo(event.target.value); setAuditCollapsed(true); }} /></label>
+              <label>{t(locale, "开始时间", "From")}<input type="datetime-local" value={auditFrom} max={auditTo || undefined} onChange={(event) => { setAuditFrom(event.target.value); setAuditCollapsed(true); }} /></label>
+              <label>{t(locale, "结束时间", "To")}<input type="datetime-local" value={auditTo} min={auditFrom || undefined} onChange={(event) => { setAuditTo(event.target.value); setAuditCollapsed(true); }} /></label>
             </>}
-            <label>用户<select value={auditUserFilter} onChange={(event) => { setAuditUserFilter(event.target.value); setAuditCollapsed(true); }}>
-              <option value="all">全部用户</option>
+            <label>{t(locale, "用户", "User")}<select value={auditUserFilter} onChange={(event) => { setAuditUserFilter(event.target.value); setAuditCollapsed(true); }}>
+              <option value="all">{t(locale, "全部用户", "All users")}</option>
               {auditUsers.map(([id, name]) => <option value={id} key={id}>{name}</option>)}
             </select></label>
-            <label>具体操作<select className="audit-action-select" value={auditActionFilter} onChange={(event) => { setAuditActionFilter(event.target.value); setAuditCollapsed(true); }}>
-              <option value="all">全部操作</option>
+            <label>{t(locale, "具体操作", "Action")}<select className="audit-action-select" value={auditActionFilter} onChange={(event) => { setAuditActionFilter(event.target.value); setAuditCollapsed(true); }}>
+              <option value="all">{t(locale, "全部操作", "All actions")}</option>
               {auditActions.map((action) => <option value={action} key={action}>{action}</option>)}
             </select></label>
-            {filteredAuditLogs.length > 6 && <button className="link-button" onClick={() => setAuditCollapsed((s) => !s)}>{auditCollapsed ? '显示更多' : '收起'}</button>}
+            {filteredAuditLogs.length > 6 && <button className="link-button" onClick={() => setAuditCollapsed((s) => !s)}>{auditCollapsed ? t(locale, "显示更多", "Show more") : t(locale, "收起", "Collapse")}</button>}
           </div>
         </div>
         {filteredAuditLogs.slice(0, auditCollapsed ? 6 : 100).map((log) => (
@@ -2326,7 +2403,7 @@ function Dashboard({ dashboard, auditLogs, locale, currency }) {
             <small>{new Date(log.created_at).toLocaleString(locale)}</small>
           </div>
         ))}
-        {!filteredAuditLogs.length && <div className="empty">当前筛选条件下暂无审计记录</div>}
+        {!filteredAuditLogs.length && <div className="empty">{t(locale, "当前筛选条件下暂无审计记录", "No audit logs for the current filters")}</div>}
       </section>
     </div>
   );
@@ -2464,7 +2541,7 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
   }, [from, to, selectedHotItemKeys]);
 
   const weekly = useMemo(() => groupByWeek(report?.byDay || [], locale), [report, locale]);
-  const weekdayBreakdown = useMemo(() => groupByWeekday(report?.byDay || []), [report]);
+  const weekdayBreakdown = useMemo(() => groupByWeekday(report?.byDay || [], locale), [report, locale]);
   const timeChartData = useMemo(
     () => buildTimeBucketSeries(report?.byTime || [], timeSlotInterval),
     [report, timeSlotInterval]
@@ -2472,7 +2549,7 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
   const maxWeekdayRevenue = Math.max(1, ...weekdayBreakdown.map((d) => d.revenue));
   const busiestWeekday = weekdayBreakdown.reduce((best, d) => (d.revenue > (best?.revenue ?? -1) ? d : best), null);
 
-  const compareLabel = compareMode === "yoy" ? "同比 (去年同期)" : compareMode === "mom" ? "环比 (上一周期)" : "";
+  const compareLabel = compareMode === "yoy" ? t(locale, "同比 (去年同期)", "YoY (same period last year)") : compareMode === "mom" ? t(locale, "环比 (上一周期)", "MoM (previous period)") : "";
 
   const dineInOrders = Number(report?.summary?.dine_in_orders || 0);
   const takeawayOrders = Number(report?.summary?.takeaway_orders || 0);
@@ -2486,43 +2563,43 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
   const revenueDelta = comparisonReport ? pctDelta(report.summary.revenue, comparisonReport.summary.revenue) : null;
   const ordersDelta = comparisonReport ? pctDelta(report.summary.orders, comparisonReport.summary.orders) : null;
   const alertItems = [
-    revenueDelta != null && revenueDelta < -10 ? `营业额较${compareLabel}下降 ${Math.abs(revenueDelta)}%` : null,
-    ordersDelta != null && ordersDelta < -10 ? `订单数较${compareLabel}下降 ${Math.abs(ordersDelta)}%` : null,
-    peakSlot ? `峰值时段：${peakSlot.slot}，营业额 ${money(peakSlot.revenue, currency, locale)}` : null
+    revenueDelta != null && revenueDelta < -10 ? t(locale, `营业额较${compareLabel}下降 ${Math.abs(revenueDelta)}%`, `Revenue down ${Math.abs(revenueDelta)}% vs ${compareLabel}`) : null,
+    ordersDelta != null && ordersDelta < -10 ? t(locale, `订单数较${compareLabel}下降 ${Math.abs(ordersDelta)}%`, `Orders down ${Math.abs(ordersDelta)}% vs ${compareLabel}`) : null,
+    peakSlot ? t(locale, `峰值时段：${peakSlot.slot}，营业额 ${money(peakSlot.revenue, currency, locale)}`, `Peak slot: ${peakSlot.slot}, revenue ${money(peakSlot.revenue, currency, locale)}`) : null
   ].filter(Boolean);
 
   const summaryFields = [
-    ["营业额", "revenue"],
-    ["订单数", "orders"],
-    ["客单价", "average_ticket"],
-    ["净销售额", "net_sales"]
+    [t(locale, "营业额", "Revenue"), "revenue"],
+    [t(locale, "订单数", "Orders"), "orders"],
+    [t(locale, "客单价", "Average ticket"), "average_ticket"],
+    [t(locale, "净销售额", "Net sales"), "net_sales"]
   ];
 
   return (
     <div className="dashboard reports-analytics">
       <section className="panel dashboard-list reports-toolbar-panel">
-        <div className="panel-title"><h2>数据分析</h2></div>
+        <div className="panel-title"><h2>{t(locale, "数据分析", "Reports")}</h2></div>
         <div className="reports-preset-row">
           <div className="reports-preset-group">
-            <button type="button" className={preset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>今日</button>
-            <button type="button" className={preset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>近 7 天</button>
-            <button type="button" className={preset === "30d" ? "selected" : ""} onClick={() => applyPreset("30d")}>近 30 天</button>
-            <button type="button" className={preset === "month" ? "selected" : ""} onClick={() => applyPreset("month")}>本月</button>
+            <button type="button" className={preset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>{t(locale, "今日", "Today")}</button>
+            <button type="button" className={preset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>{t(locale, "近 7 天", "Last 7 days")}</button>
+            <button type="button" className={preset === "30d" ? "selected" : ""} onClick={() => applyPreset("30d")}>{t(locale, "近 30 天", "Last 30 days")}</button>
+            <button type="button" className={preset === "month" ? "selected" : ""} onClick={() => applyPreset("month")}>{t(locale, "本月", "This month")}</button>
           </div>
           <div className="reports-preset-group">
-            <button type="button" className={compareMode === "mom" ? "selected" : ""} onClick={() => onCompareModeChange("mom")}>环比</button>
-            <button type="button" className={compareMode === "yoy" ? "selected" : ""} onClick={() => onCompareModeChange("yoy")}>同比</button>
-            <button type="button" className={compareMode === "none" ? "selected" : ""} onClick={() => onCompareModeChange("none")}>不比较</button>
+            <button type="button" className={compareMode === "mom" ? "selected" : ""} onClick={() => onCompareModeChange("mom")}>{t(locale, "环比", "MoM")}</button>
+            <button type="button" className={compareMode === "yoy" ? "selected" : ""} onClick={() => onCompareModeChange("yoy")}>{t(locale, "同比", "YoY")}</button>
+            <button type="button" className={compareMode === "none" ? "selected" : ""} onClick={() => onCompareModeChange("none")}>{t(locale, "不比较", "No compare")}</button>
           </div>
         </div>
         <form className="report-toolbar" onSubmit={onSubmit}>
-          <label>开始日期<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPreset("custom"); }} /></label>
-          <label>结束日期<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPreset("custom"); }} /></label>
-          <button className="primary" type="submit" disabled={loading}><RefreshCw size={16} /><span>{loading ? "生成中…" : "生成报表"}</span></button>
-          <a className="link-button" href={exportUrl()}><FileDown size={16} /><span>导出 CSV</span></a>
+          <label>{t(locale, "开始日期", "From")}<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPreset("custom"); }} /></label>
+          <label>{t(locale, "结束日期", "To")}<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPreset("custom"); }} /></label>
+          <button className="primary" type="submit" disabled={loading}><RefreshCw size={16} /><span>{loading ? t(locale, "生成中…", "Generating…") : t(locale, "生成报表", "Generate report")}</span></button>
+          <a className="link-button" href={exportUrl()}><FileDown size={16} /><span>{t(locale, "导出 CSV", "Export CSV")}</span></a>
         </form>
         {comparisonRange && (
-          <small className="muted">对比区间：{comparisonRange[0]} ~ {comparisonRange[1]}（{compareLabel}）</small>
+          <small className="muted">{t(locale, "对比区间：", "Comparison range:")} {comparisonRange[0]} ~ {comparisonRange[1]}（{compareLabel}）</small>
         )}
       </section>
 
@@ -2556,29 +2633,29 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
 
           <section className="panel dashboard-list reports-insights-panel">
             <div className="panel-title split">
-              <h2>经营洞察 <small className="muted">Business Insights</small></h2>
-              <small className="muted">围绕结构、峰值和变化的摘要</small>
+              <h2>{t(locale, "经营洞察", "Business insights")} <small className="muted">Business Insights</small></h2>
+              <small className="muted">{t(locale, "围绕结构、峰值和变化的摘要", "Summary of structure, peaks, and changes")}</small>
             </div>
             <div className="reports-insight-grid">
               <article className="reports-insight-card">
-                <span>订单结构</span>
+                <span>{t(locale, "订单结构", "Order mix")}</span>
                 <strong>{dineInOrders} / {takeawayOrders}</strong>
-                <small>堂食 {Math.round((dineInOrders / serviceMixTotal) * 100)}% · 外带 {Math.round((takeawayOrders / serviceMixTotal) * 100)}%</small>
+                <small>{t(locale, "堂食", "Dine-in")} {Math.round((dineInOrders / serviceMixTotal) * 100)}% · {t(locale, "外带", "Takeaway")} {Math.round((takeawayOrders / serviceMixTotal) * 100)}%</small>
               </article>
               <article className="reports-insight-card">
-                <span>峰值日期</span>
+                <span>{t(locale, "峰值日期", "Peak day")}</span>
                 <strong>{peakDay ? new Date(peakDay.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" }) : "-"}</strong>
-                <small>{peakDay ? `${peakDay.orders} 单 · ${money(peakDay.revenue, currency, locale)}` : "暂无数据"}</small>
+                <small>{peakDay ? `${peakDay.orders} ${t(locale, "单", "orders")} · ${money(peakDay.revenue, currency, locale)}` : t(locale, "暂无数据", "No data")}</small>
               </article>
               <article className="reports-insight-card">
-                <span>峰值时段</span>
+                <span>{t(locale, "峰值时段", "Peak slot")}</span>
                 <strong>{peakSlot ? peakSlot.slot : "-"}</strong>
-                <small>{peakSlot ? `${peakSlot.orders} 单 · ${money(peakSlot.revenue, currency, locale)}` : "暂无数据"}</small>
+                <small>{peakSlot ? `${peakSlot.orders} ${t(locale, "单", "orders")} · ${money(peakSlot.revenue, currency, locale)}` : t(locale, "暂无数据", "No data")}</small>
               </article>
               <article className="reports-insight-card">
-                <span>日均单量</span>
+                <span>{t(locale, "日均单量", "Daily average orders")}</span>
                 <strong>{dailyAverageOrders ? dailyAverageOrders.toFixed(1) : "0.0"}</strong>
-                <small>按当前区间天数平均</small>
+                <small>{t(locale, "按当前区间天数平均", "Average across the selected range")}</small>
               </article>
             </div>
             {alertItems.length > 0 && (
@@ -2589,7 +2666,7 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
           </section>
 
           <section className="panel dashboard-list reports-weekly-panel">
-            <div className="panel-title"><h2>周度分析 <small className="muted">Weekly Breakdown</small></h2></div>
+            <div className="panel-title"><h2>{t(locale, "周度分析", "Weekly breakdown")} <small className="muted">Weekly Breakdown</small></h2></div>
             {weekly.length ? (
               <div className="reports-weekly-list">
                 {weekly.map((week, idx) => {
@@ -2598,7 +2675,7 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
                   return (
                     <div className="list-row reports-weekly-row" key={week.key}>
                       <span>{week.label}</span>
-                      <span>{week.orders} 单</span>
+                      <span>{week.orders} {t(locale, "单", "orders")}</span>
                       <strong>{money(week.revenue, currency, locale)}</strong>
                       {wow != null && (
                         <span className={`reports-delta ${wow >= 0 ? "up" : "down"}`}>
@@ -2610,14 +2687,14 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
                   );
                 })}
               </div>
-            ) : <div className="empty">无数据</div>}
+            ) : <div className="empty">{t(locale, "无数据", "No data")}</div>}
           </section>
 
           <section className="panel dashboard-list reports-weekday-panel">
             <div className="panel-title split">
-              <h2>星期分布 <small className="muted">Day-of-Week Comparison</small></h2>
+              <h2>{t(locale, "星期分布", "Day-of-week distribution")} <small className="muted">Day-of-Week Comparison</small></h2>
               {busiestWeekday && busiestWeekday.revenue > 0 && (
-                <small className="muted">最佳：{busiestWeekday.label}</small>
+                <small className="muted">{t(locale, "最佳：", "Best:")} {busiestWeekday.label}</small>
               )}
             </div>
             {report.byDay && report.byDay.length ? (
@@ -2631,25 +2708,25 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
                         style={{ width: `${maxWeekdayRevenue ? (d.revenue / maxWeekdayRevenue) * 100 : 0}%` }}
                       />
                     </span>
-                    <span className="reports-weekday-orders">{d.orders} 单</span>
+                    <span className="reports-weekday-orders">{d.orders} {t(locale, "单", "orders")}</span>
                     <strong className="reports-weekday-revenue">{money(d.revenue, currency, locale)}</strong>
                   </div>
                 ))}
               </div>
-            ) : <div className="empty">无数据</div>}
+            ) : <div className="empty">{t(locale, "无数据", "No data")}</div>}
           </section>
 
           <section className="panel report-hot-collection dashboard-list" style={{ marginTop: 0 }}>
             <div className="panel-title split">
-              <h3>该期间热销统计</h3>
-              <small className="muted">支持多选，点击可叠加/取消</small>
+              <h3>{t(locale, "该期间热销统计", "Top items this period")}</h3>
+              <small className="muted">{t(locale, "支持多选，点击可叠加/取消", "Multi-select to combine/cancel")}</small>
             </div>
             <div className="report-hot-collection-grid">
               <div className="panel report-hot-items-col">
                 <div className="panel-title split">
-                  <h4>热销菜品</h4>
+                  <h4>{t(locale, "热销菜品", "Top items")}</h4>
                   {selectedHotItemKeys.length > 0 && (
-                    <button type="button" className="link-button" onClick={() => setSelectedHotItemKeys([])}>清空选择</button>
+                    <button type="button" className="link-button" onClick={() => setSelectedHotItemKeys([])}>{t(locale, "清空选择", "Clear selection")}</button>
                   )}
                 </div>
                 <div className="report-hot-scroll">
@@ -2662,7 +2739,7 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
                         className={`list-row report-hot-item-button ${active ? "selected" : ""}`}
                         key={itemKey || `${labelOf(it.name_i18n, locale)}-${index}`}
                         aria-pressed={active}
-                        title={itemKey.startsWith("name:") ? "无商品 ID，按菜名查看趋势" : ""}
+                        title={itemKey.startsWith("name:") ? t(locale, "无商品 ID，按菜名查看趋势", "No item ID, using name fallback") : ""}
                         onClick={() => {
                           setSelectedHotItemKeys((current) => current.includes(itemKey)
                             ? current.filter((key) => key !== itemKey)
@@ -2674,50 +2751,50 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
                       </button>
                     );
                   })}
-                  {!hotItems.length && <div className="empty">无数据</div>}
+                  {!hotItems.length && <div className="empty">{t(locale, "无数据", "No data")}</div>}
                 </div>
               </div>
 
               <div className="panel report-hot-modifiers-col">
-                <div className="panel-title"><h4>热销小料</h4></div>
+                <div className="panel-title"><h4>{t(locale, "热销小料", "Top modifiers")}</h4></div>
                 {(report.hotModifiers || []).map((m) => (
                   <div className="list-row" key={m.id || m.name}>
                     <div className="hot-item-name">{m.label && typeof m.label === "object" ? labelOf(m.label, locale) : (m.label || m.name)}</div>
                     <div className="hot-item-stats"><span>{m.quantity || m.count || 0}</span><strong>{money(m.sales || 0, currency, locale)}</strong></div>
                   </div>
                 ))}
-                {!report.hotModifiers?.length && <div className="empty">无数据</div>}
+                {!report.hotModifiers?.length && <div className="empty">{t(locale, "无数据", "No data")}</div>}
               </div>
 
               <div className="panel report-hot-notes-col">
-                <div className="panel-title"><h4>常用备注频率</h4></div>
+                <div className="panel-title"><h4>{t(locale, "常用备注频率", "Frequent notes")}</h4></div>
                 {(report.notePresets || report.common_notes || []).map((n) => (
                   <div className="list-row" key={n.label || n.name}>
                     <div className="hot-item-name">{n.label || n.name}</div>
                     <div className="hot-item-stats"><span>{n.count || n.frequency || ""}</span></div>
                   </div>
                 ))}
-                {!((report.notePresets || report.common_notes || []).length) && <div className="empty">无数据</div>}
+                {!((report.notePresets || report.common_notes || []).length) && <div className="empty">{t(locale, "无数据", "No data")}</div>}
               </div>
             </div>
           </section>
 
           <section className="panel report-item-trends dashboard-list">
             <div className="panel-title split">
-              <h3>{selectedHotItems.length ? `单品趋势（已选 ${selectedHotItems.length} 项）` : "单品趋势"}</h3>
-              <small className="muted">点击左侧热销菜品可多选并查看每日与时段走势</small>
+              <h3>{selectedHotItems.length ? t(locale, `单品趋势（已选 ${selectedHotItems.length} 项）`, `Item trends (${selectedHotItems.length} selected)`) : t(locale, "单品趋势", "Item trends")}</h3>
+              <small className="muted">{t(locale, "点击左侧热销菜品可多选并查看每日与时段走势", "Select top items on the left to view daily and time-slot trends")}</small>
             </div>
             {!selectedHotItems.length ? (
-              <div className="empty">点击热销菜品查看单品趋势</div>
+              <div className="empty">{t(locale, "点击热销菜品查看单品趋势", "Select top items to view trends")}</div>
             ) : combinedHotTrendLoading ? (
-              <div className="empty">加载中…</div>
+              <div className="empty">{t(locale, "加载中…", "Loading…")}</div>
             ) : combinedHotTrendError ? (
               <div className="empty">{combinedHotTrendError}</div>
             ) : combinedHotTrend ? (
               <section className="panel report-item-trend-card">
                 <div className="panel-title split">
-                  <h4>已选菜品合计</h4>
-                  <button type="button" className="link-button" onClick={() => setSelectedHotItemKeys([])}>清空选择</button>
+                  <h4>{t(locale, "已选菜品合计", "Selected items total")}</h4>
+                  <button type="button" className="link-button" onClick={() => setSelectedHotItemKeys([])}>{t(locale, "清空选择", "Clear selection")}</button>
                 </div>
                 <div className="report-selected-tags">
                   {selectedHotItems.map((item) => (
@@ -2732,33 +2809,33 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
                   ))}
                 </div>
                 <div className="report-item-summary">
-                  <span>累计数量 {combinedHotTrend.summary?.orders ?? 0}</span>
-                  <span>累计销售额 {money(combinedHotTrend.summary?.revenue ?? 0, currency, locale)}</span>
+                  <span>{t(locale, "累计数量", "Total qty")} {combinedHotTrend.summary?.orders ?? 0}</span>
+                  <span>{t(locale, "累计销售额", "Total sales")} {money(combinedHotTrend.summary?.revenue ?? 0, currency, locale)}</span>
                 </div>
                 <div className="report-item-trend-stack">
                   <section className="panel report-item-trend-mini-card">
-                    <div className="panel-title"><h5>每日趋势</h5></div>
+                    <div className="panel-title"><h5>{t(locale, "每日趋势", "Daily trend")}</h5></div>
                     <div style={{ padding: 12 }}>
                       <DualSeriesTrendChart
                         data={combinedHotTrend.byDay || []}
                         locale={locale}
                         currency={currency}
-                        countLabel="数量"
-                        amountLabel="销售额"
+                        countLabel={t(locale, "数量", "Qty")}
+                        amountLabel={t(locale, "销售额", "Sales")}
                         xLabel={(row) => new Date(row.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })}
                         height={220}
                       />
                     </div>
                   </section>
                   <section className="panel report-item-trend-mini-card">
-                    <div className="panel-title"><h5>按时段趋势</h5></div>
+                    <div className="panel-title"><h5>{t(locale, "按时段趋势", "Time-slot trend")}</h5></div>
                     <div style={{ padding: 12 }}>
                       <DualSeriesTrendChart
                         data={combinedHotTrend.byTime || []}
                         locale={locale}
                         currency={currency}
-                        countLabel="数量"
-                        amountLabel="销售额"
+                        countLabel={t(locale, "数量", "Qty")}
+                        amountLabel={t(locale, "销售额", "Sales")}
                         xLabel={(row) => row.slot || row.label || ""}
                         height={240}
                       />
@@ -2767,43 +2844,43 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
                 </div>
               </section>
             ) : (
-              <div className="empty">请选择热销菜品</div>
+              <div className="empty">{t(locale, "请选择热销菜品", "Please select a top item")}</div>
             )}
           </section>
 
           <section className="panel report-chart dashboard-list report-daily-trend-panel">
             <div className="panel-title split">
-              <h3>{trendMetric === "revenue" ? "每日营业额趋势" : trendMetric === "orders" ? "每日单量趋势" : "每日客单价趋势"}</h3>
+              <h3>{trendMetric === "revenue" ? t(locale, "每日营业额趋势", "Daily revenue trend") : trendMetric === "orders" ? t(locale, "每日单量趋势", "Daily orders trend") : t(locale, "每日客单价趋势", "Daily average ticket trend")}</h3>
               <div className="reports-trend-switch">
-                <button type="button" className={trendMetric === "revenue" ? "selected" : ""} onClick={() => setTrendMetric("revenue")}>营业额</button>
-                <button type="button" className={trendMetric === "orders" ? "selected" : ""} onClick={() => setTrendMetric("orders")}>单量</button>
-                <button type="button" className={trendMetric === "avg_ticket" ? "selected" : ""} onClick={() => setTrendMetric("avg_ticket")}>客单价</button>
+                <button type="button" className={trendMetric === "revenue" ? "selected" : ""} onClick={() => setTrendMetric("revenue")}>{t(locale, "营业额", "Revenue")}</button>
+                <button type="button" className={trendMetric === "orders" ? "selected" : ""} onClick={() => setTrendMetric("orders")}>{t(locale, "单量", "Orders")}</button>
+                <button type="button" className={trendMetric === "avg_ticket" ? "selected" : ""} onClick={() => setTrendMetric("avg_ticket")}>{t(locale, "客单价", "Avg. ticket")}</button>
               </div>
             </div>
             {report.byDay && report.byDay.length ? (
               <div style={{ padding: 12 }}>
                 <DailyTrendChart data={report.byDay} metric={trendMetric} locale={locale} currency={currency} />
               </div>
-            ) : <div className="empty">无数据</div>}
+            ) : <div className="empty">{t(locale, "无数据", "No data")}</div>}
           </section>
 
           <section className="panel report-time-chart dashboard-list">
             <div className="panel-title split">
-              <h3>按时段（{timeSlotInterval} 分钟）单量、营业额与客单价</h3>
+              <h3>{t(locale, "按时段", "By time slot")}（{timeSlotInterval} {t(locale, "分钟", "min")}) {t(locale, "单量、营业额与客单价", "orders, revenue and avg ticket")}</h3>
             </div>
             <div className="report-time-actions">
               <button type="button" className={`report-time-toggle interval ${timeSlotInterval === 30 ? "active" : "inactive"}`} onClick={() => setTimeSlotInterval(30)}>
-                30 分钟
+                30 {t(locale, "分钟", "min")}
               </button>
               <button type="button" className={`report-time-toggle interval ${timeSlotInterval === 60 ? "active" : "inactive"}`} onClick={() => setTimeSlotInterval(60)}>
-                60 分钟
+                60 {t(locale, "分钟", "min")}
               </button>
             </div>
             {report.byTime && report.byTime.length ? (
               <div style={{ padding: 12 }}>
                 <CanvasTimeChart data={timeChartData} locale={locale} currency={currency} />
               </div>
-            ) : <div className="empty">无数据</div>}
+            ) : <div className="empty">{t(locale, "无数据", "No data")}</div>}
           </section>
         </>
       )}
@@ -3562,11 +3639,11 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
     const base = { id, charset: "GBK", enabled: true };
     let profile;
     if (type === "usb") {
-      profile = { ...base, name: "USB 打印机", connection_type: "usb", device_path: "/dev/usb/lp0" };
+      profile = { ...base, name: t(locale, "USB 打印机", "USB printer"), connection_type: "usb", device_path: "/dev/usb/lp0" };
     } else if (type === "bluetooth") {
-      profile = { ...base, name: "蓝牙打印机", connection_type: "bluetooth", device_path: "/dev/rfcomm0", mac: "", channel: 1 };
+      profile = { ...base, name: t(locale, "蓝牙打印机", "Bluetooth printer"), connection_type: "bluetooth", device_path: "/dev/rfcomm0", mac: "", channel: 1 };
     } else {
-      profile = { ...base, name: "网络打印机", connection_type: "network", host: "192.168.1.251", port: 9100 };
+      profile = { ...base, name: t(locale, "网络打印机", "Network printer"), connection_type: "network", host: "192.168.1.251", port: 9100 };
     }
     setProfiles((current) => [...current, profile]);
   }
@@ -3585,10 +3662,10 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
     <div className="ops-page">
       <section className="ops-grid">
         <article className="panel ops-card">
-          <div className="panel-title"><Activity size={18} /><h2>健康检查</h2></div>
+          <div className="panel-title"><Activity size={18} /><h2>{t(locale, "健康检查", "Health checks")}</h2></div>
           <div className={`health-status ${health?.ok ? "ok" : "bad"}`}>
-            {health?.ok ? "系统正常" : "需要检查"}
-            <small>{health ? `${health.latency_ms}ms · uptime ${health.uptime_seconds}s` : "Loading"}</small>
+            {health?.ok ? t(locale, "系统正常", "All systems healthy") : t(locale, "需要检查", "Needs attention")}
+            <small>{health ? `${health.latency_ms}ms · uptime ${health.uptime_seconds}s` : t(locale, "加载中", "Loading")}</small>
           </div>
           <div className="health-checks">
             {(health?.checks || []).map((check) => (
@@ -3599,18 +3676,18 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
               </div>
             ))}
           </div>
-          <button type="button" onClick={onRefresh}><RefreshCw size={16} /><span>刷新运维状态</span></button>
+          <button type="button" onClick={onRefresh}><RefreshCw size={16} /><span>{t(locale, "刷新运维状态", "Refresh ops status")}</span></button>
         </article>
 
         <article className="panel ops-card">
-          <div className="panel-title"><HardDrive size={18} /><h2>数据库备份</h2></div>
+          <div className="panel-title"><HardDrive size={18} /><h2>{t(locale, "数据库备份", "Database backups")}</h2></div>
           <form className="ops-form" onSubmit={saveOpsSettings}>
-            <label className="checkbox"><input type="checkbox" checked={settings.backup_enabled} onChange={(event) => setSettings({ ...settings, backup_enabled: event.target.checked })} />启用自动备份</label>
-            <label>备份间隔（小时）<input type="number" min="1" max="168" value={settings.backup_interval_hours || 24} onChange={(event) => setSettings({ ...settings, backup_interval_hours: Number(event.target.value) })} /></label>
+            <label className="checkbox"><input type="checkbox" checked={settings.backup_enabled} onChange={(event) => setSettings({ ...settings, backup_enabled: event.target.checked })} />{t(locale, "启用自动备份", "Enable automatic backups")}</label>
+            <label>{t(locale, "备份间隔（小时）", "Backup interval (hours)")}<input type="number" min="1" max="168" value={settings.backup_interval_hours || 24} onChange={(event) => setSettings({ ...settings, backup_interval_hours: Number(event.target.value) })} /></label>
             <div className="ops-actions">
-              <button className="primary" type="submit"><Save size={16} /><span>保存计划</span></button>
+              <button className="primary" type="submit"><Save size={16} /><span>{t(locale, "保存计划", "Save schedule")}</span></button>
               <button type="button" disabled={busy} onClick={() => run(async () => { await api("/ops/backups", { method: "POST" }); await onRefresh(); })}>
-                <HardDrive size={16} /><span>{busy ? "备份中" : "立即备份"}</span>
+                <HardDrive size={16} /><span>{busy ? t(locale, "备份中", "Backing up") : t(locale, "立即备份", "Back up now")}</span>
               </button>
             </div>
           </form>
@@ -3619,14 +3696,14 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
               <div className="backup-row" key={file.name}>
                 <span>{file.name}</span>
                 <small>{(Number(file.size) / 1024).toFixed(1)} KB · {new Date(file.updated_at).toLocaleString(locale)}</small>
-                <a className="link-button" href={downloadUrl(file.name)}><Download size={15} /><span>下载</span></a>
+                <a className="link-button" href={downloadUrl(file.name)}><Download size={15} /><span>{t(locale, "下载", "Download")}</span></a>
               </div>
             ))}
-            {!backups.length && <div className="empty">暂无备份文件</div>}
+            {!backups.length && <div className="empty">{t(locale, "暂无备份文件", "No backup files")}</div>}
             {backups.length > 5 && (
               <button type="button" className="link-button" style={{ justifySelf: "center" }}
                 onClick={() => setShowAllBackups((v) => !v)}>
-                {showAllBackups ? `收起 (仅显示最近 5 个)` : `显示全部 ${backups.length} 个备份`}
+                {showAllBackups ? t(locale, "收起 (仅显示最近 5 个)", "Collapse (latest 5 only)") : t(locale, `显示全部 ${backups.length} 个备份`, `Show all ${backups.length} backups`)}
               </button>
             )}
           </div>
@@ -3635,77 +3712,77 @@ function OpsView({ health, backups, settings, setSettings, locale, onRefresh, on
 
       <section className="panel">
         <div className="panel-title split">
-          <div className="inline-title"><Printer size={18} /><h2>多打印机配置</h2></div>
+          <div className="inline-title"><Printer size={18} /><h2>{t(locale, "多打印机配置", "Multi-printer configuration")}</h2></div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" onClick={() => addProfile("network")}><Plus size={16} /><span>添加网络打印机</span></button>
-            <button type="button" onClick={() => addProfile("usb")}><Plus size={16} /><span>添加 USB 打印机</span></button>
-            <button type="button" onClick={() => addProfile("bluetooth")}><Plus size={16} /><span>添加蓝牙打印机</span></button>
+            <button type="button" onClick={() => addProfile("network")}><Plus size={16} /><span>{t(locale, "添加网络打印机", "Add network printer")}</span></button>
+            <button type="button" onClick={() => addProfile("usb")}><Plus size={16} /><span>{t(locale, "添加 USB 打印机", "Add USB printer")}</span></button>
+            <button type="button" onClick={() => addProfile("bluetooth")}><Plus size={16} /><span>{t(locale, "添加蓝牙打印机", "Add Bluetooth printer")}</span></button>
           </div>
         </div>
         <form className="printer-config" onSubmit={saveOpsSettings}>
           <div className="printer-route-row">
-            <label>厨房单打印机
+            <label>{t(locale, "厨房单打印机", "Kitchen ticket printer")}
               <select value={settings.kitchen_printer_id || ""} onChange={(event) => setSettings({ ...settings, kitchen_printer_id: event.target.value })}>
                 {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
               </select>
             </label>
-            <label>账单打印机
+            <label>{t(locale, "账单打印机", "Receipt printer")}
               <select value={settings.receipt_printer_id || ""} onChange={(event) => setSettings({ ...settings, receipt_printer_id: event.target.value })}>
                 {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
               </select>
             </label>
-            <label>厨房菜品字号
+            <label>{t(locale, "厨房菜品字号", "Kitchen item font size")}
               <input type="number" min="1" max="8" value={settings.kitchen_item_font_size ?? 5} onChange={(event) => setSettings({ ...settings, kitchen_item_font_size: Number(event.target.value) })} />
             </label>
-            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_qty_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_qty_bold: event.target.checked })} />数量加粗 (1X)</label>
-            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_item_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_item_bold: event.target.checked })} />菜品名加粗</label>
-            <button className="primary" type="submit"><Save size={16} /><span>保存打印配置</span></button>
-            <button type="button" onClick={() => run(async () => { await api("/print-jobs/cash-drawer", { method: "POST" }); alert("钱箱信号已发送"); })}><span>💵 弹出钱箱</span></button>
+            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_qty_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_qty_bold: event.target.checked })} />{t(locale, "数量加粗 (1X)", "Bold quantity (1X)")}</label>
+            <label className="checkbox"><input type="checkbox" checked={settings.kitchen_item_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_item_bold: event.target.checked })} />{t(locale, "菜品名加粗", "Bold item name")}</label>
+            <button className="primary" type="submit"><Save size={16} /><span>{t(locale, "保存打印配置", "Save printer settings")}</span></button>
+            <button type="button" onClick={() => run(async () => { await api("/print-jobs/cash-drawer", { method: "POST" }); alert(t(locale, "钱箱信号已发送", "Cash drawer signal sent")); })}><span>💵 {t(locale, "弹出钱箱", "Open cash drawer")}</span></button>
           </div>
           <div className="printer-profile-list">
             {profiles.map((profile) => (
               <div className="printer-profile-row" key={profile.id}>
-                <label>名称<input value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
-                <label>连接方式<select value={profile.connection_type || "network"} onChange={(event) => updateProfile(profile.id, { connection_type: event.target.value })}>
-                  <option value="network">网络 (TCP/IP)</option>
+                <label>{t(locale, "名称", "Name")}<input value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
+                <label>{t(locale, "连接方式", "Connection")}<select value={profile.connection_type || "network"} onChange={(event) => updateProfile(profile.id, { connection_type: event.target.value })}>
+                  <option value="network">{t(locale, "网络 (TCP/IP)", "Network (TCP/IP)")}</option>
                   <option value="usb">USB</option>
-                  <option value="bluetooth">蓝牙 (rfcomm)</option>
+                  <option value="bluetooth">{t(locale, "蓝牙 (rfcomm)", "Bluetooth (rfcomm)")}</option>
                 </select></label>
-                <label>字符集<select value={profile.charset || "GBK"} onChange={(event) => updateProfile(profile.id, { charset: event.target.value })}>
+                <label>{t(locale, "字符集", "Charset")}<select value={profile.charset || "GBK"} onChange={(event) => updateProfile(profile.id, { charset: event.target.value })}>
                   <option value="GBK">GBK（常用）</option>
                   <option value="GB18030">GB18030（延伸GBK）</option>
                   <option value="UTF-8">UTF-8（新型打印机）</option>
                 </select></label>
                 {(profile.connection_type === "usb") && (
-                  <label>设备路径<input value={profile.device_path || "/dev/usb/lp0"} onChange={(event) => updateProfile(profile.id, { device_path: event.target.value })} /></label>
+                  <label>{t(locale, "设备路径", "Device path")}<input value={profile.device_path || "/dev/usb/lp0"} onChange={(event) => updateProfile(profile.id, { device_path: event.target.value })} /></label>
                 )}
                 {(profile.connection_type === "bluetooth") && (
                   <>
-                    <label>蓝牙 MAC<input placeholder="00:11:22:33:44:55" value={profile.mac || ""} onChange={(event) => updateProfile(profile.id, { mac: event.target.value })} /></label>
-                    <label>RFCOMM 通道<input type="number" min="1" max="30" value={profile.channel || 1} onChange={(event) => updateProfile(profile.id, { channel: Number(event.target.value) })} /></label>
-                    <label>设备路径<input value={profile.device_path || "/dev/rfcomm0"} onChange={(event) => updateProfile(profile.id, { device_path: event.target.value })} /></label>
+                    <label>{t(locale, "蓝牙 MAC", "Bluetooth MAC")}<input placeholder="00:11:22:33:44:55" value={profile.mac || ""} onChange={(event) => updateProfile(profile.id, { mac: event.target.value })} /></label>
+                    <label>{t(locale, "RFCOMM 通道", "RFCOMM channel")}<input type="number" min="1" max="30" value={profile.channel || 1} onChange={(event) => updateProfile(profile.id, { channel: Number(event.target.value) })} /></label>
+                    <label>{t(locale, "设备路径", "Device path")}<input value={profile.device_path || "/dev/rfcomm0"} onChange={(event) => updateProfile(profile.id, { device_path: event.target.value })} /></label>
                   </>
                 )}
                 {(!profile.connection_type || profile.connection_type === "network") && (
                   <>
-                    <label>IP 地址<input value={profile.host || ""} onChange={(event) => updateProfile(profile.id, { host: event.target.value })} /></label>
-                    <label>端口<input type="number" min="1" max="65535" value={profile.port || 9100} onChange={(event) => updateProfile(profile.id, { port: Number(event.target.value) })} /></label>
+                    <label>{t(locale, "IP 地址", "IP address")}<input value={profile.host || ""} onChange={(event) => updateProfile(profile.id, { host: event.target.value })} /></label>
+                    <label>{t(locale, "端口", "Port")}<input type="number" min="1" max="65535" value={profile.port || 9100} onChange={(event) => updateProfile(profile.id, { port: Number(event.target.value) })} /></label>
                   </>
                 )}
-                <label className="checkbox"><input type="checkbox" checked={profile.enabled !== false} onChange={(event) => updateProfile(profile.id, { enabled: event.target.checked })} />启用</label>
-                <button type="button" onClick={() => run(async () => { await api("/print-jobs/test", { method: "POST", body: JSON.stringify({ printer_id: profile.id }) }); await onRefresh(); })}>测试</button>
+                <label className="checkbox"><input type="checkbox" checked={profile.enabled !== false} onChange={(event) => updateProfile(profile.id, { enabled: event.target.checked })} />{t(locale, "启用", "Enabled")}</label>
+                <button type="button" onClick={() => run(async () => { await api("/print-jobs/test", { method: "POST", body: JSON.stringify({ printer_id: profile.id }) }); await onRefresh(); })}>{t(locale, "测试", "Test")}</button>
                 <button type="button" onClick={() => removeProfile(profile.id)}><Trash2 size={15} /></button>
                 {profile.connection_type === "bluetooth" && (
                   <pre className="bt-guide" style={{ gridColumn: "1 / -1", margin: "4px 0 0", padding: "8px 10px", background: "#f1f5f9", borderRadius: 6, fontSize: 12, lineHeight: 1.5, color: "#334155", whiteSpace: "pre-wrap" }}>
-{`# 在 Linux 服务器（宿主机，不是容器）一次性配对 + 绑定：
+{`${t(locale, "# 在 Linux 服务器（宿主机，不是容器）一次性配对 + 绑定：", "# On the Linux host (not the container), pair and bind once:")}
 sudo bluetoothctl
-  scan on            # 看到 ${profile.name || "打印机"}（${profile.mac || "MAC"}）后 scan off
-  pair ${profile.mac || "<MAC>"}        # 输入 PIN（Rongta 多为 0000）
+  scan on            # ${t(locale, "看到", "Find")} ${profile.name || t(locale, "打印机", "printer")}（${profile.mac || "MAC"}）${t(locale, "后 scan off", "then scan off")}
+  pair ${profile.mac || "<MAC>"}        # ${t(locale, "输入 PIN（Rongta 多为 0000）", "Enter PIN (Rongta is usually 0000)")}
   trust ${profile.mac || "<MAC>"}
   exit
 sudo rfcomm bind ${profile.device_path || "/dev/rfcomm0"} ${profile.mac || "<MAC>"} ${profile.channel || 1}
-ls -l ${profile.device_path || "/dev/rfcomm0"}   # 出现 crw-rw---- 即成功
-echo HELLO > ${profile.device_path || "/dev/rfcomm0"}   # 打印机出纸即可用`}
+ls -l ${profile.device_path || "/dev/rfcomm0"}   # ${t(locale, "出现 crw-rw---- 即成功", "crw-rw---- means success")}
+echo HELLO > ${profile.device_path || "/dev/rfcomm0"}   # ${t(locale, "打印机出纸即可用", "Print a test page to verify it")}`}
                   </pre>
                 )}
               </div>
@@ -3717,7 +3794,7 @@ echo HELLO > ${profile.device_path || "/dev/rfcomm0"}   # 打印机出纸即可�
   );
 }
 
-function SettingsView({ settings, setSettings, onSaved, adminAuthorized = false }) {
+function SettingsView({ settings, setSettings, locale, onSaved, adminAuthorized = false }) {
   const originalProtectedSettings = useRef({
     tax: Number(settings.tax_rate),
     service: Number(settings.service_charge_rate),
@@ -3736,7 +3813,7 @@ function SettingsView({ settings, setSettings, onSaved, adminAuthorized = false 
   async function save(event) {
     event.preventDefault();
     if (protectedSettingsChanged && (!confirmName.trim() || !confirmPin)) {
-      setFeedback("修改税务或服务费设置需要输入当前账号名和 PIN。");
+      setFeedback(t(locale, "修改税务或服务费设置需要输入当前账号名和 PIN。", "Changing tax or service settings requires the current username and PIN."));
       return;
     }
     setSaving(true);
@@ -3755,7 +3832,7 @@ function SettingsView({ settings, setSettings, onSaved, adminAuthorized = false 
       setConfirmName("");
       setConfirmPin("");
       await onSaved();
-      setFeedback("设置已保存。");
+      setFeedback(t(locale, "设置已保存。", "Settings saved."));
     } catch (error) {
       setFeedback(error.message);
     } finally {
@@ -3772,64 +3849,69 @@ function SettingsView({ settings, setSettings, onSaved, adminAuthorized = false 
     <div className="settings-top">
       <form className="settings-form" onSubmit={save}>
         <div className="settings-section settings-section-basic">
-          <div className="settings-section-title"><Settings size={17} /><div><h3>基本设置</h3></div></div>
+          <div className="settings-section-title"><Settings size={17} /><div><h3>{t(locale, "基本设置", "General")}</h3></div></div>
           <div className="settings-fields">
-            <label>语言 / Locale<input value={settings.locale} onChange={(event) => setSettings({ ...settings, locale: event.target.value })} /></label>
-            <label>结算币种<input value={settings.currency} onChange={(event) => setSettings({ ...settings, currency: event.target.value })} /></label>
+            <label>{t(locale, "语言 / Locale", "Language / Locale")}
+              <select value={settings.locale} onChange={(event) => setSettings({ ...settings, locale: event.target.value })}>
+                <option value="zh-CN">中文（简体）</option>
+                <option value="en-GB">English (UK)</option>
+              </select>
+            </label>
+            <label>{t(locale, "结算币种", "Currency")}<input value={settings.currency} onChange={(event) => setSettings({ ...settings, currency: event.target.value })} /></label>
           </div>
         </div>
         <div className="settings-section settings-section-tax">
-          <div className="settings-section-title"><CircleDollarSign size={17} /><div><h3>税务与费用</h3></div></div>
+          <div className="settings-section-title"><CircleDollarSign size={17} /><div><h3>{t(locale, "税务与费用", "Tax & fees")}</h3></div></div>
           <div className="settings-fields">
-            <label>VAT 税率<input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
-            <label>服务费率<input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
+            <label>{t(locale, "VAT 税率", "VAT rate")}<input type="number" step="0.001" value={settings.tax_rate} onChange={(event) => setSettings({ ...settings, tax_rate: Number(event.target.value) })} /></label>
+            <label>{t(locale, "服务费率", "Service charge rate")}<input type="number" step="0.001" value={settings.service_charge_rate} onChange={(event) => setSettings({ ...settings, service_charge_rate: Number(event.target.value) })} /></label>
           </div>
           <div className="settings-checkboxes">
-            <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} /><b>VAT 包含在标价中（默认 20%）</b></label>
-            <label className="checkbox"><input type="checkbox" checked={settings.show_tax_on_receipt} onChange={(event) => setSettings({ ...settings, show_tax_on_receipt: event.target.checked })} />小票显示 VAT 金额</label>
+            <label className="checkbox"><input type="checkbox" checked={settings.prices_include_tax} onChange={(event) => setSettings({ ...settings, prices_include_tax: event.target.checked })} /><b>{t(locale, "VAT 包含在标价中（默认 20%）", "Prices include VAT (default 20%)")}</b></label>
+            <label className="checkbox"><input type="checkbox" checked={settings.show_tax_on_receipt} onChange={(event) => setSettings({ ...settings, show_tax_on_receipt: event.target.checked })} />{t(locale, "小票显示 VAT 金额", "Show VAT amount on receipt")}</label>
           </div>
           {protectedSettingsChanged && (
             <div className="settings-reauth">
-              <div><strong>需要身份确认</strong></div>
-              <label>账号名<input value={confirmName} onChange={(event) => setConfirmName(event.target.value)} autoComplete="username" /></label>
+              <div><strong>{t(locale, "需要身份确认", "Re-authentication required")}</strong></div>
+              <label>{t(locale, "账号名", "Username")}<input value={confirmName} onChange={(event) => setConfirmName(event.target.value)} autoComplete="username" /></label>
               <label>PIN<input type="password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value)} autoComplete="current-password" /></label>
             </div>
           )}
         </div>
         <div className="settings-section settings-section-tables">
-          <div className="settings-section-title"><Armchair size={17} /><div><h3>桌台行为</h3></div></div>
+          <div className="settings-section-title"><Armchair size={17} /><div><h3>{t(locale, "桌台行为", "Table behavior")}</h3></div></div>
           <div className="settings-checkboxes">
-            <label className="checkbox"><input type="checkbox" checked={Boolean(settings.auto_clear_tables_after_payment)} onChange={(event) => setSettings({ ...settings, auto_clear_tables_after_payment: event.target.checked })} />付款完成后自动清台</label>
+            <label className="checkbox"><input type="checkbox" checked={Boolean(settings.auto_clear_tables_after_payment)} onChange={(event) => setSettings({ ...settings, auto_clear_tables_after_payment: event.target.checked })} />{t(locale, "付款完成后自动清台", "Auto clear tables after payment")}</label>
           </div>
         </div>
         <div className="settings-section settings-section-receipt">
-          <div className="settings-section-title"><ReceiptText size={17} /><div><h3>小票内容</h3></div></div>
+          <div className="settings-section-title"><ReceiptText size={17} /><div><h3>{t(locale, "小票内容", "Receipt content")}</h3></div></div>
           <div className="settings-fields">
-            <label>店铺名称（英文）<input value={settings.receipt_header || ""} onChange={(event) => setSettings({ ...settings, receipt_header: event.target.value })} /></label>
-            <label>店铺名称（中文）<input value={settings.receipt_header_zh || ""} onChange={(event) => setSettings({ ...settings, receipt_header_zh: event.target.value })} /></label>
-            <label>联系电话<input value={settings.receipt_phone || ""} onChange={(event) => setSettings({ ...settings, receipt_phone: event.target.value })} placeholder="07347 997926" /></label>
-            <label>店铺地址<input value={settings.receipt_address || ""} onChange={(event) => setSettings({ ...settings, receipt_address: event.target.value })} /></label>
-            <label>小票页脚<input value={settings.receipt_footer || ""} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
+            <label>{t(locale, "店铺名称（英文）", "Store name (English)")}<input value={settings.receipt_header || ""} onChange={(event) => setSettings({ ...settings, receipt_header: event.target.value })} /></label>
+            <label>{t(locale, "店铺名称（中文）", "Store name (Chinese)")}<input value={settings.receipt_header_zh || ""} onChange={(event) => setSettings({ ...settings, receipt_header_zh: event.target.value })} /></label>
+            <label>{t(locale, "联系电话", "Phone")}<input value={settings.receipt_phone || ""} onChange={(event) => setSettings({ ...settings, receipt_phone: event.target.value })} placeholder="07347 997926" /></label>
+            <label>{t(locale, "店铺地址", "Address")}<input value={settings.receipt_address || ""} onChange={(event) => setSettings({ ...settings, receipt_address: event.target.value })} /></label>
+            <label>{t(locale, "小票页脚", "Receipt footer")}<input value={settings.receipt_footer || ""} onChange={(event) => setSettings({ ...settings, receipt_footer: event.target.value })} /></label>
           </div>
         </div>
         <div className="settings-actions">
-          <button className="primary" type="submit" disabled={saving}><Save size={16} /><span>{saving ? "保存中…" : "保存设置"}</span></button>
-          <button type="button" onClick={printTest}><Printer size={16} /><span>打印测试</span></button>
+          <button className="primary" type="submit" disabled={saving}><Save size={16} /><span>{saving ? t(locale, "保存中…", "Saving…") : t(locale, "保存设置", "Save settings")}</span></button>
+          <button type="button" onClick={printTest}><Printer size={16} /><span>{t(locale, "打印测试", "Print test")}</span></button>
           {feedback && <span className="settings-feedback">{feedback}</span>}
         </div>
       </form>
       <section className="panel receipt-preview">
-        <div className="panel-title"><ReceiptText size={18} /><h2>Receipt 预览</h2></div>
+        <div className="panel-title"><ReceiptText size={18} /><h2>{t(locale, "Receipt 预览", "Receipt preview")}</h2></div>
         <div className="receipt-paper">
           <strong>{settings.receipt_header || "Granny Noodles"}</strong>
           {settings.receipt_header_zh && <span style={{textAlign:"center",fontWeight:600}}>{settings.receipt_header_zh}</span>}
-          {settings.receipt_phone && <span style={{textAlign:"center"}}>Tel 电话: {settings.receipt_phone}</span>}
+          {settings.receipt_phone && <span style={{textAlign:"center"}}>{t(locale, "Tel 电话:", "Tel:")} {settings.receipt_phone}</span>}
           {settings.receipt_address && <span style={{textAlign:"center"}}>{settings.receipt_address}</span>}
           <hr />
-          <span>Order: DEMO-001 · Table: A1</span>
+          <span>{t(locale, "订单", "Order")}: DEMO-001 · {t(locale, "桌台", "Table")}: A1</span>
           <hr />
           <span style={{display:"grid",gridTemplateColumns:"1fr 30px 50px 50px",fontWeight:600}}>
-            <span>Item 菜品</span><span style={{textAlign:"right"}}>Qty</span><span style={{textAlign:"right"}}>Unit</span><span style={{textAlign:"right"}}>Amt</span>
+            <span>{t(locale, "菜品", "Item")}</span><span style={{textAlign:"right"}}>Qty</span><span style={{textAlign:"right"}}>Unit</span><span style={{textAlign:"right"}}>Amt</span>
           </span>
           <span style={{display:"grid",gridTemplateColumns:"1fr 30px 50px 50px"}}>
             <span>重庆小面<br /><small>Chongqing Noodles</small></span>

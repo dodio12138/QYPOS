@@ -28,15 +28,60 @@ import { api, API_URL, labelOf } from "../lib/api";
 import qyposLogo from "../pic/logo.png";
 
 const statusText = {
-  available: "空桌",
-  opened: "已下单",
-  ordered: "已下单",
-  preparing: "制作中",
-  ready_to_serve: "待上菜",
-  partially_served: "部分上菜",
-  pending_payment: "待支付",
-  needs_cleaning: "需清台"
+  "zh-CN": {
+    available: "空桌",
+    opened: "已下单",
+    ordered: "已下单",
+    preparing: "制作中",
+    ready_to_serve: "待上菜",
+    partially_served: "部分上菜",
+    pending_payment: "待支付",
+    needs_cleaning: "需清台"
+  },
+  "en-GB": {
+    available: "Available",
+    opened: "Ordered",
+    ordered: "Ordered",
+    preparing: "Preparing",
+    ready_to_serve: "Ready to serve",
+    partially_served: "Partially served",
+    pending_payment: "Pending payment",
+    needs_cleaning: "Needs cleaning"
+  }
 };
+
+const UI_COPY = {
+  "zh-CN": {
+    posTitle: "点餐前台",
+    adminLink: "后台",
+    refresh: "刷新",
+    refreshing: "刷新中",
+    takeaway: "外带",
+    tabletMode: "平板模式",
+    desktopMode: "桌面模式",
+    logout: "退出",
+    language: "中文"
+  },
+  "en-GB": {
+    posTitle: "POS",
+    adminLink: "Admin",
+    refresh: "Refresh",
+    refreshing: "Refreshing",
+    takeaway: "Takeaway",
+    tabletMode: "Tablet mode",
+    desktopMode: "Desktop mode",
+    logout: "Sign out",
+    language: "English"
+  }
+};
+
+function text(locale, zh, en) {
+  return locale === "en-GB" ? en : zh;
+}
+
+function statusLabel(status, locale) {
+  return statusText[locale]?.[status] || status;
+}
 
 function money(value, currency = "CNY", locale = "zh-CN") {
   return new Intl.NumberFormat(locale, { style: "currency", currency }).format(Number(value || 0));
@@ -86,6 +131,13 @@ export default function PosPage() {
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
+  const copy = UI_COPY[locale] || UI_COPY["zh-CN"];
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.lang = locale.startsWith("en") ? "en" : "zh-CN";
+    document.documentElement.dataset.locale = locale;
+  }, [locale]);
 
   const filteredItems = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -142,7 +194,7 @@ export default function PosPage() {
     setNotice("");
     try {
       await refresh();
-      setNotice("已刷新");
+      setNotice(text(locale, "已刷新", "Refreshed"));
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -213,7 +265,7 @@ export default function PosPage() {
       window.localStorage.setItem("qypos_token", result.token);
       setUser(result.user);
       await refresh(false);
-    }, "已登录前台");
+    }, text(locale, "已登录前台", "Signed in to POS"));
   }
 
   async function logout() {
@@ -229,7 +281,7 @@ export default function PosPage() {
       const order = await api(`/tables/${table.id}/open`, { method: "POST", body: JSON.stringify({ guests: table.seats }) });
       setSelectedOrder(await api(`/orders/${order.id}`));
       navigateMobileStep("menu");
-      setNotice(`${table.label} 已选中`);
+      setNotice(text(locale, `${table.label} 已选中`, `${table.label} selected`));
       await refresh(false);
     });
     setBusyTableId(null);
@@ -242,7 +294,7 @@ export default function PosPage() {
       await api(`/tables/${table.id}/clear`, { method: "POST" });
       if (selectedOrder?.table_id === table.id) setSelectedOrder(null);
       navigateMobileStep("tables");
-      setNotice(`${table.label} 已清台`);
+      setNotice(text(locale, `${table.label} 已清台`, `${table.label} cleared`));
       await refresh(false);
     });
     setBusyTableId(null);
@@ -258,13 +310,13 @@ export default function PosPage() {
       setSelectedOrder(await api(`/orders/${order.id}`));
       navigateMobileStep("menu");
       await refresh(false);
-    }, "外带订单已创建");
+    }, text(locale, "外带订单已创建", "Takeaway order created"));
     setConfirmTakeaway(false);
   }
 
   async function addConfiguredItem({ variantId, modifierIds, quantity, notes }) {
     if (!selectedOrder) {
-      setNotice("请先选择餐桌或创建外带订单");
+      setNotice(text(locale, "请先选择餐桌或创建外带订单", "Select a table or create a takeaway order first"));
       return;
     }
     await run(async () => {
@@ -276,7 +328,7 @@ export default function PosPage() {
       setPickerItem(null);
       navigateMobileStep("menu");
       await refresh(false);
-    }, "已加入订单");
+    }, text(locale, "已加入订单", "Added to order"));
   }
 
   async function replaceOrderItem(oldOrderItem, { variantId, modifierIds, quantity, notes }) {
@@ -295,7 +347,7 @@ export default function PosPage() {
       }
       setEditingOrderItem(null);
       await refresh(false);
-    }, "已更新菜品");
+    }, text(locale, "已更新菜品", "Item updated"));
   }
 
   function openEditForOrderItem(orderItem) {
@@ -307,7 +359,7 @@ export default function PosPage() {
 
   async function addCustomItem({ name, price, quantity, notes }) {
     if (!selectedOrder) {
-      setNotice("请先选择餐桌或创建外带订单");
+      setNotice(text(locale, "请先选择餐桌或创建外带订单", "Select a table or create a takeaway order first"));
       return;
     }
     await run(async () => {
@@ -319,7 +371,7 @@ export default function PosPage() {
       setCustomOpen(false);
       navigateMobileStep("menu");
       await refresh(false);
-    }, "杂项已加入订单");
+    }, text(locale, "杂项已加入订单", "Misc charge added to order"));
   }
 
   function navigateMobileStep(step) {
@@ -364,7 +416,7 @@ export default function PosPage() {
       });
       setSelectedOrder(await api(`/orders/${updated.id}`));
       await refresh(false);
-    }, "备注已保存");
+    }, text(locale, "备注已保存", "Notes saved"));
   }
 
   async function saveOrderNotes(notes) {
@@ -375,20 +427,20 @@ export default function PosPage() {
         body: JSON.stringify({ notes })
       });
       setSelectedOrder(await api(`/orders/${updated.id}`));
-    }, "备注已保存");
+    }, text(locale, "备注已保存", "Notes saved"));
   }
 
   async function submitOrder() {
     if (!selectedOrder) return;
     if (!(selectedOrder.items || []).length) {
-      setNotice("订单没有菜品，无法提交");
+      setNotice(text(locale, "订单没有菜品，无法提交", "This order has no items and cannot be submitted"));
       return;
     }
     kitchenPrintRef.current = true;
     setConfirmAction({
-      title: "厨房下单",
-      message: "确认下单？新菜品将发送到厨房。",
-      confirmLabel: "确认下单",
+      title: text(locale, "厨房下单", "Send to kitchen"),
+      message: text(locale, "确认下单？新菜品将发送到厨房。", "Submit this order? New items will be sent to the kitchen."),
+      confirmLabel: text(locale, "确认下单", "Submit"),
       icon: <Printer size={22} />,
       extra: (
         <label className="modal-print-toggle">
@@ -397,7 +449,7 @@ export default function PosPage() {
             defaultChecked
             onChange={(e) => { kitchenPrintRef.current = e.target.checked; }}
           />
-          发送后厨打印
+          {text(locale, "发送后厨打印", "Print to kitchen")}
         </label>
       ),
       onConfirm: async () => {
@@ -409,7 +461,7 @@ export default function PosPage() {
           });
           setSelectedOrder(await api(`/orders/${selectedOrder.id}`));
           await refresh(false);
-        }, shouldPrint ? "已下单，厨打已发送" : "已下单");
+        }, shouldPrint ? text(locale, "已下单，厨打已发送", "Submitted, kitchen print sent") : text(locale, "已下单", "Submitted"));
         setConfirmAction(null);
       }
     });
@@ -418,15 +470,15 @@ export default function PosPage() {
   async function printBill() {
     if (!selectedOrder) return;
     setConfirmAction({
-      title: "账单打印",
-      message: "确认打印当前账单？这不会完成收款。",
-      confirmLabel: "打印账单",
+      title: text(locale, "账单打印", "Print bill"),
+      message: text(locale, "确认打印当前账单？这不会完成收款。", "Print the current bill? This will not complete payment."),
+      confirmLabel: text(locale, "打印账单", "Print bill"),
       icon: <ClipboardList size={22} />,
       onConfirm: async () => {
         await run(async () => {
           await api(`/orders/${selectedOrder.id}/print`, { method: "POST", body: JSON.stringify({ type: "receipt" }) });
           await refresh(false);
-        }, "已发送账单打印");
+        }, text(locale, "已发送账单打印", "Bill print sent"));
         setConfirmAction(null);
       }
     });
@@ -447,7 +499,7 @@ export default function PosPage() {
       setPaying(false);
       navigateMobileStep("tables");
       await refresh(false);
-    }, "已收款");
+    }, text(locale, "已收款", "Payment received"));
   }
 
   async function payOrderPartial(payment) {
@@ -460,12 +512,12 @@ export default function PosPage() {
       });
       setSelectedOrder(await api(`/orders/${result.order.id}`));
       await refresh(false);
-    }, `已收 ${money(payment.amount, currency, locale)}`);
+    }, text(locale, `已收 ${money(payment.amount, currency, locale)}`, `Received ${money(payment.amount, currency, locale)}`));
     return result;
   }
 
   async function finishDojoPayment(result) {
-    setNotice("Dojo 刷卡成功");
+    setNotice(text(locale, "Dojo 刷卡成功", "Dojo payment succeeded"));
     setPaying(false);
     setSelectedOrder(null);
     navigateMobileStep("tables");
@@ -483,7 +535,7 @@ export default function PosPage() {
       setSelectedOrder(null);
       navigateMobileStep("tables");
       await refresh(false);
-    }, "分单完成");
+    }, text(locale, "分单完成", "Split completed"));
   }
 
   async function mergeOrder() {
@@ -492,7 +544,7 @@ export default function PosPage() {
       const merged = await api(`/orders/${selectedOrder.id}/merge`, { method: "POST" });
       setSelectedOrder(await api(`/orders/${merged.id}`));
       await refresh(false);
-    }, "已合单");
+    }, text(locale, "已合单", "Merged"));
   }
 
   async function adjustServiceCharge(patch) {
@@ -504,7 +556,7 @@ export default function PosPage() {
       });
       setSelectedOrder(await api(`/orders/${updated.id}`));
       await refresh(false);
-    }, "服务费已更新");
+    }, text(locale, "服务费已更新", "Service charge updated"));
   }
 
   async function applyDiscount(patch) {
@@ -515,15 +567,15 @@ export default function PosPage() {
     });
     setSelectedOrder(await api(`/orders/${updated.id}`));
     await refresh(false);
-    setNotice("折扣已更新");
+    setNotice(text(locale, "折扣已更新", "Discount updated"));
   }
 
   async function cancelOrder(reason) {
     if (!selectedOrder) return;
     setConfirmAction({
-      title: "取消订单",
-      message: "确认取消当前订单？取消后会释放关联桌台。",
-      confirmLabel: "取消订单",
+      title: text(locale, "取消订单", "Cancel order"),
+      message: text(locale, "确认取消当前订单？取消后会释放关联桌台。", "Cancel this order? The linked table will be released."),
+      confirmLabel: text(locale, "取消订单", "Cancel order"),
       icon: <Trash2 size={22} />,
       onConfirm: async () => {
         await run(async () => {
@@ -534,7 +586,7 @@ export default function PosPage() {
           setSelectedOrder(null);
           navigateMobileStep("tables");
           await refresh(false);
-        }, "订单已取消");
+        }, text(locale, "订单已取消", "Order cancelled"));
         setConfirmAction(null);
       }
     });
@@ -543,7 +595,7 @@ export default function PosPage() {
   if (!authChecked) {
     return (
       <main className="pos-shell">
-        <div className="center-state"><Loader2 className="spin" size={24} /> 正在检查登录状态</div>
+        <div className="center-state"><Loader2 className="spin" size={24} /> {text(locale, "正在检查登录状态", "Checking sign-in status")}</div>
       </main>
     );
   }
@@ -565,38 +617,38 @@ export default function PosPage() {
         </div>
         <div className="mode-pill">
           <Utensils size={18} />
-          <span>点餐前台</span>
+          <span>{copy.posTitle}</span>
         </div>
         <div className="top-actions">
           <span className="user-chip"><UserRound size={16} />{user.name}</span>
-          <a className="link-button" href="/admin">后台</a>
-          <button className={refreshing ? "is-refreshing" : ""} onClick={manualRefresh} disabled={busy || refreshing} title="刷新">
+          <a className="link-button" href="/admin">{copy.adminLink}</a>
+          <button className={refreshing ? "is-refreshing" : ""} onClick={manualRefresh} disabled={busy || refreshing} title={copy.refresh}>
             <RefreshCw className={refreshing ? "spin" : ""} size={18} />
-            <span>{refreshing ? "刷新中" : "刷新"}</span>
+            <span>{refreshing ? copy.refreshing : copy.refresh}</span>
           </button>
-          <button onClick={() => setConfirmTakeaway(true)} disabled={busy} title="外带">
+          <button onClick={() => setConfirmTakeaway(true)} disabled={busy} title={copy.takeaway}>
             <ShoppingBag size={18} />
-            <span>外带</span>
+            <span>{copy.takeaway}</span>
           </button>
           <button
             className={tabletMode ? "selected" : ""}
             onClick={toggleTabletMode}
             disabled={busy}
             aria-pressed={tabletMode}
-            title="平板模式"
+            title={tabletMode ? copy.desktopMode : copy.tabletMode}
           >
             <TabletSmartphone size={18} />
-            <span>{tabletMode ? "桌面模式" : "平板模式"}</span>
+            <span>{tabletMode ? copy.desktopMode : copy.tabletMode}</span>
           </button>
-          <button onClick={logout} disabled={busy} title="退出">
+          <button onClick={logout} disabled={busy} title={copy.logout}>
             <LogOut size={18} />
-            <span>退出</span>
+            <span>{copy.logout}</span>
           </button>
         </div>
       </header>
 
-      {!online && <div className="offline-banner pos-offline"><WifiOff size={16} />当前离线，点单、打印和收款可能无法同步。</div>}
-      {online && !apiOnline && <div className="offline-banner pos-offline"><WifiOff size={16} />本地 API 暂不可用，请检查 Docker 服务。</div>}
+      {!online && <div className="offline-banner pos-offline"><WifiOff size={16} />{text(locale, "当前离线，点单、打印和收款可能无法同步。", "You're offline. Ordering, printing, and payment may not sync.")}</div>}
+      {online && !apiOnline && <div className="offline-banner pos-offline"><WifiOff size={16} />{text(locale, "本地 API 暂不可用，请检查 Docker 服务。", "The local API is unavailable. Check the Docker service.")}</div>}
       {notice && <button className="notice toast" onClick={() => setNotice("")}>{notice}</button>}
 
       <MobileWorkflow
@@ -629,9 +681,9 @@ export default function PosPage() {
           locale={locale}
           currency={currency}
           hasOrder={Boolean(selectedOrder) && !["paid", "cancelled"].includes(selectedOrder?.status)}
-          onNeedOrder={() => setNotice("请先点击餐桌或创建外带订单")}
+          onNeedOrder={() => setNotice(text(locale, "请先点击餐桌或创建外带订单", "Select a table or create a takeaway order first"))}
           onPick={setPickerItem}
-          onCustom={() => (selectedOrder ? setCustomOpen(true) : setNotice("请先选择餐桌或创建外带订单"))}
+          onCustom={() => (selectedOrder ? setCustomOpen(true) : setNotice(text(locale, "请先选择餐桌或创建外带订单", "Select a table or create a takeaway order first")))}
         />
         <OrderPanel
           order={selectedOrder}
@@ -714,9 +766,10 @@ export default function PosPage() {
 
       {confirmTakeaway && (
         <ConfirmModal
-          title="创建外带订单"
-          message="确认创建一个新的外带订单？"
-          confirmLabel="创建外带"
+          locale={locale}
+          title={text(locale, "创建外带订单", "Create takeaway order")}
+          message={text(locale, "确认创建一个新的外带订单？", "Create a new takeaway order?")}
+          confirmLabel={text(locale, "创建外带", "Create takeaway")}
           icon={<ShoppingBag size={22} />}
           busy={busy}
           onCancel={() => setConfirmTakeaway(false)}
@@ -726,6 +779,7 @@ export default function PosPage() {
 
       {confirmAction && (
         <ConfirmModal
+          locale={locale}
           title={confirmAction.title}
           message={confirmAction.message}
           confirmLabel={confirmAction.confirmLabel}
@@ -810,7 +864,7 @@ function DiscountAdminModal({ onCancel, onApply }) {
       granted = true;
       await onApply();
     } catch (caught) {
-      setError(caught.message || "管理员验证失败");
+      setError(caught.message || text(locale, "管理员验证失败", "Admin verification failed"));
     } finally {
       if (granted) {
         try { await api("/auth/admin-grant", { method: "DELETE" }); } catch { /* grant expires server-side */ }
@@ -824,16 +878,16 @@ function DiscountAdminModal({ onCancel, onApply }) {
     <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && !busy && onCancel()}>
       <form className="modal" onSubmit={submit} style={{ maxWidth: 420 }}>
         <header className="modal-header">
-          <button type="button" onClick={onCancel} disabled={busy} title="关闭"><X size={20} /></button>
-          <div><h2>折扣 · 管理员验证</h2></div>
+          <button type="button" onClick={onCancel} disabled={busy} title={text(locale, "关闭", "Close")}><X size={20} /></button>
+          <div><h2>{text(locale, "折扣 · 管理员验证", "Discount · Admin verification")}</h2></div>
         </header>
         <div className="modal-body" style={{ display: "grid", gap: 12, padding: 20 }}>
-          <label>管理员账号<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" autoFocus /></label>
-          <label>管理员 PIN<input type="password" value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" /></label>
+          <label>{text(locale, "管理员账号", "Admin account")}<input value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" autoFocus /></label>
+          <label>{text(locale, "管理员 PIN", "Admin PIN")}<input type="password" value={pin} onChange={(event) => setPin(event.target.value)} autoComplete="current-password" /></label>
           {error && <div className="inline-error">{error}</div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button type="button" onClick={onCancel} disabled={busy}>取消</button>
-            <button className="primary" type="submit" disabled={busy || !name.trim() || !pin}>{busy ? "验证并应用中…" : "验证并应用"}</button>
+            <button type="button" onClick={onCancel} disabled={busy}>{text(locale, "取消", "Cancel")}</button>
+            <button className="primary" type="submit" disabled={busy || !name.trim() || !pin}>{busy ? text(locale, "验证并应用中…", "Verifying and applying…") : text(locale, "验证并应用", "Verify and apply")}</button>
           </div>
         </div>
       </form>
@@ -843,33 +897,33 @@ function DiscountAdminModal({ onCancel, onApply }) {
 
 function MobileWorkflow({ step, order, tables, locale, currency, onBack, onStep }) {
   const steps = [
-    { id: "tables", label: "选台", icon: <Armchair size={17} /> },
-    { id: "menu", label: "点菜", icon: <Utensils size={17} /> },
-    { id: "order", label: "订单", icon: <CircleDollarSign size={17} /> }
+    { id: "tables", label: text(locale, "选台", "Tables"), icon: <Armchair size={17} /> },
+    { id: "menu", label: text(locale, "点菜", "Menu"), icon: <Utensils size={17} /> },
+    { id: "order", label: text(locale, "订单", "Order"), icon: <CircleDollarSign size={17} /> }
   ];
   const itemCount = (order?.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const table = order?.table_id ? tables.find((item) => item.id === order.table_id) : null;
   const location = order?.service_type === "dine_in"
-    ? `桌台 ${table?.label || "-"}`
-    : `外带 ${order?.pickup_no || "-"}`;
+    ? text(locale, `桌台 ${table?.label || "-"}`, `Table ${table?.label || "-"}`)
+    : text(locale, `外带 ${order?.pickup_no || "-"}`, `Takeaway ${order?.pickup_no || "-"}`);
 
   return (
-    <nav className="mobile-workflow" aria-label="点餐步骤">
+    <nav className="mobile-workflow" aria-label={text(locale, "点餐步骤", "Ordering steps")}>
       <div className="mobile-workflow-top">
         <button type="button" className="mobile-back-btn" onClick={onBack} disabled={step === "tables"}>
           <ChevronLeft size={18} />
-          <span>返回</span>
+          <span>{text(locale, "返回", "Back")}</span>
         </button>
         <div className="mobile-order-chip">
           {order ? (
             <>
               <strong>{location} · {money(order.total, currency, locale)}</strong>
-              <span>{itemCount} 件 · {order.status}</span>
+              <span>{itemCount} {text(locale, "件", "items")} · {statusText[locale]?.[order.status] || order.status}</span>
             </>
           ) : (
             <>
-              <strong>先选择桌台</strong>
-              <span>或创建外带订单</span>
+              <strong>{text(locale, "先选择桌台", "Select a table first")}</strong>
+              <span>{text(locale, "或创建外带订单", "or create a takeaway order")}</span>
             </>
           )}
         </div>
@@ -897,7 +951,7 @@ function FloorMap({ layout, locale, currency, selectedOrder, busyTableId, onSele
     <section className="panel floor-panel">
       <div className="panel-title">
         <Armchair size={18} />
-        <h2>餐桌</h2>
+        <h2>{text(locale, "餐桌", "Tables")}</h2>
       </div>
       <div
         className="floor-canvas"
@@ -912,10 +966,10 @@ function FloorMap({ layout, locale, currency, selectedOrder, busyTableId, onSele
             style={{ left: Number(table.x), top: Number(table.y), width: Number(table.width), height: Number(table.height) }}
             onClick={() => onSelect(table)}
             disabled={busyTableId === table.id}
-            title={`${table.label} ${statusText[table.status] || table.status}`}
+            title={`${table.label} ${statusLabel(table.status, locale)}`}
           >
             <strong>{busyTableId === table.id ? <Loader2 className="spin" size={18} /> : table.label}</strong>
-            <span>{statusText[table.status] || table.status}</span>
+            <span>{statusLabel(table.status, locale)}</span>
             {Number(table.current_total) > 0 && <em>{money(table.current_total, currency, locale)}</em>}
           </button>
         ))}
@@ -934,10 +988,10 @@ function PosLogin({ notice, online, apiOnline, busy, onLogin }) {
         <img className="brand-logo login-logo" src={qyposLogo.src} alt="QYPOS" />
         <span>QYPOS</span>
       </div>
-      <h1>点餐前台登录</h1>
-      <p>开台、点餐、打印和收款需要员工账号。</p>
-      {!online && <div className="offline-banner"><WifiOff size={16} />当前离线，无法登录。</div>}
-      {online && !apiOnline && <div className="offline-banner"><WifiOff size={16} />本地 API 暂不可用，请检查 Docker 服务。</div>}
+      <h1>{text(locale, "点餐前台登录", "POS sign in")}</h1>
+      <p>{text(locale, "开台、点餐、打印和收款需要员工账号。", "Open tables, order, print, and take payment with a staff account.")}</p>
+      {!online && <div className="offline-banner"><WifiOff size={16} />{text(locale, "当前离线，无法登录。", "You're offline, so sign-in is unavailable.")}</div>}
+      {online && !apiOnline && <div className="offline-banner"><WifiOff size={16} />{text(locale, "本地 API 暂不可用，请检查 Docker 服务。", "The local API is unavailable. Check the Docker service.")}</div>}
       {notice && <div className="inline-error">{notice}</div>}
       <form
         onSubmit={(event) => {
@@ -946,8 +1000,8 @@ function PosLogin({ notice, online, apiOnline, busy, onLogin }) {
         }}
       >
         <label>
-          员工
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Cashier" autoComplete="username" />
+          {text(locale, "员工", "Staff")}
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={text(locale, "Cashier", "Cashier")} autoComplete="username" />
         </label>
         <label>
           PIN
@@ -955,7 +1009,7 @@ function PosLogin({ notice, online, apiOnline, busy, onLogin }) {
         </label>
         <button className="primary wide-button" type="submit" disabled={busy || !name || !pin}>
           {busy ? <Loader2 className="spin" size={18} /> : <UserRound size={18} />}
-          <span>登录点餐</span>
+          <span>{text(locale, "登录点餐", "Sign in")}</span>
         </button>
       </form>
     </section>
@@ -967,18 +1021,18 @@ function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, 
     <section className="panel menu-panel">
       <div className="panel-title split">
         <div>
-          <ReceiptTitle />
+          <ReceiptTitle locale={locale} />
         </div>
-        <button type="button" className="misc-button" onClick={onCustom} disabled={!hasOrder} title="加入自定义价格的杂项代收">
-          <Coins size={16} /><span>杂项代收</span>
+        <button type="button" className="misc-button" onClick={onCustom} disabled={!hasOrder} title={text(locale, "加入自定义价格的杂项代收", "Add a custom-priced misc charge")}>
+          <Coins size={16} /><span>{text(locale, "杂项代收", "Misc charge")}</span>
         </button>
       </div>
       <div className="search-box">
         <Search size={18} />
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索菜品" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={text(locale, "搜索菜品", "Search items")} />
       </div>
       <div className="category-strip">
-        <button className={selectedCategory === "all" ? "selected" : ""} onClick={() => setSelectedCategory("all")}>全部</button>
+        <button className={selectedCategory === "all" ? "selected" : ""} onClick={() => setSelectedCategory("all")}>{text(locale, "全部", "All")}</button>
         {categories.filter((category) => category.active).map((category) => (
           <button key={category.id} className={selectedCategory === category.id ? "selected" : ""} onClick={() => setSelectedCategory(category.id)}>
             {labelOf(category.name_i18n, locale)}
@@ -1000,7 +1054,7 @@ function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, 
               <strong>{zhName}</strong>
               {enName && enName !== zhName && <em className="product-tile-en">{enName}</em>}
               <span>{labelOf(item.description_i18n, locale) || item.kitchen_group}</span>
-              <b>{Number.isFinite(minPrice) ? money(minPrice, currency, locale) : "未定价"}</b>
+              <b>{Number.isFinite(minPrice) ? money(minPrice, currency, locale) : text(locale, "未定价", "Unpriced")}</b>
             </button>
           );
         })}
@@ -1009,11 +1063,11 @@ function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, 
   );
 }
 
-function ReceiptTitle() {
+function ReceiptTitle({ locale }) {
   return (
     <div className="inline-title">
       <ClipboardList size={18} />
-      <h2>菜单</h2>
+      <h2>{text(locale, "菜单", "Menu")}</h2>
     </div>
   );
 }
@@ -1055,17 +1109,14 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
 
   useEffect(() => {
     setOrderPage(1);
-  }, [orderFilter]);
-
-  useEffect(() => {
     setOrderPage((current) => Math.min(current, totalOrderPages));
   }, [totalOrderPages]);
 
   function orderLocation(targetOrder) {
     if (targetOrder.service_type === "dine_in") {
-      return `桌台 ${tableById.get(targetOrder.table_id)?.label || "-"}`;
+      return text(locale, `桌台 ${tableById.get(targetOrder.table_id)?.label || "-"}`, `Table ${tableById.get(targetOrder.table_id)?.label || "-"}`);
     }
-    return `外带 ${targetOrder.pickup_no || "-"}`;
+    return text(locale, `外带 ${targetOrder.pickup_no || "-"}`, `Takeaway ${targetOrder.pickup_no || "-"}`);
   }
 
   const rateDiscAmt = order?.discount_rate != null
@@ -1077,23 +1128,23 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
       <div className="panel-title split">
         <div className="inline-title">
           <ClipboardList size={18} />
-          <h2>{order ? order.order_no : "当前订单"}</h2>
+            <h2>{order ? order.order_no : text(locale, "当前订单", "Current order")}</h2>
         </div>
         <div className="inline-title">
           {order && <span className="order-location-tag">{orderLocation(order)}</span>}
-          {order && <button className="icon-btn" onClick={onExit} title="退出订单"><X size={18} /></button>}
+          {order && <button className="icon-btn" onClick={onExit} title={text(locale, "退出订单", "Exit order")}><X size={18} /></button>}
         </div>
       </div>
 
       {!order && (
         <>
           <div className="order-filter-bar">
-            <button className={orderFilter === "active" ? "selected" : ""} onClick={() => setOrderFilter("active")}>已下单</button>
-            <button className={orderFilter === "paid" ? "selected" : ""} onClick={() => setOrderFilter("paid")}>已付款</button>
-            <button className={orderFilter === "all" ? "selected" : ""} onClick={() => setOrderFilter("all")}>当日全部</button>
+            <button className={orderFilter === "active" ? "selected" : ""} onClick={() => setOrderFilter("active")}>{text(locale, "已下单", "Open")}</button>
+            <button className={orderFilter === "paid" ? "selected" : ""} onClick={() => setOrderFilter("paid")}>{text(locale, "已付款", "Paid")}</button>
+            <button className={orderFilter === "all" ? "selected" : ""} onClick={() => setOrderFilter("all")}>{text(locale, "当日全部", "All today")}</button>
           </div>
           <div className="quick-orders">
-            {filteredOrders.length === 0 && <div className="empty" style={{fontSize:13}}>暂无订单</div>}
+            {filteredOrders.length === 0 && <div className="empty" style={{fontSize:13}}>{text(locale, "暂无订单", "No orders yet")}</div>}
             {pagedOrders.map((item) => (
               <button key={item.id} onClick={() => onSelectOrder(item.id)}
                 className={["paid","cancelled"].includes(item.status) ? "order-done" : ""}>
@@ -1101,16 +1152,16 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
                   <strong>{item.order_no}</strong>
                   <small>{orderLocation(item)}</small>
                 </span>
-                <em className={`status-chip status-${item.status}`}>{item.status}</em>
+                <em className={`status-chip status-${item.status}`}>{statusLabel(item.status, locale)}</em>
                 <b>{money(item.total, currency, locale)}</b>
               </button>
             ))}
           </div>
           {filteredOrders.length > orderPageSize && (
             <div className="quick-orders-pagination">
-              <button type="button" onClick={() => setOrderPage((current) => Math.max(1, current - 1))} disabled={orderPage <= 1}>上一页</button>
+              <button type="button" onClick={() => setOrderPage((current) => Math.max(1, current - 1))} disabled={orderPage <= 1}>{text(locale, "上一页", "Previous")}</button>
               <span>{orderPage} / {totalOrderPages}</span>
-              <button type="button" onClick={() => setOrderPage((current) => Math.min(totalOrderPages, current + 1))} disabled={orderPage >= totalOrderPages}>下一页</button>
+              <button type="button" onClick={() => setOrderPage((current) => Math.min(totalOrderPages, current + 1))} disabled={orderPage >= totalOrderPages}>{text(locale, "下一页", "Next")}</button>
             </div>
           )}
         </>
@@ -1120,8 +1171,8 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
         <>
           <div className="order-meta">
             <span>{orderLocation(order)}</span>
-            <span>{order.service_type === "dine_in" ? "堂食" : "外带"}</span>
-            <span>{order.status}</span>
+            <span>{order.service_type === "dine_in" ? text(locale, "堂食", "Dine in") : text(locale, "外带", "Takeaway")}</span>
+            <span>{statusLabel(order.status, locale)}</span>
           </div>
           <div className="order-lines">
             {(order.items || []).map((item) => {
@@ -1143,76 +1194,76 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
             })}
           </div>
           <label className="notes-box">
-            订单备注
-            <input value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => onSaveNotes(notes)} placeholder="少盐、打包、过敏等" />
+            {text(locale, "订单备注", "Order notes")}
+            <input value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => onSaveNotes(notes)} placeholder={text(locale, "少盐、打包、过敏等", "Less salt, takeaway, allergy notes, etc.")} />
           </label>
           <div className="totals">
-            <span>Subtotal <b>{money(order.subtotal, currency, locale)}</b></span>
+            <span>{text(locale, "小计", "Subtotal")} <b>{money(order.subtotal, currency, locale)}</b></span>
             {order.discount_rate != null && (
               <span>
-                折扣 {order.discount_rate}折<b> -{money(rateDiscAmt, currency, locale)}</b>
-                <button type="button" style={{marginLeft:"6px",fontSize:"11px",padding:"1px 6px",cursor:"pointer"}} onClick={() => onDiscount({ discount_rate: null })}>撤销</button>
+                {text(locale, "折扣", "Discount")} {order.discount_rate}折<b> -{money(rateDiscAmt, currency, locale)}</b>
+                <button type="button" style={{marginLeft:"6px",fontSize:"11px",padding:"1px 6px",cursor:"pointer"}} onClick={() => onDiscount({ discount_rate: null })}>{text(locale, "撤销", "Undo")}</button>
               </span>
             )}
             {Number(order.discount_fixed) > 0 && (
               <span>
-                优惠减额<b> -{money(order.discount_fixed, currency, locale)}</b>
-                <button type="button" style={{marginLeft:"6px",fontSize:"11px",padding:"1px 6px",cursor:"pointer"}} onClick={() => onDiscount({ discount_fixed: 0 })}>撤销</button>
+                {text(locale, "优惠减额", "Fixed discount")}<b> -{money(order.discount_fixed, currency, locale)}</b>
+                <button type="button" style={{marginLeft:"6px",fontSize:"11px",padding:"1px 6px",cursor:"pointer"}} onClick={() => onDiscount({ discount_fixed: 0 })}>{text(locale, "撤销", "Undo")}</button>
               </span>
             )}
-            <span>Tax <b>{money(order.tax, currency, locale)}</b></span>
-            <span>Service <b>{money(order.service_charge, currency, locale)}</b></span>
-            <strong>Total <b>{money(order.total, currency, locale)}</b></strong>
+            <span>{text(locale, "税费", "Tax")} <b>{money(order.tax, currency, locale)}</b></span>
+            <span>{text(locale, "服务费", "Service")} <b>{money(order.service_charge, currency, locale)}</b></span>
+            <strong>{text(locale, "合计", "Total")} <b>{money(order.total, currency, locale)}</b></strong>
           </div>
           <details className="admin-adjustments">
-            <summary>权限操作</summary>
+            <summary>{text(locale, "权限操作", "Manager actions")}</summary>
             <div className="adjustment-grid">
               <div className="adjust-row">
-                <label>折扣率（折）
-                  <input type="number" min="0" max="10" step="0.1" value={discountRate} onChange={(event) => setDiscountRate(event.target.value)} placeholder="如 8.8" />
+                <label>{text(locale, "折扣率（折）", "Discount rate (x/10)")}
+                  <input type="number" min="0" max="10" step="0.1" value={discountRate} onChange={(event) => setDiscountRate(event.target.value)} placeholder={text(locale, "如 8.8", "e.g. 8.8")} />
                 </label>
                 <button type="button" onClick={() => {
                   const rate = parseFloat(discountRate);
                   if (isNaN(rate) || rate < 0 || rate > 10) return;
                   onDiscount({ discount_rate: rate, reason: "front desk adjustment" });
-                }}>应用折扣</button>
+                }}>{text(locale, "应用折扣", "Apply discount")}</button>
               </div>
 
               <div className="adjust-row">
-                <label>优惠金额
-                  <input type="number" min="0" step="0.01" value={discountAmt} onChange={(event) => setDiscountAmt(event.target.value)} placeholder="减免金额" />
+                <label>{text(locale, "优惠金额", "Discount amount")}
+                  <input type="number" min="0" step="0.01" value={discountAmt} onChange={(event) => setDiscountAmt(event.target.value)} placeholder={text(locale, "减免金额", "Amount to reduce")} />
                 </label>
                 <button type="button" onClick={() => {
                   const amt = parseFloat(discountAmt);
                   if (isNaN(amt) || amt < 0) return;
                   onDiscount({ discount_fixed: amt, reason: "front desk adjustment" });
-                }}>减免优惠</button>
+                }}>{text(locale, "减免优惠", "Apply fixed discount")}</button>
               </div>
 
               <div className="adjust-row">
-                <label>服务费率
+                <label>{text(locale, "服务费率", "Service charge rate")}
                   <input type="number" step="0.001" value={serviceRate} onChange={(event) => setServiceRate(event.target.value)} />
                 </label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" onClick={() => onAdjustService({ service_charge_rate: Number(serviceRate), service_charge_exempt: false, reason: "front desk adjustment" })}>更新服务费</button>
-                  <button type="button" onClick={() => onAdjustService({ service_charge_exempt: true, reason: "front desk exempt" })}>豁免服务费</button>
+                  <button type="button" onClick={() => onAdjustService({ service_charge_rate: Number(serviceRate), service_charge_exempt: false, reason: "front desk adjustment" })}>{text(locale, "更新服务费", "Update service charge")}</button>
+                  <button type="button" onClick={() => onAdjustService({ service_charge_exempt: true, reason: "front desk exempt" })}>{text(locale, "豁免服务费", "Exempt service charge")}</button>
                 </div>
               </div>
 
               <div className="adjust-row">
-                <label>取消原因
-                  <input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="客人取消、输错单等" />
+                <label>{text(locale, "取消原因", "Cancel reason")}
+                  <input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder={text(locale, "客人取消、输错单等", "Guest cancelled, entered wrong order, etc.")} />
                 </label>
-                <button type="button" onClick={() => onCancelOrder(cancelReason || "front desk cancel")}>取消订单</button>
+                <button type="button" onClick={() => onCancelOrder(cancelReason || "front desk cancel")}>{text(locale, "取消订单", "Cancel order")}</button>
               </div>
 
               {canVoid && (
                 <div className="adjust-row">
-                  <label>退菜原因
-                    <input value={voidReason} onChange={(event) => setVoidReason(event.target.value)} placeholder="客人退菜、制作错误等" />
+                  <label>{text(locale, "退菜原因", "Void reason")}
+                    <input value={voidReason} onChange={(event) => setVoidReason(event.target.value)} placeholder={text(locale, "客人退菜、制作错误等", "Guest return, kitchen mistake, etc.")} />
                   </label>
                   <button type="button" className={voidMode ? "primary" : ""} onClick={() => setVoidMode((v) => !v)}>
-                    {voidMode ? "退出退菜模式" : "退菜模式"}
+                    {voidMode ? text(locale, "退出退菜模式", "Exit void mode") : text(locale, "退菜模式", "Void mode")}
                   </button>
                 </div>
               )}
@@ -1221,33 +1272,33 @@ function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrd
           <div className="action-row sticky-actions">
             <button onClick={onSubmit} disabled={busy || !(order.items || []).length || order.status === "split"}>
               <Printer size={18} />
-              <span>厨房下单</span>
+              <span>{text(locale, "厨房下单", "Send to kitchen")}</span>
             </button>
             <button onClick={onPrintBill} disabled={busy || !(order.items || []).length}>
               <ClipboardList size={18} />
-              <span>账单</span>
+              <span>{text(locale, "账单", "Bill")}</span>
             </button>
             {order.parent_order_id && (
               <button onClick={onMerge} disabled={busy}>
                 <Users size={18} />
-                <span>合单</span>
+                <span>{text(locale, "合单", "Merge")}</span>
               </button>
             )}
             {!order.parent_order_id && order.status !== "split" && (
               <button onClick={() => onSplit("items")} disabled={busy || !(order.items || []).length}>
                 <Users size={18} />
-                <span>分单</span>
+                <span>{text(locale, "分单", "Split")}</span>
               </button>
             )}
             {order.status !== "split" && (
               <>
                 <button onClick={() => onSplit("even")} disabled={busy || !(order.items || []).length}>
                   <Coins size={18} />
-                  <span>平分</span>
+                  <span>{text(locale, "平分", "Split evenly")}</span>
                 </button>
                 <button className="primary" onClick={onPay} disabled={busy || !(order.items || []).length}>
                   <CircleDollarSign size={18} />
-                  <span>收款</span>
+                  <span>{text(locale, "收款", "Take payment")}</span>
                 </button>
                 <button onClick={async () => { try { await api("/print-jobs/cash-drawer", { method: "POST" }); } catch { /* drawer optional */ } }} disabled={busy}>
                   <span>💵</span>
@@ -1272,32 +1323,32 @@ function TableActionModal({ table, locale, currency, busy, isSelected, onClose, 
     <div className="modal-backdrop">
       <section className="modal action-modal">
         <header className="modal-header">
-          <button onClick={onClose} title="关闭"><X size={20} /></button>
+          <button onClick={onClose} title={text(locale, "关闭", "Close")}><X size={20} /></button>
           <div>
-            <h2>桌台 {table.label}</h2>
-            <p>{statusText[table.status] || table.status} · {table.seats} seats</p>
+            <h2>{text(locale, "桌台", "Table")} {table.label}</h2>
+            <p>{statusLabel(table.status, locale)} · {table.seats} seats</p>
           </div>
-          <span className={`status-badge ${table.status}`}>{statusText[table.status] || table.status}</span>
+          <span className={`status-badge ${table.status}`}>{statusLabel(table.status, locale)}</span>
         </header>
         <div className="action-summary">
           {Number(table.current_total) > 0 && <strong>{money(table.current_total, currency, locale)}</strong>}
-          {isSelected && <span>当前正在操作此桌</span>}
-          {needsCleaning && <span>付款已完成，可以清台。</span>}
-          {isAvailable && <span>确认后才会开台，避免误触。</span>}
-          {!isAvailable && !needsCleaning && hasItems && <span>可继续点单；如需清台，请先完成付款。</span>}
-          {!isAvailable && !needsCleaning && !hasItems && <span>此桌还没有点菜，可以直接清台。</span>}
+          {isSelected && <span>{text(locale, "当前正在操作此桌", "This table is currently selected")}</span>}
+          {needsCleaning && <span>{text(locale, "付款已完成，可以清台。", "Payment is complete. You can clear the table.")}</span>}
+          {isAvailable && <span>{text(locale, "确认后才会开台，避免误触。", "Confirm to open the table and avoid accidental taps.")}</span>}
+          {!isAvailable && !needsCleaning && hasItems && <span>{text(locale, "可继续点单；如需清台，请先完成付款。", "You can keep ordering. Pay first if you want to clear the table.")}</span>}
+          {!isAvailable && !needsCleaning && !hasItems && <span>{text(locale, "此桌还没有点菜，可以直接清台。", "No items have been ordered yet, so you can clear the table.")}</span>}
         </div>
         <footer className="modal-footer">
-          <button onClick={onClose}>取消</button>
+          <button onClick={onClose}>{text(locale, "取消", "Cancel")}</button>
           {canClear && (
             <button onClick={onClear} disabled={busy}>
               {busy ? <Loader2 className="spin" size={18} /> : <Trash2 size={18} />}
-              <span>{needsCleaning || hasOrder ? "清台" : "保持空桌"}</span>
+              <span>{needsCleaning || hasOrder ? text(locale, "清台", "Clear table") : text(locale, "保持空桌", "Keep available")}</span>
             </button>
           )}
           <button className="primary" onClick={onOpen} disabled={busy}>
             {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-            <span>{isAvailable ? "确认开台" : needsCleaning ? "新建订单" : "继续点单"}</span>
+            <span>{isAvailable ? text(locale, "确认开台", "Open table") : needsCleaning ? text(locale, "新建订单", "New order") : text(locale, "继续点单", "Continue ordering")}</span>
           </button>
         </footer>
       </section>
@@ -1305,12 +1356,12 @@ function TableActionModal({ table, locale, currency, busy, isSelected, onClose, 
   );
 }
 
-function ConfirmModal({ title, message, confirmLabel, icon, extra, busy, onCancel, onConfirm }) {
+function ConfirmModal({ locale, title, message, confirmLabel, icon, extra, busy, onCancel, onConfirm }) {
   return (
     <div className="modal-backdrop">
       <section className="modal action-modal">
         <header className="modal-header">
-          <button onClick={onCancel} title="关闭"><X size={20} /></button>
+          <button onClick={onCancel} title={text(locale, "关闭", "Close")}><X size={20} /></button>
           <div>
             <h2>{title}</h2>
             <p>{message}</p>
@@ -1319,7 +1370,7 @@ function ConfirmModal({ title, message, confirmLabel, icon, extra, busy, onCance
         </header>
         {extra && <div className="modal-extra">{extra}</div>}
         <footer className="modal-footer">
-          <button onClick={onCancel}>取消</button>
+          <button onClick={onCancel}>{text(locale, "取消", "Cancel")}</button>
           <button className="primary" onClick={onConfirm} disabled={busy}>
             {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
             <span>{confirmLabel}</span>
@@ -1353,13 +1404,13 @@ function VoidableOrderLine({ item, locale, currency, locked, canVoidThis, voidRe
         <strong
           className={canEdit ? "item-name-editable" : ""}
           onClick={canEdit ? () => onEditItem(item) : undefined}
-          title={canEdit ? "点击修改规格/备注" : undefined}
+          title={canEdit ? text(locale, "点击修改规格/备注", "Edit variant/notes") : undefined}
         >{labelOf(item.name_i18n, locale)}</strong>
         <span>{labelOf(item.variant_name_i18n, locale)}</span>
-        {locked && !canVoidThis && <small className="locked-line">已下单制作中</small>}
-        {canVoidThis && !pendingVoid && <small className="locked-line warn">点击删除进行退菜</small>}
+        {locked && !canVoidThis && <small className="locked-line">{text(locale, "已下单制作中", "Submitted and being prepared")}</small>}
+        {canVoidThis && !pendingVoid && <small className="locked-line warn">{text(locale, "点击删除进行退菜", "Click delete to void this item")}</small>}
         {canVoidThis && pendingVoid && (
-          <small className="locked-line warn">退菜数量：
+          <small className="locked-line warn">{text(locale, "退菜数量：", "Void quantity:")}
             <button type="button" style={{padding:"0 4px"}} onClick={() => setVoidQty((q) => Math.max(1, q - 1))}>-</button>
             <b style={{margin:"0 4px"}}>{voidQty}</b>
             <button type="button" style={{padding:"0 4px"}} onClick={() => setVoidQty((q) => Math.min(maxQty, q + 1))}>+</button>
@@ -1369,24 +1420,24 @@ function VoidableOrderLine({ item, locale, currency, locked, canVoidThis, voidRe
         {aggregateModifiers(item.modifiers).map((modifier) => (
           <small key={modifier.modifier_id || modifier.id}>+ {modifier.count > 1 ? `${modifier.count}X ` : ""}{labelOf(modifier.name_i18n, locale)} {Number(modifier.price_delta) ? money(Number(modifier.price_delta) * modifier.count, currency, locale) : ""}</small>
         ))}
-        {item.notes && <small className="item-notes">备注：{item.notes}</small>}
+        {item.notes && <small className="item-notes">{text(locale, "备注：", "Notes:")}{item.notes}</small>}
       </div>
       <div className="qty-stepper">
-        <button onClick={() => onQuantity(item, Number(item.quantity) - 1)} disabled={locked} title="减少"><Minus size={16} /></button>
+        <button onClick={() => onQuantity(item, Number(item.quantity) - 1)} disabled={locked} title={text(locale, "减少", "Decrease")}><Minus size={16} /></button>
         <b>{item.quantity}</b>
-        <button onClick={() => onQuantity(item, Number(item.quantity) + 1)} disabled={locked} title="增加"><Plus size={16} /></button>
+        <button onClick={() => onQuantity(item, Number(item.quantity) + 1)} disabled={locked} title={text(locale, "增加", "Increase")}><Plus size={16} /></button>
       </div>
       {canVoidThis ? (
         pendingVoid ? (
-          <button className="icon-danger" onClick={commitVoid} title="确认退菜"><Check size={16} /></button>
+          <button className="icon-danger" onClick={commitVoid} title={text(locale, "确认退菜", "Confirm void")}><Check size={16} /></button>
         ) : (
           <button className="icon-danger" onClick={() => {
             if (maxQty > 1) { setVoidQty(maxQty); setPendingVoid(true); }
             else commitVoid();
-          }} title="退菜"><Trash2 size={16} /></button>
+          }} title={text(locale, "退菜", "Void item")}><Trash2 size={16} /></button>
         )
       ) : (
-        <button className="icon-danger" onClick={() => onQuantity(item, 0)} disabled={locked} title="删除"><Trash2 size={16} /></button>
+        <button className="icon-danger" onClick={() => onQuantity(item, 0)} disabled={locked} title={text(locale, "删除", "Delete")}><Trash2 size={16} /></button>
       )}
     </div>
   );
@@ -1411,23 +1462,23 @@ function CustomItemModal({ locale, currency, onClose, onAdd }) {
     <div className="modal-backdrop" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <header className="modal-header">
-          <button type="button" onClick={onClose} title="关闭"><X size={20} /></button>
+          <button type="button" onClick={onClose} title={text(locale, "关闭", "Close")}><X size={20} /></button>
           <div>
-            <h2>杂项代收</h2>
-            <p>自定义名称与价格，记入当前订单</p>
+            <h2>{text(locale, "杂项代收", "Misc charge")}</h2>
+            <p>{text(locale, "自定义名称与价格，记入当前订单", "Set a custom name and price for the current order")}</p>
           </div>
         </header>
         <div className="modal-body" style={{display:"grid",gap:12,padding:"16px 20px"}}>
           <label>
-            名称 <small className="label-hint">如 "塑料袋"、"打包盒"、"代收押金" 等</small>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="杂项名称" autoFocus />
+            {text(locale, "名称", "Name")} <small className="label-hint">{text(locale, "如 \"塑料袋\"、\"打包盒\"、\"代收押金\" 等", "e.g. bag, box, deposit")}</small>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={text(locale, "杂项名称", "Charge name")} autoFocus />
           </label>
           <label>
-            单价（{currency}）
+            {text(locale, "单价", "Unit price")}（{currency}）
             <input type="number" inputMode="decimal" step="0.01" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
           </label>
           <label>
-            数量
+            {text(locale, "数量", "Quantity")}
             <div className="qty-stepper" style={{justifySelf:"start"}}>
               <button type="button" onClick={() => setQuantity((q) => Math.max(1, q - 1))}><Minus size={16} /></button>
               <b>{quantity}</b>
@@ -1435,15 +1486,15 @@ function CustomItemModal({ locale, currency, onClose, onAdd }) {
             </div>
           </label>
           <label>
-            备注（可选）
-            <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="备注信息" />
+            {text(locale, "备注（可选）", "Notes (optional)")}
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={text(locale, "备注信息", "Notes") } />
           </label>
-          {valid && <div className="totals" style={{borderTop:"1px solid var(--border)",paddingTop:8}}><strong>小计 <b>{new Intl.NumberFormat(locale, { style: "currency", currency }).format(total)}</b></strong></div>}
+          {valid && <div className="totals" style={{borderTop:"1px solid var(--border)",paddingTop:8}}><strong>{text(locale, "小计", "Subtotal")} <b>{new Intl.NumberFormat(locale, { style: "currency", currency }).format(total)}</b></strong></div>}
         </div>
         <footer className="modal-footer">
-          <button type="button" onClick={onClose}>取消</button>
+          <button type="button" onClick={onClose}>{text(locale, "取消", "Cancel")}</button>
           <button type="submit" className="primary" disabled={!valid}>
-            <Plus size={18} /><span>加入订单</span>
+            <Plus size={18} /><span>{text(locale, "加入订单", "Add to order")}</span>
           </button>
         </footer>
       </form>
@@ -1469,13 +1520,13 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
 
   useEffect(() => {
     if (!initialNotes) return;
-    // 尝试把已保存的备注拆成预设 labels + 自由文本，格式示例："少辣、不要香菜；去汤"
+    // Try to split saved notes into preset labels + free text, for example: "少辣、不要香菜；去汤"
     const parts = initialNotes.split("；").map((s) => s.trim()).filter(Boolean);
     if (parts.length === 0) {
       setNotes("");
       return;
     }
-    // 第一段可能是用逗号式 '、' 连接的预设标签
+    // The first segment may be a preset label list joined by '、'
     const candidateLabels = parts[0].split("、").map((s) => s.trim()).filter(Boolean);
     const matchedIds = candidateLabels.map((lbl) => (notePresets.find((p) => p.label === lbl) || {}).id).filter(Boolean);
     if (matchedIds.length > 0) {
@@ -1483,7 +1534,7 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
       const free = parts.slice(1).join("；").trim();
       setNotes(free);
     } else {
-      // 未匹配到任何预设标签，则将整个 initialNotes 视为自由文本
+      // If no preset labels match, keep the whole note as free text
       setNotes(initialNotes);
     }
   }, [initialNotes, notePresets]);
@@ -1538,16 +1589,16 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
     <div className="modal-backdrop">
       <section className="modal">
         <header className="modal-header">
-          <button onClick={onClose} title="返回"><ChevronLeft size={20} /></button>
+          <button onClick={onClose} title={text(locale, "返回", "Back")}><ChevronLeft size={20} /></button>
           <div>
             <h2>{labelOf(item.name_i18n, locale)}</h2>
             <p>{labelOf(item.description_i18n, locale)}</p>
           </div>
-          <button onClick={onClose} title="关闭"><X size={20} /></button>
+          <button onClick={onClose} title={text(locale, "关闭", "Close")}><X size={20} /></button>
         </header>
 
         <div className="choice-group">
-          <h3>规格</h3>
+          <h3>{text(locale, "规格", "Variants")}</h3>
           <div className="choice-grid">
             {activeVariants.map((variant) => (
               <button key={variant.id} className={variantId === variant.id ? "selected" : ""} onClick={() => setVariantId(variant.id)}>
@@ -1556,18 +1607,18 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
               </button>
             ))}
           </div>
-          {!activeVariants.length && <div className="inline-error">这个菜品还没有可售规格，请到后台先添加规格。</div>}
+          {!activeVariants.length && <div className="inline-error">{text(locale, "这个菜品还没有可售规格，请到后台先添加规格。", "This item has no active variants yet. Add one in the admin panel first.")}</div>}
         </div>
 
         {activeModifierGroups.map((group) => (
           <div className="choice-group" key={group.id}>
-            <h3>{labelOf(group.name_i18n, locale)} <small className="muted">已选 {groupSelectionCount(group)} / {Number(group.max_select || 1)}{Number(group.min_select || 0) > 0 ? `，至少 ${group.min_select}` : ""}</small></h3>
+            <h3>{labelOf(group.name_i18n, locale)} <small className="muted">{text(locale, "已选", "Selected")} {groupSelectionCount(group)} / {Number(group.max_select || 1)}{Number(group.min_select || 0) > 0 ? text(locale, `，至少 ${group.min_select}`, `, min ${group.min_select}`) : ""}</small></h3>
             {Number(group.max_select || 1) === 1 ? (
               <div className="choice-grid">
                 {group.modifiers.filter((modifier) => modifier.active).map((modifier) => (
                   <button key={modifier.id} className={modifierIds.includes(modifier.id) ? "selected" : ""} onClick={() => toggleModifier(group, modifier.id)}>
-                    <span>{labelOf(modifier.name_i18n, locale)}{modifier.default_selected && <small className="default-option-badge">默认</small>}</span>
-                    <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : "免费"}</b>
+                    <span>{labelOf(modifier.name_i18n, locale)}{modifier.default_selected && <small className="default-option-badge">{text(locale, "默认", "Default")}</small>}</span>
+                    <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : text(locale, "免费", "Free")}</b>
                   </button>
                 ))}
               </div>
@@ -1579,13 +1630,13 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
                   return (
                     <div className={`modifier-quantity-card ${count > 0 ? "selected" : ""}`} key={modifier.id}>
                       <button className="modifier-main-button" onClick={() => changeModifierCount(group, modifier.id, 1)} disabled={atGroupLimit}>
-                        <span>{labelOf(modifier.name_i18n, locale)}{modifier.default_selected && <small className="default-option-badge">默认</small>}</span>
-                        <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : "免费"}</b>
+                        <span>{labelOf(modifier.name_i18n, locale)}{modifier.default_selected && <small className="default-option-badge">{text(locale, "默认", "Default")}</small>}</span>
+                        <b>{Number(modifier.price_delta) ? money(modifier.price_delta, currency, locale) : text(locale, "免费", "Free")}</b>
                       </button>
                       <div className="modifier-quantity-stepper">
-                        <button onClick={() => changeModifierCount(group, modifier.id, -1)} disabled={count === 0} aria-label={`减少${labelOf(modifier.name_i18n, locale)}`}><Minus size={15} /></button>
+                        <button onClick={() => changeModifierCount(group, modifier.id, -1)} disabled={count === 0} aria-label={text(locale, `减少${labelOf(modifier.name_i18n, locale)}`, `Decrease ${labelOf(modifier.name_i18n, locale)}`)}><Minus size={15} /></button>
                         <strong>{count}</strong>
-                        <button onClick={() => changeModifierCount(group, modifier.id, 1)} disabled={atGroupLimit} aria-label={`增加${labelOf(modifier.name_i18n, locale)}`}><Plus size={15} /></button>
+                        <button onClick={() => changeModifierCount(group, modifier.id, 1)} disabled={atGroupLimit} aria-label={text(locale, `增加${labelOf(modifier.name_i18n, locale)}`, `Increase ${labelOf(modifier.name_i18n, locale)}`)}><Plus size={15} /></button>
                       </div>
                     </div>
                   );
@@ -1597,7 +1648,7 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
 
         {notePresets.length > 0 && (
           <div className="choice-group">
-            <h3>常用备注 <small className="muted" style={{fontWeight:"normal"}}>（只打印到厨房单）</small></h3>
+            <h3>{text(locale, "常用备注", "Quick notes")} <small className="muted" style={{fontWeight:"normal"}}>{text(locale, "（只打印到厨房单）", "(printed on the kitchen ticket only)")}</small></h3>
             <div className="choice-grid">
               {notePresets.map((preset) => (
                 <button
@@ -1614,8 +1665,8 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
         )}
 
         <label className="notes-box">
-          菜品备注
-          <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="不要香菜、汤分开等" />
+          {text(locale, "菜品备注", "Item notes")}
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={text(locale, "不要香菜、汤分开等", "No coriander, soup separate, etc.")} />
         </label>
 
         <footer className="modal-footer">
@@ -1640,10 +1691,10 @@ function ItemModal({ item, locale, currency, notePresets = [], initialVariantId,
             disabled={!variantId || !modifierSelectionValid || submitting}
           >
             {submitting ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-            <span>{submitting ? (editMode ? "更新中" : "加入中") : (editMode ? "更新菜品" : "加入订单")}</span>
+            <span>{submitting ? (editMode ? text(locale, "更新中", "Updating") : text(locale, "加入中", "Adding")) : (editMode ? text(locale, "更新菜品", "Update item") : text(locale, "加入订单", "Add to order"))}</span>
           </button>
         </footer>
-        {!modifierSelectionValid && <div className="inline-error">请完成必选小料，并确认选择数量没有超过上限。</div>}
+        {!modifierSelectionValid && <div className="inline-error">{text(locale, "请完成必选小料，并确认选择数量没有超过上限。", "Complete the required modifiers and make sure the selection count does not exceed the limit.")}</div>}
         {error && <div className="inline-error">{error}</div>}
       </section>
     </div>
@@ -1707,15 +1758,15 @@ function SplitByItemsModal({ order, locale, currency, busy, onClose, onSplit }) 
       <section className="modal split-items-modal">
         <header className="modal-header">
           <button onClick={onClose}><ChevronLeft size={20} /></button>
-          <div><h2>分单—按菜品分配</h2><p>{order.order_no}</p></div>
+          <div><h2>{text(locale, "分单—按菜品分配", "Split order by item")}</h2><p>{order.order_no}</p></div>
           <button onClick={onClose}><X size={20} /></button>
         </header>
 
         <div className="split-person-bar">
-          <span>人数</span>
+          <span>{text(locale, "人数", "People")}</span>
           {[2,3,4,5,6,7,8,9,10].map(n => (
             <button key={n} className={personCount === n ? "selected" : ""}
-              onClick={() => setPersonCount(n)}>{n}人</button>
+              onClick={() => setPersonCount(n)}>{n}{text(locale, "人", "p")}</button>
           ))}
         </div>
 
@@ -1754,7 +1805,7 @@ function SplitByItemsModal({ order, locale, currency, busy, onClose, onSplit }) 
                         </div>
                       );
                     })}
-                    {remain > 0 && <span className="split-unassigned-badge">剩{remain}</span>}
+                    {remain > 0 && <span className="split-unassigned-badge">{text(locale, `剩${remain}`, `Left ${remain}`)}</span>}
                   </div>
                 )}
               </div>
@@ -1772,13 +1823,13 @@ function SplitByItemsModal({ order, locale, currency, busy, onClose, onSplit }) 
         </div>
 
         {unassigned.length > 0 && (
-          <div className="split-warning">还有 {unassigned.length} 项未分配完毕</div>
+          <div className="split-warning">{text(locale, `还有 ${unassigned.length} 项未分配完毕`, `${unassigned.length} items still unassigned`)}</div>
         )}
 
         <footer className="modal-footer">
-          <button onClick={onClose}>取消</button>
+          <button onClick={onClose}>{text(locale, "取消", "Cancel")}</button>
           <button className="primary" onClick={handleConfirm} disabled={unassigned.length > 0 || busy}>
-            <Users size={18} /><span>确认分单</span>
+            <Users size={18} /><span>{text(locale, "确认分单", "Confirm split")}</span>
           </button>
         </footer>
       </section>
@@ -1827,22 +1878,22 @@ function EvenSplitModal({ order, locale, currency, busy, onClose, onPayPartial }
       <section className="modal payment-modal">
         <header className="modal-header">
           <button onClick={() => onClose(false)} title="返回"><ChevronLeft size={20} /></button>
-          <div><h2>拆单收款</h2><p>{order.order_no}</p></div>
+          <div><h2>{text(locale, "拆单收款", "Split payment")}</h2><p>{order.order_no}</p></div>
           <button onClick={() => onClose(false)} title="关闭"><X size={20} /></button>
         </header>
 
         <div className="split-summary">
-          <div><span>订单总额</span><b>{money(total, currency, locale)}</b></div>
-          {paidSoFar > 0 && <div><span>已收</span><b className="split-paid-amt">{money(paidSoFar, currency, locale)}</b></div>}
-          <div className="split-remaining-row"><span>待收</span><b>{money(remaining, currency, locale)}</b></div>
+          <div><span>{text(locale, "订单总额", "Order total")}</span><b>{money(total, currency, locale)}</b></div>
+          {paidSoFar > 0 && <div><span>{text(locale, "已收", "Paid")}</span><b className="split-paid-amt">{money(paidSoFar, currency, locale)}</b></div>}
+          <div className="split-remaining-row"><span>{text(locale, "待收", "Remaining")}</span><b>{money(remaining, currency, locale)}</b></div>
         </div>
 
         {isFullyPaid ? (
-          <div className="pay-total" style={{ color: "#16a34a", fontSize: "22px" }}>已全额付清 ✓</div>
+          <div className="pay-total" style={{ color: "#16a34a", fontSize: "22px" }}>{text(locale, "已全额付清", "Fully paid")} ✓</div>
         ) : (
           <>
             <div className="split-n-bar">
-              <span>均分</span>
+              <span>{text(locale, "均分", "Even split")}</span>
               {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
                 <button key={n}
                   className={splitN === n ? "selected" : ""}
@@ -1852,12 +1903,12 @@ function EvenSplitModal({ order, locale, currency, busy, onClose, onPayPartial }
                     setPerPersonAmt(per);
                     setAmount(per.toFixed(2));
                   }}
-                >{n}人</button>
+                >{n}{text(locale, "人", "p")}</button>
               ))}
-              <button onClick={() => { setPerPersonAmt(null); setAmount(remaining.toFixed(2)); }}>全额</button>
+              <button onClick={() => { setPerPersonAmt(null); setAmount(remaining.toFixed(2)); }}>{text(locale, "全额", "Full amount")}</button>
             </div>
             {perPerson > 0 && (
-              <div className="split-per-person">每份约 <b>{money(perPerson, currency, locale)}</b></div>
+              <div className="split-per-person">{text(locale, "每份约", "Each about")} <b>{money(perPerson, currency, locale)}</b></div>
             )}
             <div className="choice-grid" style={{ margin: "12px 0" }}>
               {["cash", "card", "qr", "other"].map((m) => (
@@ -1865,23 +1916,23 @@ function EvenSplitModal({ order, locale, currency, busy, onClose, onPayPartial }
               ))}
             </div>
             <label className="notes-box">
-              收款金额
+              {text(locale, "收款金额", "Amount received")}
               <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </label>
             <div className="totals">
-              <span>应收 <b>{money(remaining, currency, locale)}</b></span>
-              <span>实收 <b>{money(paid, currency, locale)}</b></span>
-              {change > 0 && <strong>找零 <b>{money(change, currency, locale)}</b></strong>}
+              <span>{text(locale, "应收", "Due")} <b>{money(remaining, currency, locale)}</b></span>
+              <span>{text(locale, "实收", "Received")} <b>{money(paid, currency, locale)}</b></span>
+              {change > 0 && <strong>{text(locale, "找零", "Change")} <b>{money(change, currency, locale)}</b></strong>}
             </div>
           </>
         )}
 
         <footer className="modal-footer">
-          <button onClick={() => onClose(false)}>{isFullyPaid ? "关闭" : "稍后"}</button>
+          <button onClick={() => onClose(false)}>{isFullyPaid ? text(locale, "关闭", "Close") : text(locale, "稍后", "Later")}</button>
           {!isFullyPaid && (
             <button className="primary" onClick={handlePay} disabled={busy || paid <= 0}>
               <CircleDollarSign size={18} />
-              <span>收款 {money(paid, currency, locale)}</span>
+              <span>{text(locale, "收款", "Take payment")} {money(paid, currency, locale)}</span>
             </button>
           )}
         </footer>
@@ -2009,40 +2060,40 @@ function PaymentModal({ order, locale, currency, dojoAvailable, onClose, onPay, 
     <div className="modal-backdrop">
       <section className="modal payment-modal">
         <header className="modal-header">
-          <button onClick={onClose} title="返回" disabled={attemptPending}><ChevronLeft size={20} /></button>
+          <button onClick={onClose} title={text(locale, "返回", "Back")} disabled={attemptPending}><ChevronLeft size={20} /></button>
           <div>
-            <h2>收款</h2>
+            <h2>{text(locale, "收款", "Payment")}</h2>
             <p>{order.order_no}</p>
           </div>
-          <button onClick={onClose} title="关闭" disabled={attemptPending}><X size={20} /></button>
+          <button onClick={onClose} title={text(locale, "关闭", "Close")} disabled={attemptPending}><X size={20} /></button>
         </header>
         <div className="pay-total">{money(remaining, currency, locale)}</div>
         <div className="payment-mode-tabs">
-          {dojoAvailable && <button className={mode === "dojo" ? "selected" : ""} onClick={() => setMode("dojo")} disabled={attemptPending}>Dojo 刷卡</button>}
-          <button className={mode === "manual" ? "selected" : ""} onClick={() => setMode("manual")} disabled={attemptPending}>手工记账</button>
+          {dojoAvailable && <button className={mode === "dojo" ? "selected" : ""} onClick={() => setMode("dojo")} disabled={attemptPending}>{text(locale, "Dojo 刷卡", "Dojo card")}</button>}
+          <button className={mode === "manual" ? "selected" : ""} onClick={() => setMode("manual")} disabled={attemptPending}>{text(locale, "手工记账", "Manual payment")}</button>
         </div>
         {mode === "dojo" ? (
           <>
             {terminals.length > 1 && (
-              <label className="notes-box">刷卡机
+              <label className="notes-box">{text(locale, "刷卡机", "Terminal")}
                 <select value={terminalId} onChange={(event) => setTerminalId(event.target.value)} disabled={attemptPending}>
                   {terminals.map((terminal) => <option value={terminal.id} key={terminal.id}>{terminal.name}</option>)}
                 </select>
               </label>
             )}
             <div className={`dojo-payment-state ${attempt?.status || "ready"}`}>
-              {dojoBusy ? <><Loader2 className="spin" size={28} />正在连接 Dojo…</> : attemptPending ? <><Loader2 className="spin" size={28} />{dojoPrompt}</> : attempt?.status === "declined" ? "付款被拒绝，请重试或改用手工记账" : attempt?.status === "unknown" ? "支付结果不确定，请核对刷卡机或终端小票" : "金额将自动发送到 Dojo 刷卡机"}
+              {dojoBusy ? <><Loader2 className="spin" size={28} />{text(locale, "正在连接 Dojo…", "Connecting to Dojo…")}</> : attemptPending ? <><Loader2 className="spin" size={28} />{dojoPrompt}</> : attempt?.status === "declined" ? text(locale, "付款被拒绝，请重试或改用手工记账", "Payment declined. Try again or use manual payment.") : attempt?.status === "unknown" ? text(locale, "支付结果不确定，请核对刷卡机或终端小票", "Payment status is uncertain. Check the terminal or receipt.") : text(locale, "金额将自动发送到 Dojo 刷卡机", "The amount will be sent to the Dojo terminal automatically")}
             </div>
             {dojoError && <div className="inline-error">{dojoError}</div>}
             {signatureRequired && (
               <div className="dojo-signature-actions">
-                <button onClick={() => answerSignature(false)} disabled={dojoBusy}>拒绝签名</button>
-                <button className="primary" onClick={() => answerSignature(true)} disabled={dojoBusy}>确认签名一致</button>
+                <button onClick={() => answerSignature(false)} disabled={dojoBusy}>{text(locale, "拒绝签名", "Decline signature")}</button>
+                <button className="primary" onClick={() => answerSignature(true)} disabled={dojoBusy}>{text(locale, "确认签名一致", "Confirm signature matches")}</button>
               </div>
             )}
             <footer className="modal-footer">
-              {attemptPending ? <button onClick={cancelDojo} disabled={dojoBusy}>取消终端交易</button> : <button onClick={onClose}>关闭</button>}
-              {!attemptPending && <button className="primary" onClick={startDojo} disabled={dojoBusy || terminals.length === 0 || remaining <= 0 || attempt?.status === "unknown"}><CircleDollarSign size={18} /><span>发送到 Dojo</span></button>}
+              {attemptPending ? <button onClick={cancelDojo} disabled={dojoBusy}>{text(locale, "取消终端交易", "Cancel terminal payment")}</button> : <button onClick={onClose}>{text(locale, "关闭", "Close")}</button>}
+              {!attemptPending && <button className="primary" onClick={startDojo} disabled={dojoBusy || terminals.length === 0 || remaining <= 0 || attempt?.status === "unknown"}><CircleDollarSign size={18} /><span>{text(locale, "发送到 Dojo", "Send to Dojo")}</span></button>}
             </footer>
           </>
         ) : (
@@ -2052,19 +2103,19 @@ function PaymentModal({ order, locale, currency, dojoAvailable, onClose, onPay, 
                 <button key={item} className={method === item ? "selected" : ""} onClick={() => setMethod(item)}>{item}</button>
               ))}
             </div>
-            <label className="notes-box">手工输入实收金额
+            <label className="notes-box">{text(locale, "手工输入实收金额", "Enter manual payment amount")}
               <input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
             </label>
             <div className="totals">
-              <span>待收 <b>{money(remaining, currency, locale)}</b></span>
-              <span>实收 <b>{money(paid, currency, locale)}</b></span>
-              <strong>找零 <b>{money(change, currency, locale)}</b></strong>
+              <span>{text(locale, "待收", "Remaining")} <b>{money(remaining, currency, locale)}</b></span>
+              <span>{text(locale, "实收", "Received")} <b>{money(paid, currency, locale)}</b></span>
+              <strong>{text(locale, "找零", "Change")} <b>{money(change, currency, locale)}</b></strong>
             </div>
-            {!dojoAvailable && <small className="payment-provider-hint">Dojo 尚未配置，当前仍可使用手工收款。</small>}
+            {!dojoAvailable && <small className="payment-provider-hint">{text(locale, "Dojo 尚未配置，当前仍可使用手工收款。", "Dojo is not configured yet. Manual payment is still available.")}</small>}
             <footer className="modal-footer">
-              <button onClick={onClose}>取消</button>
+              <button onClick={onClose}>{text(locale, "取消", "Cancel")}</button>
               <button className="primary" onClick={() => onPay({ method, amount: paid, change_due: change })} disabled={paid < remaining}>
-                <CircleDollarSign size={18} /><span>确认手工收款</span>
+                <CircleDollarSign size={18} /><span>{text(locale, "确认手工收款", "Confirm manual payment")}</span>
               </button>
             </footer>
           </>
