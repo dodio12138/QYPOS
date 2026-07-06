@@ -603,7 +603,7 @@ export default function PosPage() {
   if (!user) {
     return (
       <main className="pos-shell">
-        <PosLogin notice={notice} online={online} apiOnline={apiOnline} busy={busy} onLogin={login} />
+        <PosLogin notice={notice} online={online} apiOnline={apiOnline} busy={busy} locale={locale} onLogin={login} />
       </main>
     );
   }
@@ -793,6 +793,7 @@ export default function PosPage() {
 
       {pendingDiscount && (
         <DiscountAdminModal
+          locale={locale}
           onCancel={() => setPendingDiscount(null)}
           onApply={async () => {
             await applyDiscount(pendingDiscount);
@@ -844,7 +845,7 @@ export default function PosPage() {
   );
 }
 
-function DiscountAdminModal({ onCancel, onApply }) {
+function DiscountAdminModal({ locale, onCancel, onApply }) {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -978,7 +979,7 @@ function FloorMap({ layout, locale, currency, selectedOrder, busyTableId, onSele
   );
 }
 
-function PosLogin({ notice, online, apiOnline, busy, onLogin }) {
+function PosLogin({ notice, online, apiOnline, busy, locale, onLogin }) {
   const [name, setName] = useState("Cashier");
   const [pin, setPin] = useState("1111");
 

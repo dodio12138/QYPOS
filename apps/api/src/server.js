@@ -2811,7 +2811,20 @@ async function buildSalesReport(from, to) {
 }
 
 function buildDateSeries(from, to, rows) {
-  const dayKey = (value) => (value instanceof Date ? value.toISOString() : String(value)).slice(0, 10);
+  // `row.day` comes back from pg as a JS Date representing local midnight
+  // (in this process's TZ, matching the DB's `SET timezone`). Using
+  // `.toISOString()` would convert to UTC and can shift the calendar date
+  // backward by one day whenever the local offset is positive (e.g. BST),
+  // so we must read the date using local getters instead of UTC ones.
+  const dayKey = (value) => {
+    if (value instanceof Date) {
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, "0");
+      const d = String(value.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+    return String(value).slice(0, 10);
+  };
   const byDayMap = new Map((rows || []).map((row) => [dayKey(row.day), row]));
   const start = new Date(`${from}T00:00:00Z`);
   const end = new Date(`${to}T00:00:00Z`);

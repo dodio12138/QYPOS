@@ -168,6 +168,12 @@ function addYears(dateStr, delta) {
   return formatDateStr(date);
 }
 
+function mondayOf(dateStr) {
+  const date = new Date(`${dateStr}T00:00:00`);
+  const dow = (date.getDay() + 6) % 7; // 0 = Monday
+  return addDays(dateStr, -dow);
+}
+
 function daySpan(fromStr, toStr) {
   const from = new Date(`${fromStr}T00:00:00`);
   const to = new Date(`${toStr}T00:00:00`);
@@ -2416,6 +2422,7 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
   const [preset, setPreset] = useState("7d");
   const [compareMode, setCompareMode] = useState("mom");
   const [trendMetric, setTrendMetric] = useState("revenue");
+  const [trendWeekdays, setTrendWeekdays] = useState([]);
   const [timeSlotInterval, setTimeSlotInterval] = useState(30);
   const [selectedHotItemKeys, setSelectedHotItemKeys] = useState([]);
   const [selectedHotItemTrends, setSelectedHotItemTrends] = useState({});
@@ -2460,11 +2467,22 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
   function applyPreset(id) {
     setPreset(id);
     let nextFrom = today;
-    const nextTo = today;
+    let nextTo = today;
     if (id === "today") nextFrom = today;
+    else if (id === "yesterday") { nextFrom = addDays(today, -1); nextTo = addDays(today, -1); }
     else if (id === "7d") nextFrom = addDays(today, -6);
     else if (id === "30d") nextFrom = addDays(today, -29);
     else if (id === "month") nextFrom = `${today.slice(0, 7)}-01`;
+    else if (id === "week") nextFrom = mondayOf(today);
+    else if (id === "lastWeek") {
+      const thisMonday = mondayOf(today);
+      nextFrom = addDays(thisMonday, -7);
+      nextTo = addDays(thisMonday, -1);
+    } else if (id === "lastMonth") {
+      const monthEnd = addDays(`${today.slice(0, 7)}-01`, -1);
+      nextFrom = `${monthEnd.slice(0, 7)}-01`;
+      nextTo = monthEnd;
+    }
     setFrom(nextFrom);
     setTo(nextTo);
     runReport(nextFrom, nextTo, compareMode);
@@ -2546,6 +2564,14 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
     () => buildTimeBucketSeries(report?.byTime || [], timeSlotInterval),
     [report, timeSlotInterval]
   );
+  const dailyTrendData = useMemo(() => {
+    const byDay = report?.byDay || [];
+    if (!trendWeekdays.length) return byDay;
+    return byDay.filter((row) => trendWeekdays.includes((new Date(row.day).getDay() + 6) % 7));
+  }, [report, trendWeekdays]);
+  function toggleTrendWeekday(dow) {
+    setTrendWeekdays((current) => current.includes(dow) ? current.filter((d) => d !== dow) : [...current, dow]);
+  }
   const maxWeekdayRevenue = Math.max(1, ...weekdayBreakdown.map((d) => d.revenue));
   const busiestWeekday = weekdayBreakdown.reduce((best, d) => (d.revenue > (best?.revenue ?? -1) ? d : best), null);
 
@@ -2580,11 +2606,15 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
       <section className="panel dashboard-list reports-toolbar-panel">
         <div className="panel-title"><h2>{t(locale, "数据分析", "Reports")}</h2></div>
         <div className="reports-preset-row">
-          <div className="reports-preset-group">
+          <div className="reports-preset-group reports-date-preset-group">
             <button type="button" className={preset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>{t(locale, "今日", "Today")}</button>
+            <button type="button" className={preset === "yesterday" ? "selected" : ""} onClick={() => applyPreset("yesterday")}>{t(locale, "昨天", "Yesterday")}</button>
             <button type="button" className={preset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>{t(locale, "近 7 天", "Last 7 days")}</button>
             <button type="button" className={preset === "30d" ? "selected" : ""} onClick={() => applyPreset("30d")}>{t(locale, "近 30 天", "Last 30 days")}</button>
             <button type="button" className={preset === "month" ? "selected" : ""} onClick={() => applyPreset("month")}>{t(locale, "本月", "This month")}</button>
+            <button type="button" className={preset === "week" ? "selected" : ""} onClick={() => applyPreset("week")}>{t(locale, "本周", "This week")}</button>
+            <button type="button" className={preset === "lastWeek" ? "selected" : ""} onClick={() => applyPreset("lastWeek")}>{t(locale, "上周", "Last week")}</button>
+            <button type="button" className={preset === "lastMonth" ? "selected" : ""} onClick={() => applyPreset("lastMonth")}>{t(locale, "上月", "Last month")}</button>
           </div>
           <div className="reports-preset-group">
             <button type="button" className={compareMode === "mom" ? "selected" : ""} onClick={() => onCompareModeChange("mom")}>{t(locale, "环比", "MoM")}</button>
@@ -2851,15 +2881,31 @@ function ReportsAnalytics({ report, setReport, locale, currency }) {
           <section className="panel report-chart dashboard-list report-daily-trend-panel">
             <div className="panel-title split">
               <h3>{trendMetric === "revenue" ? t(locale, "每日营业额趋势", "Daily revenue trend") : trendMetric === "orders" ? t(locale, "每日单量趋势", "Daily orders trend") : t(locale, "每日客单价趋势", "Daily average ticket trend")}</h3>
-              <div className="reports-trend-switch">
+            </div>
+            <div className="reports-preset-row daily-trend-toolbar">
+              <div className="reports-preset-group">
                 <button type="button" className={trendMetric === "revenue" ? "selected" : ""} onClick={() => setTrendMetric("revenue")}>{t(locale, "营业额", "Revenue")}</button>
                 <button type="button" className={trendMetric === "orders" ? "selected" : ""} onClick={() => setTrendMetric("orders")}>{t(locale, "单量", "Orders")}</button>
                 <button type="button" className={trendMetric === "avg_ticket" ? "selected" : ""} onClick={() => setTrendMetric("avg_ticket")}>{t(locale, "客单价", "Avg. ticket")}</button>
               </div>
+              <div className="reports-preset-group daily-trend-weekday-group">
+                <button type="button" className={!trendWeekdays.length ? "selected" : ""} onClick={() => setTrendWeekdays([])}>{t(locale, "全部", "All")}</button>
+                {weekdayLabels(locale).map((label, dow) => (
+                  <button
+                    type="button"
+                    key={dow}
+                    className={trendWeekdays.includes(dow) ? "selected" : ""}
+                    aria-pressed={trendWeekdays.includes(dow)}
+                    onClick={() => toggleTrendWeekday(dow)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-            {report.byDay && report.byDay.length ? (
+            {dailyTrendData.length ? (
               <div style={{ padding: 12 }}>
-                <DailyTrendChart data={report.byDay} metric={trendMetric} locale={locale} currency={currency} />
+                <DailyTrendChart data={dailyTrendData} metric={trendMetric} locale={locale} currency={currency} />
               </div>
             ) : <div className="empty">{t(locale, "无数据", "No data")}</div>}
           </section>
@@ -3091,7 +3137,7 @@ function CanvasDualChart({ data, locale, currency }) {
     ro.observe(container);
     window.addEventListener("orientationchange", draw);
     return () => { ro.disconnect(); window.removeEventListener("orientationchange", draw); };
-  }, [data, locale, visibleSeries.orders, visibleSeries.revenue, visibleSeries.avgTicket]);
+  }, [data, locale]);
 
   return (
     <div ref={containerRef} style={{ width: "100%", height: 200, position: 'relative' }}

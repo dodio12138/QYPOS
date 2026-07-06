@@ -2373,6 +2373,22 @@ h1 {
   color: white;
 }
 
+.daily-trend-toolbar {
+  margin-bottom: 12px;
+}
+
+.daily-trend-weekday-group {
+  flex-wrap: wrap;
+}
+
+.daily-trend-weekday-group button {
+  padding: 6px 10px;
+}
+
+.reports-date-preset-group {
+  flex-wrap: wrap;
+}
+
 .reports-summary-cards {
   grid-template-columns: repeat(4, minmax(160px, 1fr));
 }
