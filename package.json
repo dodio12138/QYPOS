@@ -32,8 +32,15 @@
   ],
   "scripts": {
     "dev": "docker compose up --build",
+    "lint": "eslint .",
     "test": "node --test tests/*.test.mjs",
     "backup": "bash scripts/backup-db.sh",
     "restore": "bash scripts/restore-db.sh"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0"
   }
 }

@@ -21,6 +21,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Run unit tests
         run: node --test tests/calculations.test.mjs
 
