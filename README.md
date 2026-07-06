@@ -318,13 +318,14 @@ You can also trigger backups manually, set auto-backup schedules, or download ba
 - [x] DB backup & restore
 
 ### Next (v0.2.0)
-- [ ] Staff management UI (CRUD, PIN hashing)
+- [x] Staff management UI (CRUD)
+- [ ] PIN hashing
 - [ ] Menu image upload
 - [ ] Combo meal support
-- [ ] Report visualization charts
+- [x] Report visualization charts
 - [ ] Shift handover & daily settlement
-- [ ] Real payment terminal integration
-- [ ] Full i18n (zh/en)
+- [x] Real payment terminal integration (Dojo Go)
+- [x] Full i18n (zh/en)
 
 ### Future (v0.3.0+)
 - [ ] Multi-store support
