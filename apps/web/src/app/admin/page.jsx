@@ -1290,6 +1290,19 @@ function MenuItemRow({ item, categories, optionPresets, locale, currency, expand
     }
   }
 
+  async function copyItem() {
+    setItemAction("copy");
+    try {
+      await api(`/menu/items/${item.id}/copy`, { method: "POST" });
+      await onSaved();
+      onNotify(t(locale, "菜品已复制", "Item duplicated"));
+    } catch (err) {
+      onNotify(err.message);
+    } finally {
+      setItemAction("");
+    }
+  }
+
   return (
     <div className={`menu-item-row${expanded ? " expanded" : ""}${!item.active ? " inactive" : ""}`}>
       <div className="menu-item-row-head" onClick={onToggle}>
@@ -1313,6 +1326,7 @@ function MenuItemRow({ item, categories, optionPresets, locale, currency, expand
             onNotify={onNotify}
             onToggleActive={toggleItem}
             onDestroy={destroyItem}
+            onCopy={copyItem}
             itemAction={itemAction}
           />
         </div>
@@ -1859,7 +1873,7 @@ function ModifierGroupPresetControls({ group, presets, locale, onSaved, onNotify
   );
 }
 
-function MenuItemEditor({ item, categories, optionPresets, locale, currency, onSaved, onNotify, onToggleActive, onDestroy, itemAction }) {
+function MenuItemEditor({ item, categories, optionPresets, locale, currency, onSaved, onNotify, onToggleActive, onDestroy, onCopy, itemAction }) {
   const [draft, setDraft] = useState({
     zh: labelOf(item.name_i18n, "zh-CN"),
     en: labelOf(item.name_i18n, "en-GB"),
@@ -1949,6 +1963,11 @@ function MenuItemEditor({ item, categories, optionPresets, locale, currency, onS
         <button className="action-toggle" type="button" onClick={onToggleActive} disabled={Boolean(itemAction)}>
           <Power size={16} /><span>{itemAction === "toggle" ? t(locale, "处理中…", "Working…") : item.active ? t(locale, "停用产品", "Disable item") : t(locale, "启用产品", "Enable item")}</span>
         </button>
+        {onCopy && (
+          <button type="button" className="action-copy" onClick={onCopy} disabled={Boolean(itemAction)}>
+            <Copy size={16} /><span>{itemAction === "copy" ? t(locale, "复制中…", "Duplicating…") : t(locale, "复制菜品", "Duplicate item")}</span>
+          </button>
+        )}
         {!item.active && onDestroy && (
           <button type="button" className="action-delete" onClick={onDestroy} disabled={Boolean(itemAction)}><Trash2 size={16} /><span>{itemAction === "destroy" ? t(locale, "删除中…", "Deleting…") : t(locale, "永久删除", "Delete permanently")}</span></button>
         )}
@@ -3928,7 +3947,13 @@ function SettingsView({ settings, setSettings, locale, onSaved, adminAuthorized 
           <div className="settings-section-title"><Armchair size={17} /><div><h3>{t(locale, "桌台行为", "Table behavior")}</h3></div></div>
           <div className="settings-checkboxes">
             <label className="checkbox"><input type="checkbox" checked={Boolean(settings.auto_clear_tables_after_payment)} onChange={(event) => setSettings({ ...settings, auto_clear_tables_after_payment: event.target.checked })} />{t(locale, "付款完成后自动清台", "Auto clear tables after payment")}</label>
+            <label className="checkbox"><input type="checkbox" checked={Boolean(settings.auto_clear_empty_tables_after_idle)} onChange={(event) => setSettings({ ...settings, auto_clear_empty_tables_after_idle: event.target.checked })} />{t(locale, "开台后空台超过设定时间无操作自动清台", "Auto clear an empty table after it's idle for a set time")}</label>
           </div>
+          {Boolean(settings.auto_clear_empty_tables_after_idle) && (
+            <div className="settings-fields">
+              <label>{t(locale, "空台等待分钟数", "Idle minutes before clearing")}<input type="number" min="1" step="1" value={settings.auto_clear_empty_tables_idle_minutes ?? 60} onChange={(event) => setSettings({ ...settings, auto_clear_empty_tables_idle_minutes: Number(event.target.value) })} /></label>
+            </div>
+          )}
         </div>
         <div className="settings-section settings-section-receipt">
           <div className="settings-section-title"><ReceiptText size={17} /><div><h3>{t(locale, "小票内容", "Receipt content")}</h3></div></div>

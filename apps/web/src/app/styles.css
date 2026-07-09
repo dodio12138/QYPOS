@@ -4265,9 +4265,21 @@ button.action-delete:hover:not(:disabled) {
   background: #fee4e2;
 }
 
+button.action-copy {
+  color: #1d4ed8;
+  border-color: #93b4f0;
+  background: #eff6ff;
+}
+
+button.action-copy:hover:not(:disabled) {
+  border-color: #3b6fd6;
+  background: #dbeafe;
+}
+
 button.action-save:disabled,
 button.action-toggle:disabled,
-button.action-delete:disabled {
+button.action-delete:disabled,
+button.action-copy:disabled {
   cursor: wait;
   opacity: 0.62;
 }

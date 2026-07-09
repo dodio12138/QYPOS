@@ -38,6 +38,7 @@ const sockets = new Set();
 const execFileAsync = promisify(execFile);
 const backupDir = process.env.BACKUP_DIR ?? path.resolve(process.cwd(), "../../backups");
 let backupTimer = null;
+let idleClearTimer = null;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LEGACY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ADMIN_GRANT_TTL_SECONDS = 60 * 30;
@@ -65,6 +66,8 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_interval_hours INTEGER NOT NULL DEFAULT 24");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_empty_tables_after_idle BOOLEAN NOT NULL DEFAULT false");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_empty_tables_idle_minutes INTEGER NOT NULL DEFAULT 60");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
   await pool.query(`CREATE TABLE IF NOT EXISTS menu_option_presets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -463,6 +466,44 @@ function scheduleAutoBackup() {
   maybeAutoBackup().catch((error) => app.log.error({ error }, "initial auto backup check failed"));
 }
 
+async function maybeAutoClearIdleEmptyTables() {
+  const settings = await getSettings();
+  if (!settings?.auto_clear_empty_tables_after_idle) return;
+  const idleMinutes = Math.max(1, Number(settings.auto_clear_empty_tables_idle_minutes || 60));
+  const stale = await query(
+    `SELECT t.id AS table_id, t.label, o.id AS order_id
+     FROM tables t
+     JOIN orders o ON o.id = t.current_order_id
+     WHERE t.status = 'opened'
+       AND o.status = 'draft'
+       AND NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id)
+       AND o.updated_at < now() - ($1 || ' minutes')::interval`,
+    [idleMinutes]
+  );
+  for (const row of stale) {
+    try {
+      await query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [row.order_id]);
+      const updated = await one(
+        "UPDATE tables SET current_order_id = NULL, status = 'available', opened_at = NULL, updated_at = now() WHERE id = $1 RETURNING *",
+        [row.table_id]
+      );
+      emit("table.status.updated", updated);
+      await query(
+        "INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES (NULL, 'table.auto_clear_idle', 'table', $1, $2)",
+        [row.table_id, { label: row.label, order_id: row.order_id, idle_minutes: idleMinutes }]
+      );
+    } catch (error) {
+      app.log.error({ error, table_id: row.table_id }, "auto clear idle empty table failed");
+    }
+  }
+}
+
+function scheduleIdleTableClear() {
+  if (idleClearTimer) clearInterval(idleClearTimer);
+  idleClearTimer = setInterval(() => maybeAutoClearIdleEmptyTables(), 5 * 60 * 1000);
+  maybeAutoClearIdleEmptyTables().catch((error) => app.log.error({ error }, "initial idle table clear check failed"));
+}
+
 async function getOrderItems(orderId, options = {}) {
   const where = ["order_id = $1"];
   const params = [orderId];
@@ -808,6 +849,8 @@ app.put("/settings", async (request, reply) => {
       kitchen_item_font_size = COALESCE($21::integer, kitchen_item_font_size),
       kitchen_item_bold = COALESCE($22::boolean, kitchen_item_bold),
       kitchen_qty_bold = COALESCE($23::boolean, kitchen_qty_bold),
+      auto_clear_empty_tables_after_idle = COALESCE($24::boolean, auto_clear_empty_tables_after_idle),
+      auto_clear_empty_tables_idle_minutes = COALESCE($25::integer, auto_clear_empty_tables_idle_minutes),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -834,7 +877,9 @@ app.put("/settings", async (request, reply) => {
       body.auto_clear_tables_after_payment,
       body.kitchen_item_font_size,
       body.kitchen_item_bold,
-      body.kitchen_qty_bold
+      body.kitchen_qty_bold,
+      body.auto_clear_empty_tables_after_idle,
+      body.auto_clear_empty_tables_idle_minutes
     ]
   );
   // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing
@@ -859,6 +904,7 @@ app.put("/settings", async (request, reply) => {
   }
   emit("settings.updated", settings);
   scheduleAutoBackup();
+  scheduleIdleTableClear();
   await auditLog(request, "settings.update", "settings", settings.id, { currency: settings.currency, tax_rate: settings.tax_rate, service_charge_rate: settings.service_charge_rate });
   return settings;
 });
@@ -1309,6 +1355,63 @@ app.post("/menu/items", async (request, reply) => {
   }
   await auditLog(request, "menu.item.create", "menu_item", item.id, { name_i18n: item.name_i18n });
   return item;
+});
+
+app.post("/menu/items/:id/copy", async (request, reply) => {
+  if (!await requirePermission(request, reply, "manage_menu")) return;
+  const source = await one("SELECT * FROM menu_items WHERE id = $1", [request.params.id]);
+  if (!source) {
+    reply.code(404);
+    return { error: "Menu item not found" };
+  }
+  const variants = await query("SELECT * FROM menu_item_variants WHERE item_id = $1 ORDER BY sort_order ASC", [source.id]);
+  const groups = await query("SELECT * FROM modifier_groups WHERE item_id = $1 ORDER BY sort_order ASC", [source.id]);
+  const modifiersByGroup = new Map();
+  for (const group of groups) {
+    modifiersByGroup.set(group.id, await query("SELECT * FROM modifiers WHERE group_id = $1 ORDER BY sort_order ASC", [group.id]));
+  }
+  const suffixedName = {
+    ...source.name_i18n,
+    ...(source.name_i18n?.["zh-CN"] ? { "zh-CN": `${source.name_i18n["zh-CN"]} 副本` } : {}),
+    ...(source.name_i18n?.["en-GB"] ? { "en-GB": `${source.name_i18n["en-GB"]} (Copy)` } : {})
+  };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const itemResult = await client.query(
+      `INSERT INTO menu_items (category_id, name_i18n, description_i18n, image_url, kitchen_group, active, sort_order, variant_preset_id, modifier_preset_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [source.category_id, suffixedName, source.description_i18n, source.image_url, source.kitchen_group, source.active, source.sort_order, source.variant_preset_id, source.modifier_preset_id]
+    );
+    const item = itemResult.rows[0];
+    for (const variant of variants) {
+      await client.query(
+        "INSERT INTO menu_item_variants (item_id, name_i18n, price, sort_order, active) VALUES ($1, $2, $3, $4, $5)",
+        [item.id, variant.name_i18n, variant.price, variant.sort_order, variant.active]
+      );
+    }
+    for (const group of groups) {
+      const groupResult = await client.query(
+        "INSERT INTO modifier_groups (item_id, name_i18n, min_select, max_select, sort_order, active, preset_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+        [item.id, group.name_i18n, group.min_select, group.max_select, group.sort_order, group.active, group.preset_id]
+      );
+      const newGroup = groupResult.rows[0];
+      for (const modifier of modifiersByGroup.get(group.id) ?? []) {
+        await client.query(
+          "INSERT INTO modifiers (group_id, name_i18n, price_delta, sort_order, active, default_selected) VALUES ($1, $2, $3, $4, $5, $6)",
+          [newGroup.id, modifier.name_i18n, modifier.price_delta, modifier.sort_order, modifier.active, modifier.default_selected]
+        );
+      }
+    }
+    await client.query("COMMIT");
+    await auditLog(request, "menu.item.copy", "menu_item", item.id, { source_item_id: source.id, name_i18n: item.name_i18n });
+    return item;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 app.patch("/menu/items/:id", async (request, reply) => {
@@ -3041,4 +3144,5 @@ app.get("/ops/backups/:name", async (request, reply) => {
 
 const port = Number(process.env.API_PORT ?? 4000);
 scheduleAutoBackup();
+scheduleIdleTableClear();
 await app.listen({ port, host: "0.0.0.0" });
