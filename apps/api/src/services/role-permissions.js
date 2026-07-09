@@ -2,6 +2,8 @@ export const OWNER_PERMISSIONS = [
   "manage_settings",
   "manage_prints",
   "manage_ops",
+  "view_staff_schedules",
+  "manage_staff_schedules",
   "manage_menu",
   "manage_menu_availability",
   "manage_tables",
@@ -23,6 +25,7 @@ export const OWNER_PERMISSIONS = [
 
 export const CASHIER_PERMISSIONS = [
   "manage_prints",
+  "view_staff_schedules",
   "manage_menu_availability",
   "manage_orders",
   "adjust_service_charge",
@@ -42,6 +45,7 @@ export const ADMIN_GRANT_SCOPES = {
   users: ["manage_users"],
   ops: ["manage_ops", "manage_settings", "manage_prints"],
   layout: ["manage_tables"],
+  schedule: ["view_staff_schedules", "manage_staff_schedules"],
 };
 
 export function canPatchMenuItem(user, body) {

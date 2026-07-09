@@ -50,6 +50,53 @@ CREATE TABLE users (
   active BOOLEAN NOT NULL DEFAULT true
 );
 
+CREATE TABLE staff_schedule_employees (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#22c55e',
+  hourly_wage NUMERIC(10,2) NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE staff_schedule_cells (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id UUID NOT NULL REFERENCES staff_schedule_employees(id) ON DELETE CASCADE,
+  work_date DATE NOT NULL,
+  is_off BOOLEAN NOT NULL DEFAULT false,
+  start_time TIME,
+  end_time TIME,
+  break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (break_minutes >= 0 AND break_minutes <= 1440),
+  note TEXT NOT NULL DEFAULT '',
+  actual_start_time TIME,
+  actual_end_time TIME,
+  actual_break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (actual_break_minutes >= 0 AND actual_break_minutes <= 1440),
+  actual_note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(employee_id, work_date),
+  CHECK (
+    is_off = true
+    OR (start_time IS NOT NULL AND end_time IS NOT NULL)
+  )
+);
+
+CREATE INDEX staff_schedule_cells_work_date_idx ON staff_schedule_cells(work_date);
+
+CREATE TABLE staff_schedule_time_presets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label TEXT NOT NULL DEFAULT '',
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(start_time, end_time)
+);
+
 CREATE TABLE floor_areas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -468,9 +515,9 @@ INSERT INTO restaurants (id, name, created_at) VALUES ('00000000-0000-0000-0000-
 --
 -- Data for Name: roles; Type: TABLE DATA; Schema: public; Owner: -
 --
-INSERT INTO roles (id, name, permissions) VALUES ('db34163f-e19c-4793-8465-4196ae955a4b', 'cashier', '["manage_prints", "manage_menu_availability", "manage_orders", "adjust_service_charge", "view_kitchen", "update_item_status", "create_order", "split_order", "take_payment", "print_receipt"]');
+INSERT INTO roles (id, name, permissions) VALUES ('db34163f-e19c-4793-8465-4196ae955a4b', 'cashier', '["manage_prints", "view_staff_schedules", "manage_menu_availability", "manage_orders", "adjust_service_charge", "view_kitchen", "update_item_status", "create_order", "split_order", "take_payment", "print_receipt"]');
 INSERT INTO roles (id, name, permissions) VALUES ('6daba10f-057c-432d-a804-0e0ff49bea17', 'kitchen', '["view_kitchen", "update_item_status"]');
-INSERT INTO roles (id, name, permissions) VALUES ('bb065e2e-a231-43c5-9122-34418460fa36', 'owner', '["manage_settings", "manage_prints", "manage_ops", "manage_menu", "manage_menu_availability", "manage_tables", "manage_orders", "manage_users", "adjust_service_charge", "adjust_discount", "view_dashboard", "view_reports", "export_reports", "view_audit_logs", "view_kitchen", "update_item_status", "create_order", "split_order", "take_payment", "print_receipt"]');
+INSERT INTO roles (id, name, permissions) VALUES ('bb065e2e-a231-43c5-9122-34418460fa36', 'owner', '["manage_settings", "manage_prints", "manage_ops", "view_staff_schedules", "manage_staff_schedules", "manage_menu", "manage_menu_availability", "manage_tables", "manage_orders", "manage_users", "adjust_service_charge", "adjust_discount", "view_dashboard", "view_reports", "export_reports", "view_audit_logs", "view_kitchen", "update_item_status", "create_order", "split_order", "take_payment", "print_receipt"]');
 --
 -- Data for Name: settings; Type: TABLE DATA; Schema: public; Owner: -
 --
@@ -547,5 +594,12 @@ INSERT INTO table_layouts (table_id, x, y, width, height, shape, rotation) VALUE
 INSERT INTO users (id, role_id, name, pin, active) VALUES ('37a786e3-a9a5-4ee9-8718-babc9ba31c82', 'bb065e2e-a231-43c5-9122-34418460fa36', 'Owner', '0000', true);
 INSERT INTO users (id, role_id, name, pin, active) VALUES ('c7da7ea1-f093-485b-a418-ce34bc26a5b2', 'db34163f-e19c-4793-8465-4196ae955a4b', 'Cashier', '1111', true);
 INSERT INTO users (id, role_id, name, pin, active) VALUES ('27540f02-121b-43a2-9020-85d16f07b314', '6daba10f-057c-432d-a804-0e0ff49bea17', 'Kitchen', '2222', true);
+
+INSERT INTO staff_schedule_time_presets (label, start_time, end_time, sort_order) VALUES ('09:00-14:00', '09:00', '14:00', 1);
+INSERT INTO staff_schedule_time_presets (label, start_time, end_time, sort_order) VALUES ('11:30-14:00', '11:30', '14:00', 2);
+INSERT INTO staff_schedule_time_presets (label, start_time, end_time, sort_order) VALUES ('12:00-16:00', '12:00', '16:00', 3);
+INSERT INTO staff_schedule_time_presets (label, start_time, end_time, sort_order) VALUES ('14:00-20:00', '14:00', '20:00', 4);
+INSERT INTO staff_schedule_time_presets (label, start_time, end_time, sort_order) VALUES ('14:00-22:30', '14:00', '22:30', 5);
+INSERT INTO staff_schedule_time_presets (label, start_time, end_time, sort_order) VALUES ('20:30-22:30', '20:30', '22:30', 6);
 --
 --
