@@ -358,7 +358,7 @@ npm run restore -- backups/qypos-YYYYMMDD-HHMMSS.sql
 
 ### 🚧 v0.2.0 — 开发中
 - [x] 员工管理 UI（增删改查）
-- [ ] PIN 哈希
+- [x] PIN 哈希 (PBKDF2 SHA-512)
 - [ ] 菜单图片上传
 - [ ] 套餐组合功能
 - [x] 报表可视化图表

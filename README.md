@@ -320,10 +320,11 @@ API_BASE=http://localhost:4000 node --test tests/api.integration.test.mjs
 Test Coverage:
 - ✅ Money calculation (tax-inclusive/exclusive, discount, service charge)
 - ✅ Permission validation
+- ✅ PIN hashing (PBKDF2 hash/verify/upgrade)
 - ✅ Kitchen print locking
 - ✅ Payment amount validation
 - ✅ Strict printer routing
-- ✅ API integration tests (optional)
+- ✅ API integration tests (optional, 6 groups)
 - ✅ Preset synchronization/defaults/detachment and sensitive-settings reauthentication
 
 ---
@@ -358,7 +359,7 @@ You can also trigger backups manually, set auto-backup schedules, or download ba
 
 ### 🚧 v0.2.0 — In Progress
 - [x] Staff management UI (CRUD)
-- [ ] PIN hashing
+- [x] PIN hashing (PBKDF2 SHA-512)
 - [ ] Menu image upload
 - [ ] Combo meal support
 - [x] Report visualization charts
