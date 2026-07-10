@@ -20,7 +20,7 @@
 
 ---
 
-## � Screenshots
+## 📸 Screenshots
 
 ### 🖥️ Desktop
 
@@ -44,7 +44,7 @@
 
 ---
 
-## �📖 Table of Contents
+## 📖 Table of Contents
 
 - [Overview](#-overview)
 - [Features](#-features)
@@ -57,6 +57,7 @@
 - [Testing](#-testing)
 - [Backup & Restore](#-backup--restore)
 - [Roadmap](#-roadmap)
+- [Changelog](#-changelog)
 - [Contributing](#-contributing)
 - [License](#-license)
 
@@ -285,7 +286,6 @@ QYPOS follows [Semantic Versioning](https://semver.org/) (SemVer 2.0.0). The can
 |--------|--------------|
 | **API health endpoint** | `curl http://localhost:4000/health` → `{"ok":true,"version":"0.1.0"}` |
 | **Package file** | `node -e "console.log(require('./package.json').version)"` |
-| **Admin panel** | Navigate to `/admin` → version is shown in the footer |
 
 ### Release Workflow
 
