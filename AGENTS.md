@@ -70,6 +70,14 @@ docker compose exec -T postgres psql -U qypos -d qypos -c "SELECT name, pin FROM
 2. 确认所有调用方都传递了该 prop
 3. 运行 `npm run lint`（`no-undef` 规则会捕获此类问题）
 
+### 组件拆分约定
+
+后台管理组件已从 `page.jsx`（原 5734 行）拆分为 `_components/` 目录下 12 个独立文件。
+- 新增后台组件放在 `apps/web/src/app/admin/_components/` 下
+- 共享工具函数（`t`、`money`、日期格式化等）从 `./helpers` 导入
+- API 客户端（`api`、`labelOf`）从 `../../lib/api` 导入
+- 每个组件文件自包含 imports，不依赖 page.jsx 的全局变量
+
 ### ESLint 设计原则
 ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-undef`）+ `react-hooks/exhaustive-deps`（warn）。不启用风格规则或 `no-unused-vars`。Lint 仅在 CI 和本地开发中运行，不嵌入 Docker 镜像构建。
 
@@ -97,9 +105,22 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 | `apps/api/src/services/permissions.js` | 认证与权限中间件、PIN 哈希/验证 (`hashPin`/`verifyPin`) |
 | `apps/api/src/services/role-permissions.js` | 角色权限定义 |
 | `apps/web/src/app/page.jsx` | 点餐前台主页面 |
-| `apps/web/src/app/admin/page.jsx` | 后台管理主页面 |
-| `apps/web/src/app/api-proxy/[...path]/route.js` | BFF 反向代理 |
-| `apps/printer-service/src/worker.js` | 打印 worker |
+| `apps/web/src/app/admin/page.jsx` | 后台管理路由壳（~635 行，组件已拆分） |
+| `apps/web/src/app/admin/_components/` | 后台管理组件目录（12 个文件） |
+| `apps/web/src/app/admin/_components/helpers.jsx` | 共享工具函数 (`t`, `money`, 日期等) |
+| `apps/web/src/app/admin/_components/menu-admin.jsx` | 菜单管理（含 13 个子组件，~1288 行） |
+| `apps/web/src/app/admin/_components/reports-view.jsx` | 报表分析 + 5 个 Canvas 图表 |
+| `apps/web/src/app/admin/_components/schedule-view.jsx` | 排班系统 + DayGanttView |
+| `apps/web/src/app/admin/_components/orders-view.jsx` | 订单列表 + KitchenView + PrintJobsView |
+| `apps/web/src/app/admin/_components/users-view.jsx` | 账户管理 + RoleBadge |
+| `apps/web/src/app/admin/_components/layout-view.jsx` | 餐桌布局编辑器 |
+| `apps/web/src/app/admin/_components/ops-view.jsx` | 运维面板（健康检查/备份/打印机配置） |
+| `apps/web/src/app/admin/_components/settings-view.jsx` | 系统设置（税务/小票/桌台行为） |
+| `apps/web/src/app/admin/_components/dashboard-view.jsx` | 数据看板 + 审计日志 |
+| `apps/web/src/app/admin/_components/admin-login.jsx` | 后台登录表单 |
+| `apps/web/src/app/admin/_components/admin-gate-modal.jsx` | 管理员提权验证弹窗 |
+| `apps/web/src/app/api-proxy/[...path]/route.js` | BFF 反向代理（含客户端 IP 转发） |
+| `apps/printer-service/src/worker.js` | 打印 worker（含指数退避重连） |
 | `packages/shared/src/index.js` | 共享工具函数 |
 | `db/init.sql` | 数据库 schema + 种子数据 |
 | `db/migrations/` | 增量迁移脚本 |
@@ -107,6 +128,7 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 | `tests/pin-hashing.test.mjs` | PIN 哈希单元测试 |
 | `tests/calculations.test.mjs` | 订单计算单元测试 |
 | `tests/api.integration.test.mjs` | API 集成测试（拆分 6 组） |
+| `docker-compose.yml` | Docker 编排（含健康检查/日志轮转/内存限制） |
 | `eslint.config.mjs` | ESLint flat config |
 
 ## 文档索引
