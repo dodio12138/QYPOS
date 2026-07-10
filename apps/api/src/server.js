@@ -25,42 +25,60 @@ import {
   respondToDojoSignature
 } from "./services/dojo.js";
 
+// ── Re‑export services for route modules ──────────────────────────────────
+export { calculateTotals, localToday } from "@qypos/shared";
+export { defaultPrinterProfiles, printerProfiles, selectPrinter, isValidPrinter } from "./services/printers.js";
+export { normalizePermissions, hashPin, verifyPin, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
+export { assertPositivePayment } from "./services/validation.js";
+export { ADMIN_GRANT_SCOPES, CASHIER_PERMISSIONS, OWNER_PERMISSIONS, canPatchMenuItem } from "./services/role-permissions.js";
+export {
+  cancelDojoTerminalSession,
+  createDojoTerminalPayment,
+  dojoConfig,
+  getDojoPaymentIntent,
+  getDojoTerminalSession,
+  isDojoConfigured,
+  listDojoTerminals,
+  mapDojoSessionStatus,
+  respondToDojoSignature
+} from "./services/dojo.js";
+
 const { Pool } = pg;
-const app = Fastify({ logger: true });
+export const app = Fastify({ logger: true });
 const tz = process.env.TZ || 'Europe/London';
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 pool.on('connect', async (client) => {
   await client.query(`SET timezone TO '${tz}'`);
 });
-const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
-const redisSub = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
-const sockets = new Set();
-const execFileAsync = promisify(execFile);
-const backupDir = process.env.BACKUP_DIR ?? path.resolve(process.cwd(), "../../backups");
+export const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
+export const redisSub = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
+export const sockets = new Set();
+export const execFileAsync = promisify(execFile);
+export const backupDir = process.env.BACKUP_DIR ?? path.resolve(process.cwd(), "../../backups");
 let backupTimer = null;
 let idleClearTimer = null;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const LEGACY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ADMIN_GRANT_TTL_SECONDS = 60 * 30;
-const LOGIN_RATE_WINDOW = 60;       // seconds
-const LOGIN_RATE_MAX_ATTEMPTS = 10;  // max failures per window per IP
-const ADMIN_GRANT_RATE_MAX_ATTEMPTS = 5;
+export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const LEGACY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const ADMIN_GRANT_TTL_SECONDS = 60 * 30;
+export const LOGIN_RATE_WINDOW = 60;       // seconds
+export const LOGIN_RATE_MAX_ATTEMPTS = 10;  // max failures per window per IP
+export const ADMIN_GRANT_RATE_MAX_ATTEMPTS = 5;
 
 // ── Rate limiting helper ──────────────────────────────────────────────────
-async function checkRateLimit(key, maxAttempts, windowSec) {
+export async function checkRateLimit(key, maxAttempts, windowSec) {
   const count = await redis.incr(key);
   if (count === 1) await redis.expire(key, windowSec);
   return count > maxAttempts;
 }
 
-function clientIp(request) {
+export function clientIp(request) {
   return request.headers["x-forwarded-for"]?.split(",")[0]?.trim()
     || request.headers["x-real-ip"]
     || request.socket?.remoteAddress
     || "unknown";
 }
 
-async function ensureSchema() {
+export async function ensureSchema() {
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_fixed NUMERIC(10,2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_rate NUMERIC(5,2)");
@@ -222,7 +240,7 @@ async function ensureSchema() {
   );
 }
 
-async function runMigrations() {
+export async function runMigrations() {
   const migrationsDir = path.resolve(process.cwd(), '..', '..', 'db', 'migrations');
   try {
     await fs.access(migrationsDir);
@@ -297,27 +315,27 @@ redisSub.on("message", (_channel, message) => {
   }
 });
 
-function emit(event, data) {
+export function emit(event, data) {
   const message = JSON.stringify({ event, data });
   for (const socket of sockets) {
     if (socket?.readyState === 1) socket.send(message);
   }
 }
 
-async function query(sql, params = []) {
+export async function query(sql, params = []) {
   const result = await pool.query(sql, params);
   return result.rows;
 }
 
-async function one(sql, params = []) {
+export async function one(sql, params = []) {
   const rows = await query(sql, params);
   return rows[0] ?? null;
 }
 
-const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_PATTERN = /^\d{2}:\d{2}$/;
+export const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+export const TIME_PATTERN = /^\d{2}:\d{2}$/;
 
-function parseDateOnly(value) {
+export function parseDateOnly(value) {
   const text = String(value ?? "").slice(0, 10);
   if (!DATE_ONLY_PATTERN.test(text)) return null;
   const date = new Date(`${text}T00:00:00Z`);
@@ -325,7 +343,7 @@ function parseDateOnly(value) {
   return text;
 }
 
-function parseTimeOnly(value) {
+export function parseTimeOnly(value) {
   const text = String(value ?? "").trim();
   if (!TIME_PATTERN.test(text)) return null;
   const [hours, minutes] = text.split(":").map(Number);
@@ -333,11 +351,11 @@ function parseTimeOnly(value) {
   return text;
 }
 
-async function userFromToken(request) {
+export async function userFromToken(request) {
   return userFromTokenWithRedis(request, redis);
 }
 
-async function adminGrantFromRequest(request, user) {
+export async function adminGrantFromRequest(request, user) {
   const token = request.headers["x-qypos-admin-grant"] ?? request.query?.admin_grant ?? null;
   if (!token || !user) return null;
   const payload = await redis.get(`admin-grant:${token}`);
@@ -350,7 +368,7 @@ async function adminGrantFromRequest(request, user) {
   }
 }
 
-async function requirePermission(request, reply, permission) {
+export async function requirePermission(request, reply, permission) {
   const user = await userFromToken(request);
   if (!user) {
     reply.code(401);
@@ -363,7 +381,7 @@ async function requirePermission(request, reply, permission) {
   return null;
 }
 
-async function requireAnyPermission(request, reply, permissions) {
+export async function requireAnyPermission(request, reply, permissions) {
   const user = await userFromToken(request);
   if (!user) {
     reply.code(401);
@@ -377,7 +395,7 @@ async function requireAnyPermission(request, reply, permissions) {
   return user;
 }
 
-async function auditLog(request, action, entityType, entityId = null, metadata = {}) {
+export async function auditLog(request, action, entityType, entityId = null, metadata = {}) {
   const actor = await userFromToken(request);
   await query(
     "INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1, $2, $3, $4, $5)",
@@ -385,14 +403,14 @@ async function auditLog(request, action, entityType, entityId = null, metadata =
   );
 }
 
-function datePrefix(d = new Date()) {
+export function datePrefix(d = new Date()) {
   const y = String(d.getFullYear()).slice(-2);
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}${m}${day}`;
 }
 
-async function nextOrderNo(serviceType, suffix = "") {
+export async function nextOrderNo(serviceType, suffix = "") {
   const stem = `${serviceType === "dine_in" ? "D" : "T"}${datePrefix()}`;
   const row = await one(
     `SELECT COALESCE(MAX(CAST(SPLIT_PART(order_no, '-', 2) AS INTEGER)), 0) AS max_seq
@@ -405,7 +423,7 @@ async function nextOrderNo(serviceType, suffix = "") {
   return tag ? `${stem}-${seq}-${tag}` : `${stem}-${seq}`;
 }
 
-async function insertOrderWithRetry(serviceType, suffix, build) {
+export async function insertOrderWithRetry(serviceType, suffix, build) {
   for (let attempt = 0; attempt < 6; attempt++) {
     const no = await nextOrderNo(serviceType, suffix);
     try {
@@ -417,17 +435,17 @@ async function insertOrderWithRetry(serviceType, suffix, build) {
   throw new Error("Failed to allocate order number after retries");
 }
 
-async function getSettings() {
+export async function getSettings() {
   return one("SELECT * FROM settings ORDER BY updated_at DESC LIMIT 1");
 }
 
-function httpError(message, statusCode) {
+export function httpError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
 }
 
-function safePaymentAttempt(attempt) {
+export function safePaymentAttempt(attempt) {
   if (!attempt) return null;
   const payload = attempt.provider_payload || {};
   const session = payload.session || {};
@@ -451,7 +469,7 @@ function safePaymentAttempt(attempt) {
   };
 }
 
-async function recordPayment({
+export async function recordPayment({
   orderId,
   method,
   amount,
@@ -529,7 +547,7 @@ async function recordPayment({
   return { payment, order: updated, paid: Number(paid.paid), duplicate: false };
 }
 
-async function listBackupFiles() {
+export async function listBackupFiles() {
   await fs.mkdir(backupDir, { recursive: true });
   const entries = await fs.readdir(backupDir, { withFileTypes: true });
   const files = await Promise.all(entries
@@ -542,7 +560,7 @@ async function listBackupFiles() {
   return files.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 }
 
-async function createBackup(reason = "manual") {
+export async function createBackup(reason = "manual") {
   await fs.mkdir(backupDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "").replace("T", "-");
   const filename = `qypos-${stamp}.sql`;
@@ -553,7 +571,7 @@ async function createBackup(reason = "manual") {
   return (await listBackupFiles()).find((file) => file.name === filename);
 }
 
-async function maybeAutoBackup() {
+export async function maybeAutoBackup() {
   const settings = await getSettings();
   if (!settings?.backup_enabled) return;
   const last = settings.last_backup_at ? new Date(settings.last_backup_at).getTime() : 0;
@@ -567,13 +585,13 @@ async function maybeAutoBackup() {
   }
 }
 
-function scheduleAutoBackup() {
+export function scheduleAutoBackup() {
   if (backupTimer) clearInterval(backupTimer);
   backupTimer = setInterval(() => maybeAutoBackup(), 15 * 60 * 1000);
   maybeAutoBackup().catch((error) => app.log.error({ error }, "initial auto backup check failed"));
 }
 
-async function maybeAutoClearIdleEmptyTables() {
+export async function maybeAutoClearIdleEmptyTables() {
   const settings = await getSettings();
   if (!settings?.auto_clear_empty_tables_after_idle) return;
   const idleMinutes = Math.max(1, Number(settings.auto_clear_empty_tables_idle_minutes || 60));
@@ -605,13 +623,13 @@ async function maybeAutoClearIdleEmptyTables() {
   }
 }
 
-function scheduleIdleTableClear() {
+export function scheduleIdleTableClear() {
   if (idleClearTimer) clearInterval(idleClearTimer);
   idleClearTimer = setInterval(() => maybeAutoClearIdleEmptyTables(), 5 * 60 * 1000);
   maybeAutoClearIdleEmptyTables().catch((error) => app.log.error({ error }, "initial idle table clear check failed"));
 }
 
-async function getOrderItems(orderId, options = {}) {
+export async function getOrderItems(orderId, options = {}) {
   const where = ["order_id = $1"];
   const params = [orderId];
   if (options.onlyUnprintedKitchen) where.push("kitchen_printed_at IS NULL");
@@ -622,7 +640,7 @@ async function getOrderItems(orderId, options = {}) {
   return items;
 }
 
-async function recalculateOrder(orderId, overrides = {}) {
+export async function recalculateOrder(orderId, overrides = {}) {
   const settings = await getSettings();
   const items = await getOrderItems(orderId);
   const current = await one("SELECT * FROM orders WHERE id = $1", [orderId]);
@@ -667,7 +685,7 @@ async function recalculateOrder(orderId, overrides = {}) {
   return updated;
 }
 
-async function createPrintJob(orderId, type) {
+export async function createPrintJob(orderId, type) {
   const order = await one("SELECT * FROM orders WHERE id = $1", [orderId]);
   if (!order && type !== "test") {
     const error = new Error("Order not found");
@@ -713,7 +731,7 @@ async function createPrintJob(orderId, type) {
   }
 }
 
-async function updateOrderKitchenState(orderId) {
+export async function updateOrderKitchenState(orderId) {
   const items = await query("SELECT status FROM order_items WHERE order_id = $1 AND status <> 'cancelled'", [orderId]);
   if (!items.length) return null;
 
@@ -731,2811 +749,94 @@ async function updateOrderKitchenState(orderId) {
   return order;
 }
 
-app.get("/health", async () => {
-  await pool.query("SELECT 1");
-  await redis.ping();
-  const pkg = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "../../package.json"), "utf-8"));
-  return { ok: true, version: pkg.version };
-});
-
-// ── Custom error handler: prevent stack-trace leaks to clients ─────────────
-app.setErrorHandler((error, request, reply) => {
-  app.log.error({ err: error, url: request.url }, "unhandled error");
-  const isProduction = process.env.NODE_ENV === "production";
-  reply.code(error.statusCode || 500).send({
-    error: isProduction ? "Internal server error" : error.message,
-    ...(isProduction ? {} : { detail: error.stack?.split("\n")[0] }),
-  });
-});
-
-app.get("/ws", { websocket: true }, (connection) => {
-  const socket = connection.socket ?? connection;
-  sockets.add(socket);
-  socket.on("close", () => sockets.delete(socket));
-});
-
-app.post("/auth/login", async (request, reply) => {
-  const body = request.body ?? {};
-  const name = String(body.name ?? "").trim();
-  const plainPin = String(body.pin ?? "").trim();
-  if (!name || !plainPin) {
-    reply.code(401);
-    return { error: "Invalid credentials" };
-  }
-  // Rate limit: max N failed attempts per IP per window
-  const ip = clientIp(request);
-  const rateKey = `login_rate:${ip}`;
-  const blocked = await checkRateLimit(rateKey, LOGIN_RATE_MAX_ATTEMPTS, LOGIN_RATE_WINDOW);
-  if (blocked) {
-    reply.code(429);
-    return { error: "Too many login attempts. Please wait and try again." };
-  }
-  const row = await one(
-    `SELECT u.id, u.name, u.pin, r.name AS role, r.permissions
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.name = $1 AND u.active = true`,
-    [name]
-  );
-  if (!row) {
-    reply.code(401);
-    return { error: "Invalid credentials" };
-  }
-  const { valid, upgraded } = verifyPin(plainPin, row.pin);
-  if (!valid) {
-    reply.code(401);
-    return { error: "Invalid credentials" };
-  }
-  // Reset rate limit on successful login
-  await redis.del(rateKey);
-  // Auto-upgrade legacy plaintext PIN to hash
-  if (upgraded) {
-    await pool.query("UPDATE users SET pin = $1 WHERE id = $2", [upgraded, row.id]);
-  }
-  const user = { id: row.id, name: row.name, role: row.role, permissions: normalizePermissions(row.permissions) };
-  const token = crypto.randomBytes(32).toString("hex");
-  await redis.set(`session:${token}`, JSON.stringify(user), "EX", 60 * 60 * 12);
-  await auditLog({ headers: { authorization: `Bearer ${token}` } }, "auth.login", "user", user.id, { role: user.role });
-  return { token, user };
-});
-
-app.get("/auth/me", async (request, reply) => {
-  const sessionUser = await userFromToken(request);
-  if (!sessionUser) {
-    reply.code(401);
-    return { error: "Not authenticated" };
-  }
-  const user = await one(
-    `SELECT u.id, u.name, r.name AS role, r.permissions
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.id = $1 AND u.active = true`,
-    [sessionUser.id]
-  );
-  if (!user) {
-    reply.code(401);
-    return { error: "Account is inactive or no longer exists" };
-  }
-  user.permissions = normalizePermissions(user.permissions);
-  const header = request.headers.authorization ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  if (token) await redis.set(`session:${token}`, JSON.stringify(user), "KEEPTTL");
-  return user;
-});
-
-app.post("/auth/logout", async (request) => {
-  const header = request.headers.authorization ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  if (token) await redis.del(`session:${token}`);
-  return { ok: true };
-});
-
-app.post("/auth/admin-grant", async (request, reply) => {
-  const subject = await userFromToken(request);
-  if (!subject) { reply.code(401); return { error: "Not authenticated" }; }
-  const body = request.body ?? {};
-  const scope = String(body.scope ?? "");
-  const permissions = ADMIN_GRANT_SCOPES[scope];
-  if (!permissions) { reply.code(400); return { error: "Invalid admin scope" }; }
-  const name = String(body.name ?? "").trim();
-  const plainPin = String(body.pin ?? "").trim();
-  if (!name || !plainPin) {
-    reply.code(401);
-    return { error: "管理员账号或 PIN 不正确，或权限不足" };
-  }
-  // Rate limit: max N failed admin-grant attempts per IP per window
-  const ip = clientIp(request);
-  const rateKey = `admin_grant_rate:${ip}`;
-  const blocked = await checkRateLimit(rateKey, ADMIN_GRANT_RATE_MAX_ATTEMPTS, LOGIN_RATE_WINDOW);
-  if (blocked) {
-    reply.code(429);
-    return { error: "Too many attempts. Please wait and try again." };
-  }
-  const row = await one(
-    `SELECT u.id, u.name, u.pin, r.permissions
-     FROM users u
-     JOIN roles r ON r.id = u.role_id
-     WHERE u.name = $1 AND u.active = true`,
-    [name]
-  );
-  if (!row) {
-    reply.code(401);
-    return { error: "管理员账号或 PIN 不正确，或权限不足" };
-  }
-  const { valid, upgraded } = verifyPin(plainPin, row.pin);
-  if (!valid) {
-    reply.code(401);
-    return { error: "管理员账号或 PIN 不正确，或权限不足" };
-  }
-  // Reset rate limit on success
-  await redis.del(rateKey);
-  if (upgraded) {
-    await pool.query("UPDATE users SET pin = $1 WHERE id = $2", [upgraded, row.id]);
-  }
-  const admin = { id: row.id, name: row.name, permissions: normalizePermissions(row.permissions) };
-  if (!permissions.every((permission) => admin.permissions.includes(permission))) {
-    reply.code(401);
-    return { error: "管理员账号或 PIN 不正确，或权限不足" };
-  }
-  const token = crypto.randomBytes(32).toString("hex");
-  await redis.set(`admin-grant:${token}`, JSON.stringify({
-    subject_user_id: subject.id,
-    admin_user_id: admin.id,
-    scope,
-    permissions,
-  }), "EX", ADMIN_GRANT_TTL_SECONDS);
-  await auditLog(request, "auth.admin_grant", "user", subject.id, { admin_user_id: admin.id, scope });
-  return { token, scope, expires_in: ADMIN_GRANT_TTL_SECONDS };
-});
-
-app.delete("/auth/admin-grant", async (request) => {
-  const subject = await userFromToken(request);
-  const token = request.headers["x-qypos-admin-grant"] ?? null;
-  if (subject && token) {
-    const grant = await adminGrantFromRequest(request, subject);
-    if (grant) await redis.del(`admin-grant:${token}`);
-  }
-  return { ok: true };
-});
-
-// ── Staff schedule table manager ────────────────────────────────────────────
-app.get("/staff-schedules", async (request, reply) => {
-  if (!await requireAnyPermission(request, reply, ["view_staff_schedules", "manage_staff_schedules"])) return;
-  const weekStart = parseDateOnly(request.query?.week_start ?? localToday());
-  if (!weekStart) { reply.code(400); return { error: "A valid week_start date is required" }; }
-  const employees = await query(
-    `SELECT id, name, color, hourly_wage, sort_order, active
-     FROM staff_schedule_employees
-     WHERE active = true
-     ORDER BY sort_order, created_at, name`
-  );
-  const cells = await query(
-    `SELECT id, employee_id, work_date::text AS work_date, is_off,
-            to_char(start_time, 'HH24:MI') AS start_time,
-            to_char(end_time, 'HH24:MI') AS end_time,
-            break_minutes, note,
-            to_char(actual_start_time, 'HH24:MI') AS actual_start_time,
-            to_char(actual_end_time, 'HH24:MI') AS actual_end_time,
-            actual_break_minutes, actual_note
-     FROM staff_schedule_cells
-     WHERE work_date >= $1::date AND work_date < ($1::date + INTERVAL '7 days')
-     ORDER BY work_date, employee_id`,
-    [weekStart]
-  );
-  const revenueRows = await query(
-    `SELECT d::date::text AS day, COALESCE(SUM(o.total), 0) AS revenue
-     FROM generate_series($1::date, $1::date + INTERVAL '6 days', '1 day') d
-     LEFT JOIN orders o ON o.created_at::date = d::date
-       AND o.status NOT IN ('cancelled', 'draft')
-     GROUP BY d
-     ORDER BY d`,
-    [weekStart]
-  );
-  return { week_start: weekStart, employees, cells, daily_revenue: revenueRows };
-});
-
-app.get("/staff-schedules/time-presets", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_staff_schedules")) return;
-  return query(
-    `SELECT id, label,
-            to_char(start_time, 'HH24:MI') AS start_time,
-            to_char(end_time, 'HH24:MI') AS end_time,
-            sort_order
-     FROM staff_schedule_time_presets
-     WHERE active = true
-     ORDER BY sort_order, start_time, end_time`
-  );
-});
-
-app.post("/staff-schedules/time-presets", async (request, reply) => {
-  const actor = await requirePermission(request, reply, "manage_staff_schedules");
-  if (!actor) return;
-  const body = request.body ?? {};
-  const startTime = parseTimeOnly(body.start_time);
-  const endTime = parseTimeOnly(body.end_time);
-  if (!startTime || !endTime) { reply.code(400); return { error: "Start and end time are required" }; }
-  const label = String(body.label ?? `${startTime}-${endTime}`).trim() || `${startTime}-${endTime}`;
-  const sortOrder = Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0;
-  const preset = await one(
-    `INSERT INTO staff_schedule_time_presets (label, start_time, end_time, sort_order, active)
-     VALUES ($1, $2::time, $3::time, $4, true)
-     ON CONFLICT (start_time, end_time) DO UPDATE
-     SET label = EXCLUDED.label,
-         active = true,
-         sort_order = EXCLUDED.sort_order,
-         updated_at = now()
-     RETURNING id, label,
-               to_char(start_time, 'HH24:MI') AS start_time,
-               to_char(end_time, 'HH24:MI') AS end_time,
-               sort_order`,
-    [label, startTime, endTime, sortOrder]
-  );
-  await auditLog(request, "staff_schedule.time_preset.save", "staff_schedule_time_preset", preset.id, { actor_id: actor.id, start_time: startTime, end_time: endTime });
-  return preset;
-});
-
-app.delete("/staff-schedules/time-presets/:id", async (request, reply) => {
-  const actor = await requirePermission(request, reply, "manage_staff_schedules");
-  if (!actor) return;
-  if (!UUID_PATTERN.test(request.params.id)) { reply.code(400); return { error: "Invalid preset id" }; }
-  const preset = await one(
-    `UPDATE staff_schedule_time_presets
-     SET active = false, updated_at = now()
-     WHERE id = $1 AND active = true
-     RETURNING id`,
-    [request.params.id]
-  );
-  if (!preset) { reply.code(404); return { error: "Preset not found" }; }
-  await auditLog(request, "staff_schedule.time_preset.delete", "staff_schedule_time_preset", preset.id, { actor_id: actor.id });
-  return { ok: true };
-});
-
-app.post("/staff-schedules/employees", async (request, reply) => {
-  const actor = await requirePermission(request, reply, "manage_staff_schedules");
-  if (!actor) return;
-  const body = request.body ?? {};
-  const name = String(body.name ?? "").trim();
-  if (!name) { reply.code(400); return { error: "Name is required" }; }
-  const color = /^#[0-9a-f]{6}$/i.test(String(body.color ?? "")) ? body.color : "#22c55e";
-  const hourlyWage = Number.isFinite(Number(body.hourly_wage)) ? Math.max(0, Number(body.hourly_wage)) : 0;
-  const sortOrder = Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0;
-  const employee = await one(
-    `INSERT INTO staff_schedule_employees (name, color, hourly_wage, sort_order)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, name, color, hourly_wage, sort_order, active`,
-    [name, color, hourlyWage, sortOrder]
-  );
-  await auditLog(request, "staff_schedule.employee.create", "staff_schedule_employee", employee.id, { actor_id: actor.id, name });
-  return employee;
-});
-
-app.patch("/staff-schedules/employees/:id", async (request, reply) => {
-  const actor = await requirePermission(request, reply, "manage_staff_schedules");
-  if (!actor) return;
-  if (!UUID_PATTERN.test(request.params.id)) { reply.code(400); return { error: "Invalid employee id" }; }
-  const body = request.body ?? {};
-  const name = body.name === undefined ? null : String(body.name ?? "").trim();
-  if (body.name !== undefined && !name) { reply.code(400); return { error: "Name is required" }; }
-  const color = body.color === undefined ? null : String(body.color ?? "");
-  if (body.color !== undefined && !/^#[0-9a-f]{6}$/i.test(color)) { reply.code(400); return { error: "Color must be #RRGGBB" }; }
-  const hourlyWage = body.hourly_wage === undefined ? null : Number(body.hourly_wage);
-  if (body.hourly_wage !== undefined && (!Number.isFinite(hourlyWage) || hourlyWage < 0)) { reply.code(400); return { error: "Hourly wage must be a positive number" }; }
-  const sortOrder = body.sort_order === undefined ? null : Number(body.sort_order);
-  if (body.sort_order !== undefined && !Number.isFinite(sortOrder)) { reply.code(400); return { error: "Sort order must be a number" }; }
-  const employee = await one(
-    `UPDATE staff_schedule_employees
-     SET name = COALESCE($2, name),
-         color = COALESCE($3, color),
-         hourly_wage = COALESCE($4, hourly_wage),
-         sort_order = COALESCE($5, sort_order),
-         updated_at = now()
-     WHERE id = $1 AND active = true
-     RETURNING id, name, color, hourly_wage, sort_order, active`,
-    [request.params.id, name, color, hourlyWage, sortOrder]
-  );
-  if (!employee) { reply.code(404); return { error: "Employee not found" }; }
-  await auditLog(request, "staff_schedule.employee.update", "staff_schedule_employee", employee.id, { actor_id: actor.id });
-  return employee;
-});
-
-app.delete("/staff-schedules/employees/:id", async (request, reply) => {
-  const actor = await requirePermission(request, reply, "manage_staff_schedules");
-  if (!actor) return;
-  if (!UUID_PATTERN.test(request.params.id)) { reply.code(400); return { error: "Invalid employee id" }; }
-  const employee = await one(
-    `UPDATE staff_schedule_employees
-     SET active = false, updated_at = now()
-     WHERE id = $1 AND active = true
-     RETURNING id`,
-    [request.params.id]
-  );
-  if (!employee) { reply.code(404); return { error: "Employee not found" }; }
-  await auditLog(request, "staff_schedule.employee.delete", "staff_schedule_employee", employee.id, { actor_id: actor.id });
-  return { ok: true };
-});
-
-app.put("/staff-schedules/cells", async (request, reply) => {
-  const actor = await requirePermission(request, reply, "manage_staff_schedules");
-  if (!actor) return;
-  const body = request.body ?? {};
-  const employeeId = String(body.employee_id ?? "");
-  const workDate = parseDateOnly(body.work_date);
-  if (!UUID_PATTERN.test(employeeId)) { reply.code(400); return { error: "Invalid employee id" }; }
-  if (!workDate) { reply.code(400); return { error: "A valid work_date is required" }; }
-  const employee = await one("SELECT id FROM staff_schedule_employees WHERE id = $1 AND active = true", [employeeId]);
-  if (!employee) { reply.code(404); return { error: "Employee not found" }; }
-
-  const clear = Boolean(body.clear);
-  if (clear) {
-    await query("DELETE FROM staff_schedule_cells WHERE employee_id = $1 AND work_date = $2::date", [employeeId, workDate]);
-    await auditLog(request, "staff_schedule.cell.clear", "staff_schedule_employee", employeeId, { actor_id: actor.id, work_date: workDate });
-    return { ok: true, cleared: true };
-  }
-
-  const isOff = Boolean(body.is_off);
-  const startTime = isOff ? null : parseTimeOnly(body.start_time);
-  const endTime = isOff ? null : parseTimeOnly(body.end_time);
-  const breakMinutes = Math.max(0, Math.round(Number(body.break_minutes ?? 0)));
-  const note = String(body.note ?? "").trim();
-  const actualStartTime = body.actual_start_time ? parseTimeOnly(body.actual_start_time) : null;
-  const actualEndTime = body.actual_end_time ? parseTimeOnly(body.actual_end_time) : null;
-  const actualBreakMinutes = Math.max(0, Math.round(Number(body.actual_break_minutes ?? 0)));
-  const actualNote = String(body.actual_note ?? "").trim();
-  if (!isOff && (!startTime || !endTime)) { reply.code(400); return { error: "Start and end time are required unless OFF is selected" }; }
-  if (!Number.isFinite(breakMinutes) || breakMinutes > 1440) { reply.code(400); return { error: "Break minutes must be between 0 and 1440" }; }
-  if ((body.actual_start_time && !actualStartTime) || (body.actual_end_time && !actualEndTime)) { reply.code(400); return { error: "Actual start and end time must be valid times" }; }
-  if ((actualStartTime && !actualEndTime) || (!actualStartTime && actualEndTime)) { reply.code(400); return { error: "Actual start and end time must be entered together" }; }
-  if (!Number.isFinite(actualBreakMinutes) || actualBreakMinutes > 1440) { reply.code(400); return { error: "Actual break minutes must be between 0 and 1440" }; }
-
-  const cell = await one(
-    `INSERT INTO staff_schedule_cells (employee_id, work_date, is_off, start_time, end_time, break_minutes, note, actual_start_time, actual_end_time, actual_break_minutes, actual_note)
-     VALUES ($1, $2::date, $3, $4::time, $5::time, $6, $7, $8::time, $9::time, $10, $11)
-     ON CONFLICT (employee_id, work_date) DO UPDATE
-     SET is_off = EXCLUDED.is_off,
-         start_time = EXCLUDED.start_time,
-         end_time = EXCLUDED.end_time,
-         break_minutes = EXCLUDED.break_minutes,
-         note = EXCLUDED.note,
-         actual_start_time = EXCLUDED.actual_start_time,
-         actual_end_time = EXCLUDED.actual_end_time,
-         actual_break_minutes = EXCLUDED.actual_break_minutes,
-         actual_note = EXCLUDED.actual_note,
-         updated_at = now()
-     RETURNING id, employee_id, work_date::text AS work_date, is_off,
-               to_char(start_time, 'HH24:MI') AS start_time,
-               to_char(end_time, 'HH24:MI') AS end_time,
-               break_minutes, note,
-               to_char(actual_start_time, 'HH24:MI') AS actual_start_time,
-               to_char(actual_end_time, 'HH24:MI') AS actual_end_time,
-               actual_break_minutes, actual_note`,
-    [employeeId, workDate, isOff, startTime, endTime, breakMinutes, note, actualStartTime, actualEndTime, actualBreakMinutes, actualNote]
-  );
-  await auditLog(request, "staff_schedule.cell.save", "staff_schedule_cell", cell.id, { actor_id: actor.id, employee_id: employeeId, work_date: workDate });
-  return cell;
-});
-
-// ── User management ─────────────────────────────────────────────────────────
-app.get("/users", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_users")) return;
-  return query(
-    `SELECT u.id, u.name, u.active, r.id AS role_id, r.name AS role
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     ORDER BY u.name`
-  );
-});
-
-app.get("/roles", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_users")) return;
-  return query("SELECT id, name FROM roles ORDER BY name");
-});
-
-app.post("/users", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_users")) return;
-  const body = request.body ?? {};
-  const name = String(body.name ?? "").trim();
-  const pin = String(body.pin ?? "").trim();
-  if (!name) { reply.code(400); return { error: "Name is required" }; }
-  if (!pin) { reply.code(400); return { error: "PIN is required" }; }
-  const roleId = String(body.role_id ?? "");
-  const role = UUID_PATTERN.test(roleId) ? await one("SELECT id FROM roles WHERE id = $1", [roleId]) : null;
-  if (!role) { reply.code(400); return { error: "A valid role is required" }; }
-  const exists = await one("SELECT id FROM users WHERE name = $1", [name]);
-  if (exists) { reply.code(409); return { error: "User already exists" }; }
-  const hashedPin = hashPin(pin);
-  const user = await one(
-    "INSERT INTO users (role_id, name, pin, active) VALUES ($1, $2, $3, COALESCE($4, true)) RETURNING *",
-    [role.id, name, hashedPin, body.active]
-  );
-  await auditLog(request, "user.create", "user", user.id, { name: user.name });
-  return user;
-});
-
-app.patch("/users/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_users")) return;
-  if (!UUID_PATTERN.test(request.params.id)) { reply.code(400); return { error: "Invalid user id" }; }
-  const body = request.body ?? {};
-  if (body.role_id !== undefined) {
-    const roleId = String(body.role_id ?? "");
-    const role = UUID_PATTERN.test(roleId) ? await one("SELECT id FROM roles WHERE id = $1", [roleId]) : null;
-    if (!role) { reply.code(400); return { error: "A valid role is required" }; }
-  }
-  const hashedPin = body.pin ? hashPin(String(body.pin).trim()) : null;
-  const user = await one(
-    `UPDATE users SET
-      name = COALESCE($2, name),
-      pin = COALESCE($3, pin),
-      role_id = COALESCE($4, role_id),
-      active = COALESCE($5, active)
-     WHERE id = $1 RETURNING *`,
-    [request.params.id, body.name ?? null, hashedPin, body.role_id ?? null, body.active ?? null]
-  );
-  if (!user) { reply.code(404); return { error: "User not found" }; }
-  await auditLog(request, "user.update", "user", user.id, { name: user.name });
-  return user;
-});
-
-app.delete("/users/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_users")) return;
-  if (!UUID_PATTERN.test(request.params.id)) { reply.code(400); return { error: "Invalid user id" }; }
-  const user = await one("DELETE FROM users WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!user) { reply.code(404); return { error: "User not found" }; }
-  await auditLog(request, "user.delete", "user", user.id, { name: user.name });
-  return user;
-});
-
-app.get("/settings", async () => {
-  const settings = await getSettings();
-  if (!settings) return settings;
-  // Ensure printer_profiles always has the effective list (with defaults) so the frontend can display them
-  return { ...settings, printer_profiles: printerProfiles(settings) };
-});
-
-app.put("/settings", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_settings")) return;
-  const body = request.body ?? {};
-  const currentSettings = await getSettings();
-  const taxRateChanged = body.tax_rate !== undefined && Number(body.tax_rate) !== Number(currentSettings.tax_rate);
-  const serviceRateChanged = body.service_charge_rate !== undefined && Number(body.service_charge_rate) !== Number(currentSettings.service_charge_rate);
-  const taxIncludedChanged = body.prices_include_tax !== undefined && Boolean(body.prices_include_tax) !== Boolean(currentSettings.prices_include_tax);
-  const showTaxChanged = body.show_tax_on_receipt !== undefined && Boolean(body.show_tax_on_receipt) !== Boolean(currentSettings.show_tax_on_receipt);
-  if (taxRateChanged || serviceRateChanged || taxIncludedChanged || showTaxChanged) {
-    const actor = await userFromToken(request);
-    const grant = await adminGrantFromRequest(request, actor);
-    if (grant?.permissions?.includes("manage_settings")) {
-      // already admin-granted, skip confirm
-    } else if (actor) {
-      const row = await one(
-        "SELECT pin FROM users WHERE id = $1 AND name = $2 AND active = true",
-        [actor.id, String(body.confirm_name ?? "").trim()]
-      );
-      if (!row || !verifyPin(String(body.confirm_pin ?? ""), row.pin).valid) {
-        reply.code(401);
-        return { error: "修改税务或服务费设置需要输入当前账号名和 PIN" };
-      }
-    } else {
-      reply.code(401);
-      return { error: "修改税务或服务费设置需要输入当前账号名和 PIN" };
-    }
-  }
-  const settings = await one(
-    `UPDATE settings SET
-      locale = COALESCE($1, locale),
-      fallback_locale = COALESCE($2, fallback_locale),
-      currency = COALESCE($3, currency),
-      tax_rate = COALESCE($4, tax_rate),
-      prices_include_tax = COALESCE($5, prices_include_tax),
-      show_tax_on_receipt = COALESCE($6, show_tax_on_receipt),
-      service_charge_rate = COALESCE($7, service_charge_rate),
-      receipt_header = COALESCE($8, receipt_header),
-      receipt_footer = COALESCE($9, receipt_footer),
-      printer_host = COALESCE($10, printer_host),
-      printer_port = COALESCE($11, printer_port),
-      printer_profiles = COALESCE($12::jsonb, printer_profiles),
-      kitchen_printer_id = COALESCE($13, kitchen_printer_id),
-      receipt_printer_id = COALESCE($14, receipt_printer_id),
-      backup_enabled = COALESCE($15::boolean, backup_enabled),
-      backup_interval_hours = COALESCE($16::integer, backup_interval_hours),
-      receipt_address = COALESCE($17, receipt_address),
-      receipt_header_zh = COALESCE($18, receipt_header_zh),
-      receipt_phone = COALESCE($19, receipt_phone),
-      auto_clear_tables_after_payment = COALESCE($20::boolean, auto_clear_tables_after_payment),
-      kitchen_item_font_size = COALESCE($21::integer, kitchen_item_font_size),
-      kitchen_item_bold = COALESCE($22::boolean, kitchen_item_bold),
-      kitchen_qty_bold = COALESCE($23::boolean, kitchen_qty_bold),
-      auto_clear_empty_tables_after_idle = COALESCE($24::boolean, auto_clear_empty_tables_after_idle),
-      auto_clear_empty_tables_idle_minutes = COALESCE($25::integer, auto_clear_empty_tables_idle_minutes),
-      updated_at = now()
-     WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
-     RETURNING *`,
-    [
-      body.locale,
-      body.fallback_locale,
-      body.currency,
-      body.tax_rate,
-      body.prices_include_tax,
-      body.show_tax_on_receipt,
-      body.service_charge_rate,
-      body.receipt_header,
-      body.receipt_footer,
-      body.printer_host,
-      body.printer_port,
-      body.printer_profiles === undefined ? null : JSON.stringify(body.printer_profiles),
-      body.kitchen_printer_id,
-      body.receipt_printer_id,
-      body.backup_enabled,
-      body.backup_interval_hours,
-      body.receipt_address,
-      body.receipt_header_zh,
-      body.receipt_phone,
-      body.auto_clear_tables_after_payment,
-      body.kitchen_item_font_size,
-      body.kitchen_item_bold,
-      body.kitchen_qty_bold,
-      body.auto_clear_empty_tables_after_idle,
-      body.auto_clear_empty_tables_idle_minutes
-    ]
-  );
-  // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing
-  // from the saved profiles entirely, fall back to the first enabled profile so the route
-  // still resolves. We deliberately do NOT re-route based on isValidPrinter() (which checks
-  // host/device_path), so a freshly-added USB printer with a not-yet-filled device_path
-  // keeps the user's selection; print-time selectPrinter() handles the runtime fallback.
-  const profiles = printerProfiles(settings);
-  const firstEnabled = profiles.find((p) => p.enabled !== false) ?? profiles[0];
-  const patches = {};
-  if (firstEnabled && !profiles.some((p) => p.id === settings.kitchen_printer_id)) {
-    patches.kitchen_printer_id = firstEnabled.id;
-  }
-  if (firstEnabled && !profiles.some((p) => p.id === settings.receipt_printer_id)) {
-    patches.receipt_printer_id = firstEnabled.id;
-  }
-  if (Object.keys(patches).length) {
-    Object.assign(settings, await one(
-      "UPDATE settings SET kitchen_printer_id = COALESCE($2, kitchen_printer_id), receipt_printer_id = COALESCE($3, receipt_printer_id), updated_at = now() WHERE id = $1 RETURNING *",
-      [settings.id, patches.kitchen_printer_id ?? null, patches.receipt_printer_id ?? null]
-    ));
-  }
-  emit("settings.updated", settings);
-  scheduleAutoBackup();
-  scheduleIdleTableClear();
-  await auditLog(request, "settings.update", "settings", settings.id, { currency: settings.currency, tax_rate: settings.tax_rate, service_charge_rate: settings.service_charge_rate });
-  return settings;
-});
-
-function normalizeOptionPresetPayload(kind, payload) {
-  if (!Array.isArray(payload)) throw httpError("Preset payload must be an array", 400);
-  if (kind === "variants") {
-    return payload.map((variant, index) => {
-      const price = Number(variant.price ?? 0);
-      if (!Number.isFinite(price) || price < 0) throw httpError("Variant preset prices must be non-negative", 400);
-      if (!variant.name_i18n) throw httpError("Every variant preset row needs a name", 400);
-      return {
-        name_i18n: variant.name_i18n,
-        price,
-        sort_order: Number(variant.sort_order ?? index),
-        active: variant.active !== false
-      };
-    });
-  }
-  if (kind === "modifiers") {
-    return payload.map((group, groupIndex) => {
-      const minSelect = Math.max(0, Number(group.min_select ?? 0));
-      const maxSelect = Math.max(1, Number(group.max_select ?? 1));
-      if (!group.name_i18n) throw httpError("Every modifier preset group needs a name", 400);
-      if (minSelect > maxSelect) throw httpError("Modifier preset minimum cannot exceed maximum", 400);
-      const modifiers = (Array.isArray(group.modifiers) ? group.modifiers : []).map((modifier, modifierIndex) => {
-        const priceDelta = Number(modifier.price_delta ?? 0);
-        if (!Number.isFinite(priceDelta)) throw httpError("Modifier preset prices must be numbers", 400);
-        if (!modifier.name_i18n) throw httpError("Every modifier preset option needs a name", 400);
-        return {
-          name_i18n: modifier.name_i18n,
-          price_delta: priceDelta,
-          sort_order: Number(modifier.sort_order ?? modifierIndex),
-          active: modifier.active !== false,
-          default_selected: modifier.default_selected === true
-        };
-      });
-      if (modifiers.filter((modifier) => modifier.default_selected).length > maxSelect) {
-        throw httpError("Modifier preset defaults cannot exceed the group's maximum selection", 400);
-      }
-      return {
-        name_i18n: group.name_i18n,
-        min_select: minSelect,
-        max_select: maxSelect,
-        sort_order: Number(group.sort_order ?? groupIndex),
-        active: group.active !== false,
-        modifiers
-      };
-    });
-  }
-  throw httpError("Preset kind must be variants or modifiers", 400);
-}
-
-async function snapshotItemOptions(itemId, kind) {
-  const item = await one("SELECT id FROM menu_items WHERE id = $1", [itemId]);
-  if (!item) throw httpError("Menu item not found", 404);
-  if (kind === "variants") {
-    return query(
-      `SELECT name_i18n, price, sort_order, active
-       FROM menu_item_variants WHERE item_id = $1 ORDER BY sort_order, id`,
-      [itemId]
-    );
-  }
-  if (kind === "modifiers") {
-    const groups = await query(
-      `SELECT id, name_i18n, min_select, max_select, sort_order, active
-       FROM modifier_groups WHERE item_id = $1 ORDER BY sort_order, id`,
-      [itemId]
-    );
-    const modifiers = groups.length ? await query(
-      `SELECT group_id, name_i18n, price_delta, sort_order, active, default_selected
-       FROM modifiers WHERE group_id = ANY($1::uuid[]) ORDER BY sort_order, id`,
-      [groups.map((group) => group.id)]
-    ) : [];
-    return groups.map(({ id, ...group }) => ({
-      ...group,
-      modifiers: modifiers.filter((modifier) => modifier.group_id === id).map(({ group_id, ...modifier }) => modifier)
-    }));
-  }
-  throw httpError("Preset kind must be variants or modifiers", 400);
-}
-
-async function replaceItemOptionsFromPreset(client, itemId, preset) {
-  const payload = normalizeOptionPresetPayload(preset.kind, preset.payload);
-  if (!payload.length) throw httpError("Cannot bind an empty preset to a product", 400);
-  if (preset.kind === "variants") {
-    await client.query(
-      "UPDATE order_items SET variant_id = NULL WHERE variant_id IN (SELECT id FROM menu_item_variants WHERE item_id = $1)",
-      [itemId]
-    );
-    await client.query("DELETE FROM menu_item_variants WHERE item_id = $1", [itemId]);
-    for (const variant of payload) {
-      await client.query(
-        `INSERT INTO menu_item_variants (item_id, name_i18n, price, sort_order, active)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [itemId, variant.name_i18n, variant.price, variant.sort_order, variant.active]
-      );
-    }
-    await client.query("UPDATE menu_items SET variant_preset_id = $2, updated_at = now() WHERE id = $1", [itemId, preset.id]);
-    return;
-  }
-  await client.query(
-    `UPDATE order_item_modifiers SET modifier_id = NULL
-     WHERE modifier_id IN (
-       SELECT m.id FROM modifiers m JOIN modifier_groups mg ON mg.id = m.group_id WHERE mg.item_id = $1
-     )`,
-    [itemId]
-  );
-  await client.query("DELETE FROM modifier_groups WHERE item_id = $1", [itemId]);
-  for (const group of payload) {
-    const groupResult = await client.query(
-      `INSERT INTO modifier_groups (item_id, name_i18n, min_select, max_select, sort_order, active)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [itemId, group.name_i18n, group.min_select, group.max_select, group.sort_order, group.active]
-    );
-    for (const modifier of group.modifiers) {
-      await client.query(
-        `INSERT INTO modifiers (group_id, name_i18n, price_delta, sort_order, active, default_selected)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [groupResult.rows[0].id, modifier.name_i18n, modifier.price_delta, modifier.sort_order, modifier.active, modifier.default_selected]
-      );
-    }
-  }
-  await client.query("UPDATE menu_items SET modifier_preset_id = $2, updated_at = now() WHERE id = $1", [itemId, preset.id]);
-}
-
-async function snapshotModifierGroup(groupId) {
-  const group = await one(
-    `SELECT id, name_i18n, min_select, max_select, sort_order, active
-     FROM modifier_groups WHERE id = $1`,
-    [groupId]
-  );
-  if (!group) throw httpError("Modifier group not found", 404);
-  const modifiers = await query(
-    `SELECT name_i18n, price_delta, sort_order, active, default_selected
-     FROM modifiers WHERE group_id = $1 ORDER BY sort_order, id`,
-    [groupId]
-  );
-  return { ...group, modifiers };
-}
-
-async function replaceModifierGroupFromPreset(client, groupId, preset) {
-  const payload = normalizeOptionPresetPayload("modifiers", preset.payload);
-  if (payload.length !== 1) throw httpError("A modifier-group preset must contain exactly one group", 400);
-  const template = payload[0];
-  await client.query(
-    "UPDATE order_item_modifiers SET modifier_id = NULL WHERE modifier_id IN (SELECT id FROM modifiers WHERE group_id = $1)",
-    [groupId]
-  );
-  await client.query("DELETE FROM modifiers WHERE group_id = $1", [groupId]);
-  const updated = await client.query(
-    `UPDATE modifier_groups SET name_i18n = $2, min_select = $3, max_select = $4,
-     active = $5, preset_id = $6 WHERE id = $1 RETURNING id`,
-    [groupId, template.name_i18n, template.min_select, template.max_select, template.active, preset.id]
-  );
-  if (!updated.rowCount) throw httpError("Modifier group not found", 404);
-  for (const modifier of template.modifiers) {
-    await client.query(
-      `INSERT INTO modifiers (group_id, name_i18n, price_delta, sort_order, active, default_selected)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [groupId, modifier.name_i18n, modifier.price_delta, modifier.sort_order, modifier.active, modifier.default_selected]
-    );
-  }
-}
-
-app.get("/menu/option-presets", async () => {
-  return query("SELECT * FROM menu_option_presets ORDER BY kind, created_at, name");
-});
-
-app.post("/menu/option-presets", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const name = String(body.name ?? "").trim();
-  if (!name) { reply.code(400); return { error: "Preset name is required" }; }
-  try {
-    const payload = normalizeOptionPresetPayload(body.kind, body.payload ?? []);
-    const preset = await one(
-      `INSERT INTO menu_option_presets (name, kind, payload, active)
-       VALUES ($1, $2, $3::jsonb, COALESCE($4::boolean, true)) RETURNING *`,
-      [name, body.kind, JSON.stringify(payload), body.active]
-    );
-    await auditLog(request, "menu.option_preset.create", "menu_option_preset", preset.id, { name, kind: preset.kind });
-    reply.code(201);
-    return preset;
-  } catch (error) {
-    reply.code(error.statusCode || 400);
-    return { error: error.message };
-  }
-});
-
-app.patch("/menu/option-presets/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const current = await one("SELECT * FROM menu_option_presets WHERE id = $1", [request.params.id]);
-  if (!current) { reply.code(404); return { error: "Option preset not found" }; }
-  try {
-    const kind = request.body?.kind ?? current.kind;
-    if (kind !== current.kind) throw httpError("Preset kind cannot be changed after creation", 400);
-    const payload = request.body?.payload === undefined
-      ? current.payload
-      : normalizeOptionPresetPayload(kind, request.body.payload);
-    const client = await pool.connect();
-    let preset;
-    let linkedCount = 0;
-    try {
-      await client.query("BEGIN");
-      const presetResult = await client.query(
-        `UPDATE menu_option_presets SET name = COALESCE($2, name), kind = $3,
-         payload = $4::jsonb, active = COALESCE($5::boolean, active), updated_at = now()
-         WHERE id = $1 RETURNING *`,
-        [current.id, request.body?.name, kind, JSON.stringify(payload), request.body?.active]
-      );
-      preset = presetResult.rows[0];
-      const bindingColumn = kind === "variants" ? "variant_preset_id" : "modifier_preset_id";
-      const linkedItems = await client.query(`SELECT id FROM menu_items WHERE ${bindingColumn} = $1`, [preset.id]);
-      linkedCount = linkedItems.rowCount;
-      for (const item of linkedItems.rows) await replaceItemOptionsFromPreset(client, item.id, preset);
-      if (kind === "modifiers") {
-        const linkedGroups = await client.query("SELECT id FROM modifier_groups WHERE preset_id = $1", [preset.id]);
-        linkedCount += linkedGroups.rowCount;
-        for (const group of linkedGroups.rows) await replaceModifierGroupFromPreset(client, group.id, preset);
-      }
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-    await auditLog(request, "menu.option_preset.update", "menu_option_preset", preset.id, { name: preset.name, kind });
-    return { ...preset, synced_items: linkedCount };
-  } catch (error) {
-    reply.code(error.statusCode || 400);
-    return { error: error.message };
-  }
-});
-
-app.delete("/menu/option-presets/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const preset = await one("DELETE FROM menu_option_presets WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!preset) { reply.code(404); return { error: "Option preset not found" }; }
-  await auditLog(request, "menu.option_preset.delete", "menu_option_preset", preset.id, { name: preset.name, kind: preset.kind });
-  return preset;
-});
-
-app.post("/menu/items/:id/option-presets", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const name = String(request.body?.name ?? "").trim();
-  const kind = request.body?.kind;
-  if (!name) { reply.code(400); return { error: "Preset name is required" }; }
-  try {
-    const payload = normalizeOptionPresetPayload(kind, await snapshotItemOptions(request.params.id, kind));
-    if (!payload.length) throw httpError("This product has no options to save", 400);
-    const preset = await one(
-      "INSERT INTO menu_option_presets (name, kind, payload) VALUES ($1, $2, $3::jsonb) RETURNING *",
-      [name, kind, JSON.stringify(payload)]
-    );
-    const bindingColumn = kind === "variants" ? "variant_preset_id" : "modifier_preset_id";
-    await query(`UPDATE menu_items SET ${bindingColumn} = $2, updated_at = now() WHERE id = $1`, [request.params.id, preset.id]);
-    await auditLog(request, "menu.option_preset.capture", "menu_option_preset", preset.id, { item_id: request.params.id, name, kind });
-    reply.code(201);
-    return preset;
-  } catch (error) {
-    reply.code(error.statusCode || 400);
-    return { error: error.message };
-  }
-});
-
-app.post("/menu/items/:id/apply-option-preset", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const preset = await one("SELECT * FROM menu_option_presets WHERE id = $1 AND active = true", [request.body?.preset_id]);
-  if (!preset) { reply.code(404); return { error: "Active option preset not found" }; }
-  const item = await one("SELECT * FROM menu_items WHERE id = $1", [request.params.id]);
-  if (!item) { reply.code(404); return { error: "Menu item not found" }; }
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await replaceItemOptionsFromPreset(client, item.id, preset);
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-    await auditLog(request, "menu.option_preset.apply", "menu_item", item.id, { preset_id: preset.id, kind: preset.kind, binding: true });
-    return { item_id: item.id, preset_id: preset.id, kind: preset.kind };
-  } catch (error) {
-    reply.code(error.statusCode || 400);
-    return { error: error.message };
-  }
-});
-
-app.post("/menu/modifier-groups/:id/option-presets", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const name = String(request.body?.name ?? "").trim();
-  if (!name) { reply.code(400); return { error: "Preset name is required" }; }
-  try {
-    const group = await snapshotModifierGroup(request.params.id);
-    const payload = normalizeOptionPresetPayload("modifiers", [group]);
-    const client = await pool.connect();
-    let preset;
-    try {
-      await client.query("BEGIN");
-      const result = await client.query(
-        "INSERT INTO menu_option_presets (name, kind, payload) VALUES ($1, 'modifiers', $2::jsonb) RETURNING *",
-        [name, JSON.stringify(payload)]
-      );
-      preset = result.rows[0];
-      await client.query("UPDATE modifier_groups SET preset_id = $2 WHERE id = $1", [group.id, preset.id]);
-      await client.query("UPDATE menu_items SET modifier_preset_id = NULL WHERE id = (SELECT item_id FROM modifier_groups WHERE id = $1)", [group.id]);
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-    await auditLog(request, "menu.option_preset.capture_group", "menu_option_preset", preset.id, { group_id: group.id, name });
-    reply.code(201);
-    return preset;
-  } catch (error) {
-    reply.code(error.statusCode || 400);
-    return { error: error.message };
-  }
-});
-
-app.post("/menu/modifier-groups/:id/apply-option-preset", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const preset = await one(
-    "SELECT * FROM menu_option_presets WHERE id = $1 AND kind = 'modifiers' AND active = true",
-    [request.body?.preset_id]
-  );
-  if (!preset) { reply.code(404); return { error: "Active modifier-group preset not found" }; }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await replaceModifierGroupFromPreset(client, request.params.id, preset);
-    await client.query("UPDATE menu_items SET modifier_preset_id = NULL WHERE id = (SELECT item_id FROM modifier_groups WHERE id = $1)", [request.params.id]);
-    await client.query("COMMIT");
-    await auditLog(request, "menu.option_preset.apply_group", "modifier_group", request.params.id, { preset_id: preset.id });
-    return { group_id: request.params.id, preset_id: preset.id };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    reply.code(error.statusCode || 400);
-    return { error: error.message };
-  } finally {
-    client.release();
-  }
-});
-
-app.get("/menu", async () => {
-  const categories = await query("SELECT * FROM menu_categories ORDER BY sort_order, name_i18n->>'zh-CN'");
-  const items = await query(
-    `SELECT mi.*
-     FROM menu_items mi
-     LEFT JOIN menu_categories mc ON mc.id = mi.category_id
-     ORDER BY COALESCE(mc.sort_order, 999), mi.sort_order, mi.created_at`
-  );
-  const variants = await query("SELECT * FROM menu_item_variants ORDER BY sort_order");
-  const groups = await query("SELECT * FROM modifier_groups ORDER BY sort_order");
-  const modifiers = await query("SELECT * FROM modifiers ORDER BY sort_order");
-  const notePresets = await query("SELECT * FROM note_presets ORDER BY sort_order, created_at");
-  const optionPresets = await query("SELECT * FROM menu_option_presets ORDER BY kind, created_at, name");
-  return {
-    categories,
-    note_presets: notePresets,
-    option_presets: optionPresets,
-    items: items.map((item) => ({
-      ...item,
-      variants: variants.filter((variant) => variant.item_id === item.id),
-      modifier_groups: groups
-        .filter((group) => group.item_id === item.id)
-        .map((group) => ({
-          ...group,
-          modifiers: modifiers.filter((modifier) => modifier.group_id === group.id)
-        }))
-    }))
-  };
-});
-
-app.post("/menu/categories", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const category = await one(
-    "INSERT INTO menu_categories (name_i18n, sort_order, active) VALUES ($1, $2, COALESCE($3, true)) RETURNING *",
-    [body.name_i18n, body.sort_order ?? 0, body.active]
-  );
-  await auditLog(request, "menu.category.create", "menu_category", category.id, { name_i18n: category.name_i18n });
-  return category;
-});
-
-app.patch("/menu/categories/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const category = await one(
-    `UPDATE menu_categories SET
-      name_i18n = COALESCE($2, name_i18n),
-      sort_order = COALESCE($3, sort_order),
-      active = COALESCE($4, active)
-     WHERE id = $1 RETURNING *`,
-    [request.params.id, body.name_i18n, body.sort_order, body.active]
-  );
-  if (!category) {
-    reply.code(404);
-    return { error: "Category not found" };
-  }
-  await auditLog(request, "menu.category.update", "menu_category", category.id, body);
-  return category;
-});
-
-app.delete("/menu/categories/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const category = await one("UPDATE menu_categories SET active = false WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!category) {
-    reply.code(404);
-    return { error: "Category not found" };
-  }
-  await auditLog(request, "menu.category.disable", "menu_category", category.id);
-  return category;
-});
-
-app.delete("/menu/categories/:id/destroy", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const category = await one("DELETE FROM menu_categories WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!category) {
-    reply.code(404);
-    return { error: "Category not found" };
-  }
-  await auditLog(request, "menu.category.destroy", "menu_category", category.id, { name_i18n: category.name_i18n });
-  return category;
-});
-
-app.post("/menu/items", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const item = await one(
-    `INSERT INTO menu_items (category_id, name_i18n, description_i18n, image_url, kitchen_group, active, sort_order)
-     VALUES ($1, $2, COALESCE($3, '{}'::jsonb), $4, COALESCE($5, 'kitchen'), COALESCE($6, true), COALESCE($7, 0))
-     RETURNING *`,
-    [body.category_id, body.name_i18n, body.description_i18n, body.image_url, body.kitchen_group, body.active, body.sort_order]
-  );
-  for (const variant of body.variants ?? []) {
-    await query(
-      "INSERT INTO menu_item_variants (item_id, name_i18n, price, sort_order) VALUES ($1, $2, $3, $4)",
-      [item.id, variant.name_i18n, variant.price, variant.sort_order ?? 0]
-    );
-  }
-  await auditLog(request, "menu.item.create", "menu_item", item.id, { name_i18n: item.name_i18n });
-  return item;
-});
-
-app.post("/menu/items/:id/copy", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const source = await one("SELECT * FROM menu_items WHERE id = $1", [request.params.id]);
-  if (!source) {
-    reply.code(404);
-    return { error: "Menu item not found" };
-  }
-  const variants = await query("SELECT * FROM menu_item_variants WHERE item_id = $1 ORDER BY sort_order ASC", [source.id]);
-  const groups = await query("SELECT * FROM modifier_groups WHERE item_id = $1 ORDER BY sort_order ASC", [source.id]);
-  const modifiersByGroup = new Map();
-  for (const group of groups) {
-    modifiersByGroup.set(group.id, await query("SELECT * FROM modifiers WHERE group_id = $1 ORDER BY sort_order ASC", [group.id]));
-  }
-  const suffixedName = {
-    ...source.name_i18n,
-    ...(source.name_i18n?.["zh-CN"] ? { "zh-CN": `${source.name_i18n["zh-CN"]} 副本` } : {}),
-    ...(source.name_i18n?.["en-GB"] ? { "en-GB": `${source.name_i18n["en-GB"]} (Copy)` } : {})
-  };
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const itemResult = await client.query(
-      `INSERT INTO menu_items (category_id, name_i18n, description_i18n, image_url, kitchen_group, active, sort_order, variant_preset_id, modifier_preset_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [source.category_id, suffixedName, source.description_i18n, source.image_url, source.kitchen_group, source.active, source.sort_order, source.variant_preset_id, source.modifier_preset_id]
-    );
-    const item = itemResult.rows[0];
-    for (const variant of variants) {
-      await client.query(
-        "INSERT INTO menu_item_variants (item_id, name_i18n, price, sort_order, active) VALUES ($1, $2, $3, $4, $5)",
-        [item.id, variant.name_i18n, variant.price, variant.sort_order, variant.active]
-      );
-    }
-    for (const group of groups) {
-      const groupResult = await client.query(
-        "INSERT INTO modifier_groups (item_id, name_i18n, min_select, max_select, sort_order, active, preset_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-        [item.id, group.name_i18n, group.min_select, group.max_select, group.sort_order, group.active, group.preset_id]
-      );
-      const newGroup = groupResult.rows[0];
-      for (const modifier of modifiersByGroup.get(group.id) ?? []) {
-        await client.query(
-          "INSERT INTO modifiers (group_id, name_i18n, price_delta, sort_order, active, default_selected) VALUES ($1, $2, $3, $4, $5, $6)",
-          [newGroup.id, modifier.name_i18n, modifier.price_delta, modifier.sort_order, modifier.active, modifier.default_selected]
-        );
-      }
-    }
-    await client.query("COMMIT");
-    await auditLog(request, "menu.item.copy", "menu_item", item.id, { source_item_id: source.id, name_i18n: item.name_i18n });
-    return item;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-});
-
-app.patch("/menu/items/:id", async (request, reply) => {
-  const body = request.body ?? {};
-  const actor = await requireAnyPermission(request, reply, ["manage_menu", "manage_menu_availability"]);
-  if (!actor) return;
-  if (!canPatchMenuItem(actor, body)) {
-    reply.code(403);
-    return { error: "Only menu availability can be changed with this account" };
-  }
-  const item = await one(
-    `UPDATE menu_items SET
-      category_id = COALESCE($2, category_id),
-      name_i18n = COALESCE($3, name_i18n),
-      description_i18n = COALESCE($4, description_i18n),
-      image_url = COALESCE($5, image_url),
-      kitchen_group = COALESCE($6, kitchen_group),
-      active = COALESCE($7, active),
-      sort_order = COALESCE($8::integer, sort_order),
-      updated_at = now()
-     WHERE id = $1 RETURNING *`,
-    [request.params.id, body.category_id, body.name_i18n, body.description_i18n, body.image_url, body.kitchen_group, body.active, body.sort_order]
-  );
-  await auditLog(request, "menu.item.update", "menu_item", item?.id ?? request.params.id, body);
-  return item;
-});
-
-app.delete("/menu/items/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const item = await one("UPDATE menu_items SET active = false, updated_at = now() WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!item) {
-    reply.code(404);
-    return { error: "Menu item not found" };
-  }
-  await auditLog(request, "menu.item.disable", "menu_item", item.id);
-  return item;
-});
-
-app.delete("/menu/items/:id/destroy", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  // Unlink from historical order_items (preserve order history, just remove the reference)
-  await query("UPDATE order_items SET item_id = NULL, variant_id = NULL WHERE item_id = $1", [request.params.id]);
-  const item = await one("DELETE FROM menu_items WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!item) {
-    reply.code(404);
-    return { error: "Menu item not found" };
-  }
-  await auditLog(request, "menu.item.destroy", "menu_item", item.id, { name_i18n: item.name_i18n });
-  return item;
-});
-
-app.post("/menu/items/:id/variants", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const variant = await one(
-    "INSERT INTO menu_item_variants (item_id, name_i18n, price, sort_order, active) VALUES ($1, $2, $3, $4, COALESCE($5, true)) RETURNING *",
-    [request.params.id, body.name_i18n, body.price, body.sort_order ?? 0, body.active]
-  );
-  await query("UPDATE menu_items SET variant_preset_id = NULL, updated_at = now() WHERE id = $1", [request.params.id]);
-  await auditLog(request, "menu.variant.create", "menu_item_variant", variant.id, { item_id: request.params.id, price: variant.price });
-  return variant;
-});
-
-app.patch("/menu/items/:id/variants/:variantId", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const variant = await one(
-    `UPDATE menu_item_variants SET
-      name_i18n = COALESCE($3, name_i18n),
-      price = COALESCE($4, price),
-      sort_order = COALESCE($5, sort_order),
-      active = COALESCE($6, active)
-     WHERE id = $1 AND item_id = $2 RETURNING *`,
-    [request.params.variantId, request.params.id, body.name_i18n, body.price, body.sort_order, body.active]
-  );
-  if (!variant) {
-    reply.code(404);
-    return { error: "Variant not found" };
-  }
-  await query("UPDATE menu_items SET variant_preset_id = NULL, updated_at = now() WHERE id = $1", [request.params.id]);
-  await auditLog(request, "menu.variant.update", "menu_item_variant", variant.id, body);
-  return variant;
-});
-
-app.delete("/menu/items/:id/variants/:variantId", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const variant = await one(
-    "UPDATE menu_item_variants SET active = false WHERE id = $1 AND item_id = $2 RETURNING *",
-    [request.params.variantId, request.params.id]
-  );
-  if (!variant) {
-    reply.code(404);
-    return { error: "Variant not found" };
-  }
-  await query("UPDATE menu_items SET variant_preset_id = NULL, updated_at = now() WHERE id = $1", [request.params.id]);
-  await auditLog(request, "menu.variant.disable", "menu_item_variant", variant.id);
-  return variant;
-});
-
-app.delete("/menu/items/:id/variants/:variantId/destroy", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  await query(
-    "UPDATE order_items SET variant_id = NULL WHERE variant_id = $1 AND item_id = $2",
-    [request.params.variantId, request.params.id]
-  );
-  const variant = await one(
-    "DELETE FROM menu_item_variants WHERE id = $1 AND item_id = $2 RETURNING *",
-    [request.params.variantId, request.params.id]
-  );
-  if (!variant) {
-    reply.code(404);
-    return { error: "Variant not found" };
-  }
-  await query("UPDATE menu_items SET variant_preset_id = NULL, updated_at = now() WHERE id = $1", [request.params.id]);
-  await auditLog(request, "menu.variant.destroy", "menu_item_variant", variant.id, { item_id: request.params.id });
-  return variant;
-});
-
-app.post("/menu/modifier-groups", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const group = await one(
-    `INSERT INTO modifier_groups (item_id, name_i18n, min_select, max_select, sort_order, active)
-     VALUES ($1, $2, COALESCE($3, 0), COALESCE($4, 1), COALESCE($5, 0), COALESCE($6, true))
-     RETURNING *`,
-    [body.item_id, body.name_i18n, body.min_select, body.max_select, body.sort_order, body.active]
-  );
-  for (const modifier of body.modifiers ?? []) {
-    await query(
-      "INSERT INTO modifiers (group_id, name_i18n, price_delta, sort_order, default_selected) VALUES ($1, $2, COALESCE($3, 0), COALESCE($4, 0), COALESCE($5, false))",
-      [group.id, modifier.name_i18n, modifier.price_delta, modifier.sort_order, modifier.default_selected]
-    );
-  }
-  await query("UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = $1", [group.item_id]);
-  await auditLog(request, "menu.modifier_group.create", "modifier_group", group.id, { item_id: group.item_id });
-  return group;
-});
-
-app.patch("/menu/modifier-groups/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const group = await one(
-    `UPDATE modifier_groups SET
-      name_i18n = COALESCE($2, name_i18n),
-      min_select = COALESCE($3, min_select),
-      max_select = COALESCE($4, max_select),
-      sort_order = COALESCE($5, sort_order),
-      active = COALESCE($6, active),
-      preset_id = NULL
-     WHERE id = $1 RETURNING *`,
-    [request.params.id, body.name_i18n, body.min_select, body.max_select, body.sort_order, body.active]
-  );
-  if (group) await query("UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = $1", [group.item_id]);
-  await auditLog(request, "menu.modifier_group.update", "modifier_group", group?.id ?? request.params.id, body);
-  return group;
-});
-
-app.delete("/menu/modifier-groups/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const group = await one("UPDATE modifier_groups SET active = false, preset_id = NULL WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!group) {
-    reply.code(404);
-    return { error: "Modifier group not found" };
-  }
-  await query("UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = $1", [group.item_id]);
-  await auditLog(request, "menu.modifier_group.disable", "modifier_group", group.id);
-  return group;
-});
-
-app.delete("/menu/modifier-groups/:id/destroy", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  await query(
-    "UPDATE order_item_modifiers SET modifier_id = NULL WHERE modifier_id IN (SELECT id FROM modifiers WHERE group_id = $1)",
-    [request.params.id]
-  );
-  const group = await one("DELETE FROM modifier_groups WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!group) {
-    reply.code(404);
-    return { error: "Modifier group not found" };
-  }
-  await query("UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = $1", [group.item_id]);
-  await auditLog(request, "menu.modifier_group.destroy", "modifier_group", group.id, { item_id: group.item_id });
-  return group;
-});
-
-app.post("/menu/modifier-groups/:id/modifiers", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const group = await one("SELECT * FROM modifier_groups WHERE id = $1", [request.params.id]);
-  if (!group) {
-    reply.code(404);
-    return { error: "Modifier group not found" };
-  }
-  const body = request.body ?? {};
-  const modifier = await one(
-    "INSERT INTO modifiers (group_id, name_i18n, price_delta, sort_order, active, default_selected) VALUES ($1, $2, COALESCE($3::numeric, 0), COALESCE($4::integer, 0), COALESCE($5::boolean, true), COALESCE($6::boolean, false)) RETURNING *",
-    [group.id, body.name_i18n, body.price_delta, body.sort_order, body.active, body.default_selected]
-  );
-  if (modifier.default_selected && Number(group.max_select) === 1) {
-    await query("UPDATE modifiers SET default_selected = false WHERE group_id = $1 AND id <> $2", [group.id, modifier.id]);
-  }
-  await query("UPDATE modifier_groups SET preset_id = NULL WHERE id = $1", [group.id]);
-  await query("UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = $1", [group.item_id]);
-  await auditLog(request, "menu.modifier.create", "modifier", modifier.id, { group_id: group.id, price_delta: modifier.price_delta });
-  return modifier;
-});
-
-app.patch("/menu/modifiers/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const currentModifier = await one(
-    "SELECT m.*, mg.max_select FROM modifiers m JOIN modifier_groups mg ON mg.id = m.group_id WHERE m.id = $1",
-    [request.params.id]
-  );
-  if (!currentModifier) {
-    reply.code(404);
-    return { error: "Modifier not found" };
-  }
-  if (body.default_selected === true && Number(currentModifier.max_select) === 1) {
-    await query("UPDATE modifiers SET default_selected = false WHERE group_id = $1 AND id <> $2", [currentModifier.group_id, request.params.id]);
-  }
-  const modifier = await one(
-    `UPDATE modifiers SET
-      name_i18n = COALESCE($2, name_i18n),
-      price_delta = COALESCE($3::numeric, price_delta),
-      sort_order = COALESCE($4::integer, sort_order),
-      active = COALESCE($5::boolean, active),
-      default_selected = COALESCE($6::boolean, default_selected)
-     WHERE id = $1 RETURNING *`,
-    [request.params.id, body.name_i18n, body.price_delta, body.sort_order, body.active, body.default_selected]
-  );
-  if (!modifier) {
-    reply.code(404);
-    return { error: "Modifier not found" };
-  }
-  await query(
-    "UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = (SELECT item_id FROM modifier_groups WHERE id = $1)",
-    [modifier.group_id]
-  );
-  await query("UPDATE modifier_groups SET preset_id = NULL WHERE id = $1", [modifier.group_id]);
-  await auditLog(request, "menu.modifier.update", "modifier", modifier.id, body);
-  return modifier;
-});
-
-app.delete("/menu/modifiers/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const modifier = await one("UPDATE modifiers SET active = false WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!modifier) {
-    reply.code(404);
-    return { error: "Modifier not found" };
-  }
-  await query(
-    "UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = (SELECT item_id FROM modifier_groups WHERE id = $1)",
-    [modifier.group_id]
-  );
-  await query("UPDATE modifier_groups SET preset_id = NULL WHERE id = $1", [modifier.group_id]);
-  await auditLog(request, "menu.modifier.disable", "modifier", modifier.id);
-  return modifier;
-});
-
-app.delete("/menu/modifiers/:id/destroy", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  await query("UPDATE order_item_modifiers SET modifier_id = NULL WHERE modifier_id = $1", [request.params.id]);
-  const modifier = await one("DELETE FROM modifiers WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!modifier) {
-    reply.code(404);
-    return { error: "Modifier not found" };
-  }
-  await query(
-    "UPDATE menu_items SET modifier_preset_id = NULL, updated_at = now() WHERE id = (SELECT item_id FROM modifier_groups WHERE id = $1)",
-    [modifier.group_id]
-  );
-  await query("UPDATE modifier_groups SET preset_id = NULL WHERE id = $1", [modifier.group_id]);
-  await auditLog(request, "menu.modifier.destroy", "modifier", modifier.id, { group_id: modifier.group_id });
-  return modifier;
-});
-
-app.get("/note-presets", async () => {
-  return query("SELECT * FROM note_presets ORDER BY sort_order, created_at");
-});
-
-app.post("/note-presets", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const label = String(body.label ?? "").trim();
-  if (!label) { reply.code(400); return { error: "label is required" }; }
-  const preset = await one(
-    "INSERT INTO note_presets (label, sort_order, active) VALUES ($1, COALESCE($2, 0), COALESCE($3, true)) RETURNING *",
-    [label, body.sort_order, body.active]
-  );
-  await auditLog(request, "note_preset.create", "note_preset", preset.id, { label });
-  return preset;
-});
-
-app.patch("/note-presets/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const body = request.body ?? {};
-  const preset = await one(
-    `UPDATE note_presets SET
-      label = COALESCE($2, label),
-      sort_order = COALESCE($3, sort_order),
-      active = COALESCE($4, active)
-     WHERE id = $1 RETURNING *`,
-    [request.params.id, body.label, body.sort_order, body.active]
-  );
-  if (!preset) { reply.code(404); return { error: "Note preset not found" }; }
-  await auditLog(request, "note_preset.update", "note_preset", preset.id, body);
-  return preset;
-});
-
-app.delete("/note-presets/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_menu")) return;
-  const preset = await one("DELETE FROM note_presets WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!preset) { reply.code(404); return { error: "Note preset not found" }; }
-  await auditLog(request, "note_preset.destroy", "note_preset", preset.id, { label: preset.label });
-  return preset;
-});
-
-app.get("/floor-layouts", async () => {
-  const areas = await query("SELECT * FROM floor_areas ORDER BY sort_order, name");
-  const tables = await query(
-    `SELECT t.*, l.x, l.y, l.width, l.height, l.shape, l.rotation,
-      o.total AS current_total,
-      COALESCE(item_counts.item_count, 0)::integer AS current_item_count,
-      EXTRACT(EPOCH FROM (now() - t.opened_at))::INTEGER AS open_seconds
-     FROM tables t
-     JOIN floor_areas fa ON fa.id = t.area_id
-     JOIN table_layouts l ON l.table_id = t.id
-     LEFT JOIN orders o ON o.id = t.current_order_id
-     LEFT JOIN (
-       SELECT order_id, COUNT(*)::integer AS item_count
-       FROM order_items
-       GROUP BY order_id
-     ) item_counts ON item_counts.order_id = t.current_order_id
-     ORDER BY fa.sort_order, l.y, l.x, t.label`
-  );
-  return { areas, tables };
-});
-
-app.post("/floor-areas", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_tables")) return;
-  const body = request.body ?? {};
-  const area = await one(
-    "INSERT INTO floor_areas (name, sort_order) VALUES ($1, COALESCE($2, 0)) RETURNING *",
-    [body.name, body.sort_order]
-  );
-  await auditLog(request, "floor_area.create", "floor_area", area.id, { name: area.name });
-  return area;
-});
-
-app.patch("/floor-areas/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_tables")) return;
-  const body = request.body ?? {};
-  const area = await one(
-    "UPDATE floor_areas SET name = COALESCE($2, name), sort_order = COALESCE($3, sort_order) WHERE id = $1 RETURNING *",
-    [request.params.id, body.name, body.sort_order]
-  );
-  if (!area) {
-    reply.code(404);
-    return { error: "Area not found" };
-  }
-  await auditLog(request, "floor_area.update", "floor_area", area.id, body);
-  return area;
-});
-
-app.delete("/floor-areas/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_tables")) return;
-  const tableCount = await one("SELECT COUNT(*)::integer AS count FROM tables WHERE area_id = $1", [request.params.id]);
-  if (Number(tableCount?.count ?? 0) > 0) {
-    reply.code(409);
-    return { error: "Area still has tables" };
-  }
-  const area = await one("DELETE FROM floor_areas WHERE id = $1 RETURNING *", [request.params.id]);
-  if (!area) {
-    reply.code(404);
-    return { error: "Area not found" };
-  }
-  await auditLog(request, "floor_area.delete", "floor_area", area.id);
-  return area;
-});
-
-app.put("/floor-layouts", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_tables")) return;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    for (const area of request.body?.areas ?? []) {
-      await client.query(
-        `INSERT INTO floor_areas (id, name, sort_order) VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, COALESCE($3::integer, 0))
-         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, sort_order = EXCLUDED.sort_order`,
-        [area.id, area.name, area.sort_order ?? 0]
-      );
-    }
-    for (const table of request.body?.tables ?? []) {
-      const saved = await client.query(
-        `INSERT INTO tables (id, area_id, label, seats, status)
-         VALUES (COALESCE($1::uuid, gen_random_uuid()), $2::uuid, $3, COALESCE($4::integer, 2), COALESCE($5, 'available'))
-         ON CONFLICT (id) DO UPDATE SET area_id = EXCLUDED.area_id, label = EXCLUDED.label, seats = EXCLUDED.seats, updated_at = now()
-         RETURNING id`,
-        [table.id, table.area_id, table.label, table.seats ?? 2, table.status]
-      );
-      await client.query(
-        `INSERT INTO table_layouts (table_id, x, y, width, height, shape, rotation)
-         VALUES ($1::uuid, COALESCE($2::numeric, 0), COALESCE($3::numeric, 0), COALESCE($4::numeric, 96), COALESCE($5::numeric, 72), COALESCE($6, 'rect'), COALESCE($7::numeric, 0))
-         ON CONFLICT (table_id) DO UPDATE SET x = EXCLUDED.x, y = EXCLUDED.y, width = EXCLUDED.width,
-           height = EXCLUDED.height, shape = EXCLUDED.shape, rotation = EXCLUDED.rotation`,
-        [saved.rows[0].id, table.x ?? 0, table.y ?? 0, table.width ?? 96, table.height ?? 72, table.shape ?? "rect", table.rotation]
-      );
-    }
-    await client.query("COMMIT");
-    emit("table.status.updated", { changed: true });
-    await auditLog(request, "floor_layout.update", "floor_layout", null, { areas: request.body?.areas?.length ?? 0, tables: request.body?.tables?.length ?? 0 });
-    return { ok: true };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-});
-
-app.post("/tables/:id/copy", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_tables")) return;
-  const source = await one(
-    `SELECT t.*, l.x, l.y, l.width, l.height, l.shape, l.rotation
-     FROM tables t
-     JOIN table_layouts l ON l.table_id = t.id
-     WHERE t.id = $1`,
-    [request.params.id]
-  );
-  if (!source) {
-    reply.code(404);
-    return { error: "Table not found" };
-  }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const copied = await client.query(
-      `INSERT INTO tables (area_id, label, seats, status)
-       VALUES ($1, $2, $3, 'available') RETURNING *`,
-      [source.area_id, request.body?.label ?? `${source.label}-copy`, source.seats]
-    );
-    const table = copied.rows[0];
-    await client.query(
-      `INSERT INTO table_layouts (table_id, x, y, width, height, shape, rotation)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [table.id, Number(source.x) + 24, Number(source.y) + 24, source.width, source.height, source.shape, source.rotation]
-    );
-    await client.query("COMMIT");
-    emit("table.status.updated", { changed: true });
-    await auditLog(request, "table.copy", "table", table.id, { source_table_id: source.id });
-    return table;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-});
-
-app.delete("/tables/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_tables")) return;
-  const table = await one("SELECT * FROM tables WHERE id = $1", [request.params.id]);
-  if (!table) {
-    reply.code(404);
-    return { error: "Table not found" };
-  }
-  if (table.current_order_id) {
-    reply.code(409);
-    return { error: "Cannot delete a table with an active order" };
-  }
-  const deleted = await one("DELETE FROM tables WHERE id = $1 RETURNING *", [table.id]);
-  emit("table.status.updated", { changed: true });
-  await auditLog(request, "table.delete", "table", deleted.id, { label: deleted.label });
-  return deleted;
-});
-
-app.post("/tables/:id/open", async (request, reply) => {
-  if (!await requirePermission(request, reply, "create_order")) return;
-  const table = await one("SELECT * FROM tables WHERE id = $1", [request.params.id]);
-  if (!table) {
-    const error = new Error("Table not found");
-    error.statusCode = 404;
-    throw error;
-  }
-  if (table.current_order_id) {
-    const existing = await one("SELECT * FROM orders WHERE id = $1", [table.current_order_id]);
-    if (existing && existing.status !== 'paid' && existing.status !== 'cancelled') return existing;
-  }
-  const order = await insertOrderWithRetry("dine_in", table.label, (no) => one(
-    "INSERT INTO orders (order_no, service_type, table_id, guests, status) VALUES ($1, 'dine_in', $2, $3, 'draft') RETURNING *",
-    [no, table.id, request.body?.guests ?? 1]
-  ));
-  await query(
-    "UPDATE tables SET current_order_id = $1, status = 'opened', opened_at = now(), updated_at = now() WHERE id = $2",
-    [order.id, table.id]
-  );
-  emit("table.status.updated", { table_id: table.id, status: "opened" });
-  emit("order.created", order);
-  await auditLog(request, "table.open", "order", order.id, { table_id: table.id, table_label: table.label });
-  return order;
-});
-
-app.post("/tables/:id/clear", async (request, reply) => {
-  if (!await requirePermission(request, reply, "create_order")) return;
-  const table = await one("SELECT * FROM tables WHERE id = $1", [request.params.id]);
-  if (!table) {
-    reply.code(404);
-    return { error: "Table not found" };
-  }
-  if (table.current_order_id) {
-    const order = await one("SELECT * FROM orders WHERE id = $1", [table.current_order_id]);
-    const itemCount = await one("SELECT COUNT(*)::integer AS count FROM order_items WHERE order_id = $1", [table.current_order_id]);
-    const hasItems = Number(itemCount?.count ?? 0) > 0;
-    if (order && hasItems && order.status !== "paid" && order.status !== "cancelled") {
-      reply.code(409);
-      return { error: "Unpaid orders cannot be cleared" };
-    }
-    if (order && !hasItems && order.status !== "paid" && order.status !== "cancelled") {
-      await query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [order.id]);
-    }
-  }
-  const updated = await one(
-    "UPDATE tables SET current_order_id = NULL, status = 'available', opened_at = NULL, updated_at = now() WHERE id = $1 RETURNING *",
-    [table.id]
-  );
-  emit("table.status.updated", updated);
-  await auditLog(request, "table.clear", "table", updated.id, { label: updated.label });
-  return updated;
-});
-
-app.post("/orders", async (request, reply) => {
-  if (!await requirePermission(request, reply, "create_order")) return;
-  const body = request.body ?? {};
-  const serviceType = body.service_type ?? "takeaway";
-  let suffix = "";
-  if (serviceType === "dine_in" && body.table_id) {
-    const t = await one("SELECT label FROM tables WHERE id = $1", [body.table_id]);
-    suffix = t?.label ?? "";
-  } else if (body.pickup_no) {
-    suffix = String(body.pickup_no);
-  }
-  const order = await insertOrderWithRetry(serviceType, suffix, (no) => one(
-    `INSERT INTO orders (order_no, service_type, table_id, pickup_no, guests, notes, status, service_charge_exempt)
-     VALUES ($1, $2, $3, $4, COALESCE($5, 1), COALESCE($6, ''), 'draft', $7) RETURNING *`,
-    [no, serviceType, body.table_id, body.pickup_no, body.guests, body.notes, serviceType !== "dine_in"]
-  ));
-  emit("order.created", order);
-  await auditLog(request, "order.create", "order", order.id, { service_type: order.service_type });
-  return order;
-});
-
-app.get("/orders", async (request) => {
-  const params = [];
-  const where = [];
-  if (request.query.status) {
-    params.push(request.query.status);
-    where.push(`status = $${params.length}`);
-  }
-  if (request.query.from) {
-    params.push(request.query.from);
-    where.push(`created_at >= $${params.length}::date`);
-  }
-  if (request.query.to) {
-    params.push(request.query.to);
-    where.push(`created_at < ($${params.length}::date + INTERVAL '1 day')`);
-  }
-  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  return query(`SELECT * FROM orders ${clause} ORDER BY created_at DESC LIMIT 250`, params);
-});
-
-app.get("/orders/:id", async (request) => {
-  const order = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
-  return { ...order, items: await getOrderItems(order.id), payments: await query("SELECT * FROM payments WHERE order_id = $1", [order.id]) };
-});
-
-app.patch("/orders/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "create_order")) return;
-  const body = request.body ?? {};
-  if (body.add_item || body.update_item) {
-    const currentOrder = await one("SELECT status FROM orders WHERE id = $1", [request.params.id]);
-    if (currentOrder?.status === "paid" || currentOrder?.status === "cancelled") {
-      reply.code(409);
-      return { error: "Cannot modify a paid or cancelled order" };
-    }
-  }
-  if (body.update_item) {
-    const item = body.update_item;
-    const existingItem = await one("SELECT id, quantity, kitchen_printed_at, status FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
-    if (!existingItem) {
-      return recalculateOrder(request.params.id);
-    }
-    const isVoid = item.void === true || item.remove === true || Number(item.quantity) <= 0;
-    if (existingItem.kitchen_printed_at && !item.void) {
-      const error = new Error("Kitchen printed items are locked");
-      error.statusCode = 409;
-      throw error;
-    }
-    if (item.void) {
-      const actor = await userFromToken(request);
-      if (!actor?.permissions?.includes("manage_orders")) {
-        reply.code(403);
-        return { error: "void requires manage_orders permission" };
-      }
-    }
-    if (existingItem.status === "served" && !item.void) {
-      const error = new Error("Served items cannot be modified");
-      error.statusCode = 409;
-      throw error;
-    }
-    if (isVoid) {
-      // Partial void: void_qty < current quantity → reduce instead of delete
-      const voidQty = item.void_qty != null ? Number(item.void_qty) : null;
-      if (item.void && voidQty != null && Number.isFinite(voidQty) && voidQty > 0 && voidQty < Number(existingItem.quantity ?? 0)) {
-        await query(
-          "UPDATE order_items SET quantity = quantity - $3 WHERE id = $1 AND order_id = $2",
-          [item.id, request.params.id, voidQty]
-        );
-        await auditLog(request, "order.item.partial_void", "order_item", item.id, { order_id: request.params.id, void_qty: voidQty, reason: item.reason ?? null });
-      } else {
-        await query("DELETE FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
-        const action = item.void ? "order.item.void" : "order.item.remove";
-        await auditLog(request, action, "order_item", item.id, { order_id: request.params.id, reason: item.reason ?? null });
-      }
-    } else {
-      // Support updating variant and modifiers in-place
-      let variant = null;
-      if (item.variant_id) {
-        variant = await one(
-          `SELECT v.*, i.name_i18n AS item_name_i18n, i.id AS item_id FROM menu_item_variants v JOIN menu_items i ON i.id = v.item_id WHERE v.id = $1`,
-          [item.variant_id]
-        );
-        if (!variant) {
-          reply.code(404);
-          return { error: "Variant not found" };
-        }
-        // Ensure variant belongs to the same menu item as the original order item
-        const orig = await one("SELECT item_id FROM order_items WHERE id = $1 AND order_id = $2", [item.id, request.params.id]);
-        if (orig && variant.item_id !== orig.item_id) {
-          reply.code(400);
-          return { error: "Variant does not belong to the same item" };
-        }
-      }
-
-      // Update the order_items row; if variant provided, also update variant_name_i18n and unit_price
-      if (variant) {
-        await query(
-          `UPDATE order_items
-           SET variant_id = COALESCE($3, variant_id), variant_name_i18n = COALESCE($4, variant_name_i18n), unit_price = COALESCE($5, unit_price),
-               quantity = COALESCE($6, quantity), notes = COALESCE($7, notes), status = COALESCE($8, status)
-           WHERE id = $1 AND order_id = $2`,
-          [item.id, request.params.id, item.variant_id, variant.name_i18n, variant.price, item.quantity, item.notes, item.status]
-        );
-      } else {
-        await query(
-          `UPDATE order_items
-           SET quantity = COALESCE($3, quantity), notes = COALESCE($4, notes), status = COALESCE($5, status)
-           WHERE id = $1 AND order_id = $2`,
-          [item.id, request.params.id, item.quantity, item.notes, item.status]
-        );
-      }
-
-      // If modifier_ids provided, replace modifiers for the order item
-      if (Array.isArray(item.modifier_ids)) {
-        await query("DELETE FROM order_item_modifiers WHERE order_item_id = $1", [item.id]);
-        for (const modifierId of item.modifier_ids) {
-          const modifier = await one(
-            `SELECT m.*, g.name_i18n AS group_name_i18n FROM modifiers m JOIN modifier_groups g ON g.id = m.group_id WHERE m.id = $1`,
-            [modifierId]
-          );
-          if (!modifier) continue;
-          await query(
-            `INSERT INTO order_item_modifiers (order_item_id, modifier_id, group_name_i18n, name_i18n, price_delta)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [item.id, modifier.id, modifier.group_name_i18n, modifier.name_i18n, modifier.price_delta]
-          );
-        }
-      }
-
-      await auditLog(request, "order.item.update", "order_item", item.id, { order_id: request.params.id, quantity: item.quantity, variant_id: item.variant_id, modifiers: item.modifier_ids });
-    }
-    return recalculateOrder(request.params.id);
-  }
-
-  if (body.add_item) {
-    // Custom / miscellaneous line item: free-form name and price, no menu reference
-    if (body.add_item.custom) {
-      const c = body.add_item.custom;
-      const name = String(c.name ?? "").trim();
-      const price = Number(c.price);
-      if (!name) {
-        const error = new Error("Custom item name is required");
-        error.statusCode = 400;
-        throw error;
-      }
-      if (!Number.isFinite(price) || price < 0) {
-        const error = new Error("Custom item price must be a non-negative number");
-        error.statusCode = 400;
-        throw error;
-      }
-      const qty = Number(body.add_item.quantity ?? 1);
-      const nameI18n = { "zh-CN": name, "en-GB": name };
-      const variantI18n = { "zh-CN": "杂项 / Misc", "en-GB": "Misc" };
-      // Custom items don't need kitchen printing — mark as already printed to skip kitchen queue
-      const item = await one(
-        `INSERT INTO order_items (order_id, name_i18n, variant_name_i18n, quantity, unit_price, notes, kitchen_printed_at)
-         VALUES ($1, $2, $3, $4, $5, COALESCE($6, ''), now()) RETURNING *`,
-        [request.params.id, nameI18n, variantI18n, qty, price, body.add_item.notes]
-      );
-      await auditLog(request, "order.item.add_custom", "order_item", item.id, { order_id: request.params.id, name, price, quantity: qty });
-      return recalculateOrder(request.params.id);
-    }
-
-    const variant = await one(
-      `SELECT v.*, i.name_i18n AS item_name_i18n, i.id AS item_id
-       FROM menu_item_variants v JOIN menu_items i ON i.id = v.item_id WHERE v.id = $1`,
-      [body.add_item.variant_id]
-    );
-    if (!variant) {
-      const error = new Error("Variant not found");
-      error.statusCode = 404;
-      throw error;
-    }
-    const item = await one(
-      `INSERT INTO order_items (order_id, item_id, variant_id, name_i18n, variant_name_i18n, quantity, unit_price, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '')) RETURNING *`,
-      [request.params.id, variant.item_id, variant.id, variant.item_name_i18n, variant.name_i18n, body.add_item.quantity ?? 1, variant.price, body.add_item.notes]
-    );
-    for (const modifierId of body.add_item.modifier_ids ?? []) {
-      const modifier = await one(
-        `SELECT m.*, g.name_i18n AS group_name_i18n FROM modifiers m JOIN modifier_groups g ON g.id = m.group_id WHERE m.id = $1`,
-        [modifierId]
-      );
-      await query(
-        `INSERT INTO order_item_modifiers (order_item_id, modifier_id, group_name_i18n, name_i18n, price_delta)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [item.id, modifier.id, modifier.group_name_i18n, modifier.name_i18n, modifier.price_delta]
-      );
-    }
-    await auditLog(request, "order.item.add", "order_item", item.id, { order_id: request.params.id, variant_id: variant.id, quantity: item.quantity });
-    return recalculateOrder(request.params.id);
-  }
-
-  const updated = await one(
-    `UPDATE orders SET notes = COALESCE($2, notes), status = COALESCE($3, status), guests = COALESCE($4, guests), updated_at = now()
-     WHERE id = $1 RETURNING *`,
-    [request.params.id, body.notes, body.status, body.guests]
-  );
-  emit("order.updated", updated);
-  await auditLog(request, "order.update", "order", updated.id, body);
-  return updated;
-});
-
-app.post("/orders/:id/recalculate", async (request, reply) => {
-  const body = request.body ?? {};
-  if ("service_charge_rate" in body || "service_charge_exempt" in body) {
-    if (!await requirePermission(request, reply, "adjust_service_charge")) return;
-  }
-  if (["discount", "discount_amount", "discount_fixed", "discount_rate"].some((key) => key in body)) {
-    if (!await requirePermission(request, reply, "adjust_discount")) return;
-  }
-  const order = await recalculateOrder(request.params.id, body);
-  await auditLog(request, "order.recalculate", "order", order.id, body);
-  return order;
-});
-
-app.post("/orders/:id/service-charge", async (request, reply) => {
-  if (!await requirePermission(request, reply, "adjust_service_charge")) return;
-  const body = request.body ?? {};
-  const order = await recalculateOrder(request.params.id, {
-    service_charge_rate: body.service_charge_rate,
-    service_charge_exempt: body.service_charge_exempt
-  });
-  await auditLog(request, "order.service_charge.adjust", "order", order.id, {
-    service_charge_rate: body.service_charge_rate,
-    service_charge_exempt: body.service_charge_exempt,
-    reason: body.reason ?? ""
-  });
-  return order;
-});
-
-app.post("/orders/:id/discount", async (request, reply) => {
-  if (!await requirePermission(request, reply, "adjust_discount")) return;
-  const body = request.body ?? {};
-  if ("discount_rate" in body) {
-    await query(
-      "UPDATE orders SET discount_rate = $2, discount_reason = COALESCE($3, discount_reason) WHERE id = $1",
-      [request.params.id, body.discount_rate, body.reason]
-    );
-  }
-  if ("discount_fixed" in body || "discount" in body || "discount_amount" in body) {
-    const fixed = Math.max(0, Number(body.discount_fixed ?? body.discount ?? body.discount_amount ?? 0));
-    await query(
-      "UPDATE orders SET discount_fixed = $2, discount_reason = COALESCE($3, discount_reason) WHERE id = $1",
-      [request.params.id, fixed, body.reason]
-    );
-  }
-  const order = await recalculateOrder(request.params.id);
-  await auditLog(request, "order.discount.adjust", "order", order.id, { discount: order.discount, discount_rate: order.discount_rate, discount_fixed: order.discount_fixed, reason: body.reason ?? "" });
-  return order;
-});
-
-// POST /orders/:id/split
-// body: { splits: [{ label, items: [{ id, quantity }] }] }
-app.post("/orders/:id/split", async (request, reply) => {
-  if (!await requireAnyPermission(request, reply, ["split_order", "manage_orders"])) return;
-  const { splits } = request.body ?? {};
-  if (!Array.isArray(splits) || splits.length < 2) {
-    reply.code(400); return { error: "Need at least 2 splits" };
-  }
-  const parent = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
-  if (!parent) { reply.code(404); return { error: "Order not found" }; }
-  if (["paid", "cancelled", "split"].includes(parent.status)) {
-    reply.code(409); return { error: "Cannot split this order" };
-  }
-  const items = await getOrderItems(parent.id);
-  if (!items.length) { reply.code(400); return { error: "Order has no items" }; }
-
-  // Validate quantities
-  const qtySums = {};
-  for (const split of splits) {
-    for (const si of split.items ?? []) {
-      qtySums[si.id] = (qtySums[si.id] ?? 0) + Number(si.quantity);
-    }
-  }
-  for (const item of items) {
-    if ((qtySums[item.id] ?? 0) !== Number(item.quantity)) {
-      reply.code(400); return { error: `Quantity mismatch for item ${item.id}` };
-    }
-  }
-
-  const labels = ["A", "B", "C", "D", "E", "F"];
-  const newOrderIds = [];
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    for (let i = 0; i < splits.length; i++) {
-      const split = splits[i];
-      if (!(split.items ?? []).length) continue;
-      const subOrderNo = `${parent.order_no}-${labels[i]}`;
-      const subStatus = ["draft", "submitted"].includes(parent.status) ? parent.status : "submitted";
-      const subRes = await client.query(
-        `INSERT INTO orders (order_no, service_type, table_id, pickup_no, guests, status, notes,
-           subtotal, net_sales, tax, service_charge, total, discount, discount_fixed,
-           discount_reason, service_charge_rate, service_charge_exempt, parent_order_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7, 0,0,0,0,0, 0,0, '', $8,$9,$10) RETURNING *`,
-        [subOrderNo, parent.service_type, parent.table_id, parent.pickup_no,
-         parent.guests, subStatus, parent.notes,
-         parent.service_charge_rate, parent.service_charge_exempt, parent.id]
-      );
-      const subId = subRes.rows[0].id;
-      newOrderIds.push(subId);
-
-      for (const si of split.items) {
-        const orig = items.find(it => it.id === si.id);
-        const splitQty = Number(si.quantity);
-        const origQty = Number(orig.quantity);
-        if (splitQty === origQty) {
-          await client.query("UPDATE order_items SET order_id = $1 WHERE id = $2", [subId, si.id]);
-        } else {
-          // reduce original
-          await client.query("UPDATE order_items SET quantity = quantity - $2 WHERE id = $1", [si.id, splitQty]);
-          // create partial item in sub-order
-          const newItemRes = await client.query(
-            `INSERT INTO order_items (order_id, item_id, variant_id, name_i18n, variant_name_i18n, unit_price, quantity, notes, status, kitchen_printed_at)
-             SELECT $1, item_id, variant_id, name_i18n, variant_name_i18n, unit_price, $2, notes, status, kitchen_printed_at
-             FROM order_items WHERE id = $3 RETURNING id`,
-            [subId, splitQty, si.id]
-          );
-          await client.query(
-            `INSERT INTO order_item_modifiers (order_item_id, modifier_id, group_name_i18n, name_i18n, price_delta)
-             SELECT $1, modifier_id, group_name_i18n, name_i18n, price_delta FROM order_item_modifiers WHERE order_item_id = $2`,
-            [newItemRes.rows[0].id, si.id]
-          );
-        }
-      }
-    }
-    await client.query("UPDATE orders SET status = 'split', updated_at = now() WHERE id = $1", [parent.id]);
-    // Clean up zero-quantity items left on parent after partial moves
-    await client.query("DELETE FROM order_items WHERE order_id = $1 AND quantity <= 0", [parent.id]);
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
-
-  const recalculated = [];
-  for (const id of newOrderIds) recalculated.push(await recalculateOrder(id));
-  emit("order.updated", { id: parent.id, status: "split" });
-  for (const o of recalculated) emit("order.updated", o);
-  await auditLog(request, "order.split", "order", parent.id, { sub_orders: newOrderIds });
-  return { parent: await one("SELECT * FROM orders WHERE id = $1", [parent.id]), orders: recalculated };
-});
-
-// POST /orders/:id/merge — merge all non-paid children back to this order (or its parent)
-app.post("/orders/:id/merge", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_orders")) return;
-  const order = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
-  if (!order) { reply.code(404); return { error: "Order not found" }; }
-  const targetId = order.parent_order_id ?? order.id;
-  const children = await query(
-    "SELECT * FROM orders WHERE parent_order_id = $1 AND status NOT IN ('paid','cancelled')",
-    [targetId]
-  );
-  if (!children.length) { reply.code(400); return { error: "No split orders to merge" }; }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    for (const child of children) {
-      await client.query("UPDATE order_items SET order_id = $1 WHERE order_id = $2", [targetId, child.id]);
-      await client.query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [child.id]);
-    }
-    await client.query("UPDATE orders SET status = 'draft', parent_order_id = NULL, updated_at = now() WHERE id = $1", [targetId]);
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
-  const merged = await recalculateOrder(targetId);
-  emit("order.updated", merged);
-  await auditLog(request, "order.merge", "order", targetId, { merged_from: children.map(c => c.id) });
-  return merged;
-});
-
-app.post("/orders/:id/cancel", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_orders")) return;
-  const body = request.body ?? {};
-  const order = await one("UPDATE orders SET status = 'cancelled', notes = CONCAT(notes, CASE WHEN $2 = '' THEN '' ELSE E'\nCancel: ' || $2 END), updated_at = now() WHERE id = $1 RETURNING *", [
-    request.params.id,
-    body.reason ?? ""
-  ]);
-  if (order?.table_id) {
-    await query("UPDATE tables SET current_order_id = NULL, status = 'available', opened_at = NULL, updated_at = now() WHERE id = $1", [order.table_id]);
-    emit("table.status.updated", { table_id: order.table_id, status: "available" });
-  }
-  emit("order.updated", order);
-  await auditLog(request, "order.cancel", "order", order.id, { reason: body.reason ?? "" });
-  return order;
-});
-
-app.post("/orders/:id/submit", async (request, reply) => {
-  if (!await requirePermission(request, reply, "create_order")) return;
-  const itemCount = await one("SELECT COUNT(*)::integer AS count FROM order_items WHERE order_id = $1", [request.params.id]);
-  if (Number(itemCount?.count ?? 0) === 0) {
-    reply.code(400);
-    return { error: "Cannot submit an order with no items" };
-  }
-  const body = request.body ?? {};
-  const shouldPrint = body.print !== false;
-  const order = await recalculateOrder(request.params.id);
-  // 先更新状态，再尝试打印（打印失败不影响下单）
-  const updated = await one("UPDATE orders SET status = 'submitted', updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
-  if (updated.table_id) {
-    await query("UPDATE tables SET status = 'ordered', updated_at = now() WHERE id = $1", [updated.table_id]);
-    emit("table.status.updated", { table_id: updated.table_id, status: "ordered" });
-  }
-  emit("order.updated", updated);
-  let job = null;
-  if (shouldPrint) {
-    try {
-      job = await createPrintJob(order.id, "kitchen");
-    } catch (printErr) {
-      if (printErr?.message === "No new items to print to kitchen") {
-        reply.code(printErr.statusCode ?? 409);
-        return { error: printErr.message };
-      }
-      // 打印机未配置时不报错，仅跳过打印
-    }
-  }
-  await auditLog(request, "order.submit", "order", updated.id, { print_job_id: job?.id });
-  return { order: updated, print_job: job };
-});
-
-app.get("/payment-providers", async () => ({
-  dojo: {
-    configured: isDojoConfigured(),
-    api_version: dojoConfig().version
-  },
-  manual: { configured: true }
-}));
-
-app.get("/payment-providers/dojo/terminals", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
-  if (!isDojoConfigured()) {
-    reply.code(503);
-    return { error: "Dojo terminal payments are not configured" };
-  }
-  try {
-    const terminals = await listDojoTerminals();
-    return terminals.map((terminal) => ({
-      id: terminal.id,
-      name: terminal.name || terminal.displayName || terminal.id,
-      status: terminal.status || "Available",
-      tid: terminal.tid || null
-    }));
-  } catch (error) {
-    reply.code(error.statusCode || 502);
-    return { error: error.message };
-  }
-});
-
-app.post("/orders/:id/payment-attempts/dojo", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
-  if (!isDojoConfigured()) {
-    reply.code(503);
-    return { error: "Dojo terminal payments are not configured" };
-  }
-  const amount = Number(request.body?.amount);
-  try {
-    assertPositivePayment({ amount, change_due: 0 });
-  } catch (error) {
-    reply.code(error.statusCode || 400);
-    return { error: error.message };
-  }
-
-  const order = await one(
-    `SELECT o.*, COALESCE(SUM(p.amount - p.change_due), 0)::numeric AS paid
-     FROM orders o LEFT JOIN payments p ON p.order_id = o.id
-     WHERE o.id = $1 GROUP BY o.id`,
-    [request.params.id]
-  );
-  if (!order) { reply.code(404); return { error: "Order not found" }; }
-  if (["paid", "cancelled"].includes(order.status)) { reply.code(409); return { error: "Order is already closed" }; }
-  const remaining = Math.max(0, Math.round((Number(order.total) - Number(order.paid)) * 100) / 100);
-  if (amount > remaining) {
-    reply.code(400);
-    return { error: "Dojo payment cannot exceed the remaining order balance" };
-  }
-
-  const settings = await getSettings();
-  const attempt = await one(
-    `INSERT INTO payment_attempts (order_id, provider, status, amount, currency, idempotency_key, terminal_id)
-     VALUES ($1, 'dojo', 'created', $2, $3, $4, $5) RETURNING *`,
-    [order.id, amount, String(settings?.currency || "GBP").toUpperCase(), crypto.randomUUID(), request.body?.terminal_id || null]
-  );
-
-  try {
-    let terminalId = attempt.terminal_id;
-    if (!terminalId) {
-      const terminals = await listDojoTerminals();
-      terminalId = terminals[0]?.id;
-    }
-    if (!terminalId) throw httpError("No available Dojo terminal was found", 409);
-
-    const result = await createDojoTerminalPayment({
-      amountMinor: Math.round(amount * 100),
-      currency: attempt.currency,
-      reference: order.order_no,
-      description: `QYPOS ${order.order_no}`,
-      terminalId,
-      idempotencyKey: attempt.idempotency_key
-    });
-    const updated = await one(
-      `UPDATE payment_attempts SET status = 'pending', provider_payment_id = $2,
-       provider_session_id = $3, terminal_id = $4, provider_payload = $5::jsonb, updated_at = now()
-       WHERE id = $1 RETURNING *`,
-      [attempt.id, result.paymentIntent.id, result.terminalSession.id, terminalId, JSON.stringify({ session: result.terminalSession })]
-    );
-    await auditLog(request, "payment.dojo.start", "payment_attempt", attempt.id, { order_id: order.id, terminal_id: terminalId, amount });
-    reply.code(201);
-    return safePaymentAttempt(updated);
-  } catch (error) {
-    const failed = await one(
-      `UPDATE payment_attempts SET status = 'failed', provider_payment_id = COALESCE($2, provider_payment_id),
-       error_code = $3, error_message = $4, updated_at = now() WHERE id = $1 RETURNING *`,
-      [attempt.id, error.paymentIntent?.id || null, String(error.statusCode || "dojo_error"), error.message]
-    );
-    await auditLog(request, "payment.dojo.failed", "payment_attempt", attempt.id, { order_id: order.id, error: error.message });
-    reply.code(error.statusCode || 502);
-    return { error: error.message, attempt: safePaymentAttempt(failed) };
-  }
-});
-
-app.get("/payment-attempts/:id", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
-  let attempt = await one("SELECT * FROM payment_attempts WHERE id = $1", [request.params.id]);
-  if (!attempt) { reply.code(404); return { error: "Payment attempt not found" }; }
-  if (attempt.provider !== "dojo" || !["created", "pending"].includes(attempt.status)) return safePaymentAttempt(attempt);
-  if (!attempt.provider_session_id) return safePaymentAttempt(attempt);
-
-  try {
-    const session = await getDojoTerminalSession(attempt.provider_session_id);
-    let status = mapDojoSessionStatus(session.status);
-    let paymentIntent = null;
-    if (session.status === "Captured") {
-      paymentIntent = await getDojoPaymentIntent(attempt.provider_payment_id);
-      if (paymentIntent.status !== "Captured") status = "pending";
-    }
-
-    if (status === "succeeded") {
-      const card = paymentIntent?.paymentDetails?.card || {};
-      const cardDigits = String(card.cardNumber || "").replace(/\D/g, "");
-      const result = await recordPayment({
-        orderId: attempt.order_id,
-        method: "card",
-        amount: Number(attempt.amount),
-        paymentAttemptId: attempt.id,
-        provider: "dojo",
-        providerPaymentId: attempt.provider_payment_id,
-        terminalId: attempt.terminal_id,
-        cardBrand: card.cardType || null,
-        cardLast4: cardDigits.slice(-4) || null,
-        authCode: paymentIntent?.paymentDetails?.authCode || null
-      });
-      attempt = await one(
-        `UPDATE payment_attempts SET status = 'succeeded', provider_payload = $2::jsonb,
-         error_code = NULL, error_message = NULL, updated_at = now() WHERE id = $1 RETURNING *`,
-        [attempt.id, JSON.stringify({ session, paymentIntent })]
-      );
-      if (!result.duplicate) {
-        await auditLog(request, "payment.dojo.captured", "payment", result.payment.id, {
-          order_id: attempt.order_id,
-          payment_attempt_id: attempt.id,
-          provider_payment_id: attempt.provider_payment_id,
-          amount: attempt.amount
-        });
-      }
-      return { ...safePaymentAttempt(attempt), order: result.order, payment: result.payment };
-    }
-
-    attempt = await one(
-      `UPDATE payment_attempts SET status = $2, provider_payload = $3::jsonb,
-       error_code = CASE WHEN $2 IN ('declined', 'cancelled', 'unknown') THEN $4 ELSE NULL END,
-       error_message = CASE WHEN $2 = 'unknown' THEN '请检查刷卡机或终端小票后人工确认支付结果' ELSE NULL END,
-       updated_at = now() WHERE id = $1 RETURNING *`,
-      [attempt.id, status, JSON.stringify({ session }), session.status]
-    );
-    return safePaymentAttempt(attempt);
-  } catch (error) {
-    reply.code(error.statusCode || 502);
-    return { error: error.message, attempt: safePaymentAttempt(attempt) };
-  }
-});
-
-app.post("/payment-attempts/:id/cancel", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
-  const attempt = await one("SELECT * FROM payment_attempts WHERE id = $1", [request.params.id]);
-  if (!attempt) { reply.code(404); return { error: "Payment attempt not found" }; }
-  if (attempt.provider !== "dojo") { reply.code(400); return { error: "Unsupported payment provider" }; }
-  if (!["created", "pending"].includes(attempt.status)) return safePaymentAttempt(attempt);
-  try {
-    if (attempt.provider_session_id) await cancelDojoTerminalSession(attempt.provider_session_id);
-    const updated = await one("UPDATE payment_attempts SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING *", [attempt.id]);
-    await auditLog(request, "payment.dojo.cancel", "payment_attempt", attempt.id, { order_id: attempt.order_id });
-    return safePaymentAttempt(updated);
-  } catch (error) {
-    reply.code(error.statusCode || 502);
-    return { error: error.message, attempt: safePaymentAttempt(attempt) };
-  }
-});
-
-app.post("/payment-attempts/:id/signature", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
-  const attempt = await one("SELECT * FROM payment_attempts WHERE id = $1", [request.params.id]);
-  if (!attempt) { reply.code(404); return { error: "Payment attempt not found" }; }
-  if (attempt.provider !== "dojo" || !attempt.provider_session_id) {
-    reply.code(400);
-    return { error: "This payment attempt has no Dojo terminal session" };
-  }
-  if (typeof request.body?.accepted !== "boolean") {
-    reply.code(400);
-    return { error: "accepted must be a boolean" };
-  }
-  try {
-    const session = await respondToDojoSignature(attempt.provider_session_id, request.body.accepted);
-    const updated = await one(
-      "UPDATE payment_attempts SET provider_payload = $2::jsonb, updated_at = now() WHERE id = $1 RETURNING *",
-      [attempt.id, JSON.stringify({ session })]
-    );
-    await auditLog(request, "payment.dojo.signature", "payment_attempt", attempt.id, { accepted: request.body.accepted });
-    return safePaymentAttempt(updated);
-  } catch (error) {
-    reply.code(error.statusCode || 502);
-    return { error: error.message, attempt: safePaymentAttempt(attempt) };
-  }
-});
-
-app.post("/orders/:id/payments", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
-  const body = request.body ?? {};
-  try {
-    assertPositivePayment(body);
-  } catch (error) {
-    reply.code(error.statusCode ?? 400);
-    return { error: error.message };
-  }
-  const currentOrder = await one("SELECT status FROM orders WHERE id = $1", [request.params.id]);
-  if (!currentOrder) { reply.code(404); return { error: "Order not found" }; }
-  if (currentOrder.status === "paid" || currentOrder.status === "cancelled") {
-    reply.code(409);
-    return { error: "Order is already closed" };
-  }
-  try {
-    const result = await recordPayment({
-      orderId: request.params.id,
-      method: body.method,
-      amount: body.amount,
-      changeDue: body.change_due ?? 0
-    });
-    await auditLog(request, "payment.create", "payment", result.payment.id, { order_id: request.params.id, method: result.payment.method, amount: result.payment.amount });
-    return { payment: result.payment, order: result.order, paid: result.paid };
-  } catch (error) {
-    if (error.statusCode) {
-      reply.code(error.statusCode);
-      return { error: error.message };
-    }
-    throw error;
-  }
-});
-
-app.post("/orders/:id/print", async (request, reply) => {
-  if (!await requirePermission(request, reply, "print_receipt")) return;
-  const job = await createPrintJob(request.params.id, request.body?.type ?? "receipt");
-  await auditLog(request, "print.create", "print_job", job.id, { order_id: request.params.id, type: job.type });
-  return job;
-});
-
-app.get("/print-jobs", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_prints")) return;
-  return query("SELECT id, order_id, type, status, attempts, error, created_at, updated_at FROM print_jobs ORDER BY created_at DESC LIMIT 100");
-});
-
-app.post("/print-jobs/test", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_prints")) return;
-  const settings = await getSettings();
-  const printer = selectPrinter(settings, request.body?.printer_id ? "test" : "receipt");
-  const selectedPrinter = request.body?.printer_id
-    ? printerProfiles(settings).find((profile) => profile.id === request.body.printer_id) ?? printer
-    : printer;
-  if (!selectedPrinter || !isValidPrinter(selectedPrinter)) {
-    reply.code(409);
-    return { error: "Selected printer is not configured or enabled" };
-  }
-  const job = await one(
-    "INSERT INTO print_jobs (type, payload) VALUES ('test', $1) RETURNING *",
-    [{ settings, printer: selectedPrinter, created_at: new Date().toISOString() }]
-  );
-  await redis.lpush("print_jobs", job.id);
-  emit("print.queued", job);
-  await auditLog(request, "print.test", "print_job", job.id, { printer: selectedPrinter });
-  return job;
-});
-
-app.post("/print-jobs/cash-drawer", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
-  const settings = await getSettings();
-  const printer = selectPrinter(settings, "receipt");
-  if (!printer || !isValidPrinter(printer)) {
-    reply.code(409);
-    return { error: "No enabled printer configured — cannot open cash drawer" };
-  }
-  const job = await one(
-    "INSERT INTO print_jobs (type, payload) VALUES ('cash_drawer', $1) RETURNING *",
-    [{ settings, printer, created_at: new Date().toISOString() }]
-  );
-  await redis.lpush("print_jobs", job.id);
-  emit("print.queued", job);
-  await auditLog(request, "cash_drawer.open", "print_job", job.id, { printer: printer.name ?? printer.host });
-  return job;
-});
-
-app.post("/print-jobs/:id/retry", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_prints")) return;
-  const job = await one("SELECT * FROM print_jobs WHERE id = $1", [request.params.id]);
-  if (!job) {
-    reply.code(404);
-    return { error: "Print job not found" };
-  }
-  // Refresh settings & printer in payload so retry uses current configuration
-  const currentSettings = await getSettings();
-  const refreshedPrinter = selectPrinter(currentSettings, job.type === "kitchen" ? "kitchen" : "receipt");
-  const payload = { ...job.payload, settings: currentSettings, printer: refreshedPrinter ?? job.payload.printer };
-  const updated = await one(
-    "UPDATE print_jobs SET status = 'queued', error = NULL, payload = $2, updated_at = now() WHERE id = $1 RETURNING id, order_id, type, status, attempts, error, created_at, updated_at",
-    [job.id, payload]
-  );
-  await redis.lpush("print_jobs", job.id);
-  emit("print.queued", updated);
-  await auditLog(request, "print.retry", "print_job", job.id);
-  return updated;
-});
-
-app.get("/kitchen/items", async (request, reply) => {
-  if (!await requirePermission(request, reply, "view_kitchen")) return;
-  return query(
-  `SELECT
-    oi.id,
-    oi.order_id,
-    oi.name_i18n,
-    oi.variant_name_i18n,
-    oi.quantity,
-    oi.notes,
-    oi.status,
-    oi.created_at,
-    o.order_no,
-    o.service_type,
-    o.table_id,
-    o.pickup_no,
-    t.label AS table_label
-   FROM order_items oi
-   JOIN orders o ON o.id = oi.order_id
-   LEFT JOIN tables t ON t.id = o.table_id
-   WHERE o.status NOT IN ('draft', 'paid', 'cancelled') AND oi.status <> 'served'
-   ORDER BY oi.created_at ASC`
-  );
-});
-
-app.patch("/orders/:orderId/items/:itemId/status", async (request, reply) => {
-  if (!await requirePermission(request, reply, "update_item_status")) return;
-  const status = request.body?.status;
-  const allowed = new Set(["ordered", "preparing", "ready_to_serve", "served", "cancelled"]);
-  if (!allowed.has(status)) {
-    reply.code(400);
-    return { error: "Invalid item status" };
-  }
-  const item = await one(
-    "UPDATE order_items SET status = $3 WHERE id = $1 AND order_id = $2 RETURNING *",
-    [request.params.itemId, request.params.orderId, status]
-  );
-  if (!item) {
-    reply.code(404);
-    return { error: "Order item not found" };
-  }
-  const order = await updateOrderKitchenState(request.params.orderId);
-  emit("kitchen.item.updated", item);
-  await auditLog(request, "kitchen.item.status", "order_item", item.id, { order_id: request.params.orderId, status });
-  return { item, order };
-});
-
-app.get("/dashboard/today", async (request, reply) => {
-  if (!await requirePermission(request, reply, "view_dashboard")) return;
-  const today = localToday();
-  const yesterday = new Date(`${today}T00:00:00Z`);
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  const yesterdayStr = yesterday.toISOString().slice(0, 10);
-  const summary = await one(
-    `SELECT
-      COALESCE(SUM(total), 0)::numeric AS revenue,
-      COALESCE(SUM(discount), 0)::numeric AS discount,
-      COALESCE(SUM(net_sales), 0)::numeric AS net_sales,
-      COALESCE(SUM(tax), 0)::numeric AS tax,
-      COALESCE(SUM(service_charge), 0)::numeric AS service_charge,
-      COUNT(*)::integer AS orders,
-      COALESCE(AVG(NULLIF(total, 0)), 0)::numeric AS average_ticket,
-      COUNT(*) FILTER (WHERE service_type = 'dine_in')::integer AS dine_in_orders,
-      COUNT(*) FILTER (WHERE service_type = 'takeaway')::integer AS takeaway_orders
-     FROM orders
-     WHERE created_at::date = $1::date AND status IN ('submitted','preparing','ready','paid')`,
-    [today]
-  );
-  const yesterdaySummary = await one(
-    `SELECT
-      COALESCE(SUM(total), 0)::numeric AS revenue,
-      COALESCE(SUM(discount), 0)::numeric AS discount,
-      COALESCE(SUM(net_sales), 0)::numeric AS net_sales,
-      COALESCE(SUM(tax), 0)::numeric AS tax,
-      COALESCE(SUM(service_charge), 0)::numeric AS service_charge,
-      COUNT(*)::integer AS orders,
-      COALESCE(AVG(NULLIF(total, 0)), 0)::numeric AS average_ticket
-     FROM orders
-     WHERE created_at::date = $1::date AND status IN ('submitted','preparing','ready','paid')`,
-    [yesterdayStr]
-  );
-  const hotItems = await query(
-    `SELECT oi.item_id, oi.name_i18n, SUM(oi.quantity)::integer AS quantity, SUM((oi.unit_price * oi.quantity))::numeric AS sales
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at::date = $1::date AND o.status NOT IN ('cancelled', 'split')
-     GROUP BY oi.item_id, oi.name_i18n
-     ORDER BY quantity DESC
-     LIMIT 8`,
-    [today]
-  );
-  const openOrders = await query("SELECT * FROM orders WHERE status NOT IN ('paid','cancelled','split') ORDER BY created_at DESC LIMIT 20");
-  const printer = await one("SELECT status, COUNT(*)::integer FROM print_jobs GROUP BY status ORDER BY status LIMIT 1");
-  return { summary, yesterdaySummary, hotItems, openOrders, printer };
-});
-
-async function buildSalesReport(from, to) {
-  const params = [from, to];
-  const summary = await one(
-    `SELECT
-      COALESCE(SUM(total), 0)::numeric AS revenue,
-      COALESCE(SUM(subtotal), 0)::numeric AS subtotal,
-      COALESCE(SUM(discount), 0)::numeric AS discount,
-      COALESCE(SUM(net_sales), 0)::numeric AS net_sales,
-      COALESCE(SUM(tax), 0)::numeric AS tax,
-      COALESCE(SUM(service_charge), 0)::numeric AS service_charge,
-      COUNT(*)::integer AS orders,
-      COALESCE(AVG(NULLIF(total, 0)), 0)::numeric AS average_ticket,
-      COUNT(*) FILTER (WHERE service_type = 'dine_in')::integer AS dine_in_orders,
-      COUNT(*) FILTER (WHERE service_type = 'takeaway')::integer AS takeaway_orders
-     FROM orders
-     WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status IN ('submitted','preparing','ready','paid')`,
-    params
-  );
-  const byDay = await query(
-    `SELECT created_at::date AS day, COUNT(*)::integer AS orders, COALESCE(SUM(total), 0)::numeric AS revenue
-     FROM orders
-     WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status IN ('submitted','preparing','ready','paid')
-     GROUP BY created_at::date
-     ORDER BY day`,
-    params
-  );
-  const hotItems = await query(
-    `WITH item_rows AS (
-       SELECT
-         o.created_at,
-         oi.item_id,
-         oi.name_i18n,
-         COALESCE(oi.item_id::text, 'name:' || lower(trim(COALESCE(oi.name_i18n->>'zh-CN', oi.name_i18n->>'en-GB', '')))) AS item_key,
-         oi.quantity,
-         oi.unit_price
-       FROM order_items oi
-       JOIN orders o ON o.id = oi.order_id
-       WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
-     ), item_sales AS (
-       SELECT
-         item_key,
-         (ARRAY_AGG(item_id ORDER BY created_at DESC))[1] AS item_id,
-         (ARRAY_AGG(name_i18n ORDER BY created_at DESC))[1] AS name_i18n,
-         SUM(quantity)::integer AS quantity,
-         SUM((unit_price * quantity))::numeric AS sales
-       FROM item_rows
-       GROUP BY item_key
-     )
-     SELECT item_key, item_id, name_i18n, quantity, sales
-     FROM item_sales
-     ORDER BY quantity DESC, sales DESC`,
-    params
-  );
-  const hotModifiers = await query(
-    `SELECT oim.name_i18n AS label, COUNT(*)::integer AS quantity, COALESCE(SUM(oim.price_delta),0)::numeric AS sales
-     FROM order_item_modifiers oim
-     JOIN order_items oi ON oi.id = oim.order_item_id
-     JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
-     GROUP BY oim.name_i18n
-     ORDER BY quantity DESC
-     LIMIT 20`,
-    params
-  );
-
-  // common note presets (match preset label anywhere in notes) and free-form notes frequency
-  const notePresets = await query(
-    `SELECT np.label, COUNT(filtered.notes)::integer AS count
-     FROM note_presets np
-     LEFT JOIN (
-       SELECT oi.notes
-       FROM order_items oi
-       JOIN orders o ON o.id = oi.order_id
-       WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-         AND o.status NOT IN ('cancelled', 'split')
-         AND oi.notes IS NOT NULL AND oi.notes <> ''
-     ) filtered ON filtered.notes ILIKE ('%' || np.label || '%')
-     GROUP BY np.label
-     ORDER BY count DESC
-     LIMIT 20`,
-    params
-  );
-
-  const commonNotes = await query(
-    `SELECT oi.notes AS label, COUNT(*)::integer AS count
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     WHERE oi.notes IS NOT NULL AND oi.notes <> '' AND o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
-     GROUP BY oi.notes
-     ORDER BY count DESC
-     LIMIT 20`,
-    params
-  );
-
-  // byTime: aggregate orders into 30-min slots across the day (0..47)
-  const slotRows = await query(
-    `SELECT floor(((EXTRACT(HOUR FROM o.created_at) * 60) + EXTRACT(MINUTE FROM o.created_at)) / 30)::int AS slot_index,
-      COUNT(*)::int AS orders, COALESCE(SUM(o.total),0)::numeric AS revenue
-     FROM orders o
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status IN ('submitted','preparing','ready','paid')
-     GROUP BY slot_index
-     ORDER BY slot_index`,
-    params
-  );
-  // build full 48-slot array with labels 00:00 .. 23:30
-  const byTime = Array.from({ length: 48 }).map((_, idx) => {
-    const hh = String(Math.floor((idx * 30) / 60)).padStart(2, '0');
-    const mm = String((idx * 30) % 60).padStart(2, '0');
-    return { slot: `${hh}:${mm}`, orders: 0, revenue: 0 };
-  });
-  for (const r of slotRows) {
-    const i = Number(r.slot_index);
-    if (i >= 0 && i < byTime.length) {
-      byTime[i].orders = Number(r.orders || 0);
-      byTime[i].revenue = Number(r.revenue || 0);
-    }
-  }
-  return { from, to, summary, byDay, hotItems, hotModifiers, notePresets, common_notes: commonNotes, byTime };
-}
-
-function buildDateSeries(from, to, rows) {
-  // `row.day` comes back from pg as a JS Date representing local midnight
-  // (in this process's TZ, matching the DB's `SET timezone`). Using
-  // `.toISOString()` would convert to UTC and can shift the calendar date
-  // backward by one day whenever the local offset is positive (e.g. BST),
-  // so we must read the date using local getters instead of UTC ones.
-  const dayKey = (value) => {
-    if (value instanceof Date) {
-      const y = value.getFullYear();
-      const m = String(value.getMonth() + 1).padStart(2, "0");
-      const d = String(value.getDate()).padStart(2, "0");
-      return `${y}-${m}-${d}`;
-    }
-    return String(value).slice(0, 10);
-  };
-  const byDayMap = new Map((rows || []).map((row) => [dayKey(row.day), row]));
-  const start = new Date(`${from}T00:00:00Z`);
-  const end = new Date(`${to}T00:00:00Z`);
-  const series = [];
-  for (const current = new Date(start); current <= end; current.setUTCDate(current.getUTCDate() + 1)) {
-    const day = current.toISOString().slice(0, 10);
-    const row = byDayMap.get(day);
-    series.push({
-      day,
-      orders: row ? Number(row.orders || 0) : 0,
-      revenue: row ? Number(row.revenue || 0) : 0
-    });
-  }
-  return series;
-}
-
-function normalizeItemLookup(itemRef) {
-  const raw = String(itemRef ?? "");
-  if (LEGACY_UUID_PATTERN.test(raw)) {
-    return { mode: "id", value: raw };
-  }
-  const decoded = decodeURIComponent(raw.startsWith("name:") ? raw.slice(5) : raw).trim();
-  return { mode: "name", value: decoded };
-}
-
-async function buildItemSalesReport(from, to, itemRef) {
-  const lookup = normalizeItemLookup(itemRef);
-  const params = [from, to, lookup.value];
-  const item = lookup.mode === "id"
-    ? await one("SELECT id, name_i18n FROM menu_items WHERE id = $1::uuid", [lookup.value])
-    : await one(
-      `SELECT id, name_i18n
-       FROM menu_items
-       WHERE lower(trim(COALESCE(name_i18n->>'zh-CN', name_i18n->>'en-GB', ''))) = lower(trim($1))
-       ORDER BY active DESC, sort_order ASC, created_at ASC
-       LIMIT 1`,
-      [lookup.value]
-    );
-  const itemFallback = item || {
-    id: null,
-    name_i18n: { "zh-CN": lookup.value, "en-GB": lookup.value }
-  };
-  const itemWhere = lookup.mode === "id"
-    ? "oi.item_id = $3::uuid"
-    : "lower(trim(COALESCE(oi.name_i18n->>'zh-CN', oi.name_i18n->>'en-GB', ''))) = lower(trim($3))";
-  const summary = await one(
-    `SELECT
-      COALESCE(SUM(oi.quantity), 0)::integer AS orders,
-      COALESCE(SUM(oi.unit_price * oi.quantity), 0)::numeric AS revenue
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-       AND o.status IN ('submitted','preparing','ready','paid')
-       AND ${itemWhere}`,
-    params
-  );
-  const byDayRows = await query(
-    `SELECT o.created_at::date AS day, SUM(oi.quantity)::integer AS orders, COALESCE(SUM(oi.unit_price * oi.quantity), 0)::numeric AS revenue
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-       AND o.status IN ('submitted','preparing','ready','paid')
-       AND ${itemWhere}
-     GROUP BY o.created_at::date
-     ORDER BY day`,
-    params
-  );
-  const byDay = buildDateSeries(from, to, byDayRows);
-
-  const slotRows = await query(
-    `SELECT floor(((EXTRACT(HOUR FROM o.created_at) * 60) + EXTRACT(MINUTE FROM o.created_at)) / 30)::int AS slot_index,
-      SUM(oi.quantity)::int AS orders, COALESCE(SUM(oi.unit_price * oi.quantity),0)::numeric AS revenue
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-       AND o.status IN ('submitted','preparing','ready','paid')
-       AND ${itemWhere}
-     GROUP BY slot_index
-     ORDER BY slot_index`,
-    params
-  );
-  const byTime = Array.from({ length: 48 }).map((_, idx) => {
-    const hh = String(Math.floor((idx * 30) / 60)).padStart(2, '0');
-    const mm = String((idx * 30) % 60).padStart(2, '0');
-    return { slot: `${hh}:${mm}`, orders: 0, revenue: 0 };
-  });
-  for (const row of slotRows) {
-    const index = Number(row.slot_index);
-    if (index >= 0 && index < byTime.length) {
-      byTime[index].orders = Number(row.orders || 0);
-      byTime[index].revenue = Number(row.revenue || 0);
-    }
-  }
-
-  return { from, to, item: itemFallback, summary, byDay, byTime };
-}
-
-app.get("/reports/sales", async (request, reply) => {
-  if (!await requirePermission(request, reply, "view_reports")) return;
-  const today = localToday();
-  return buildSalesReport(request.query.from ?? today, request.query.to ?? today);
-});
-
-app.get("/reports/sales/items/:itemId", async (request, reply) => {
-  if (!await requirePermission(request, reply, "view_reports")) return;
-  const today = localToday();
-  return buildItemSalesReport(request.query.from ?? today, request.query.to ?? today, request.params.itemId);
-});
-
-app.get("/reports/sales.csv", async (request, reply) => {
-  if (!await requirePermission(request, reply, "export_reports")) return;
-  const today = localToday();
-  const report = await buildSalesReport(request.query.from ?? today, request.query.to ?? today);
-  const rows = [
-    ["from", "to", "orders", "revenue", "subtotal", "discount", "net_sales", "tax", "service_charge", "average_ticket"],
-    [
-      report.from,
-      report.to,
-      report.summary.orders,
-      report.summary.revenue,
-      report.summary.subtotal,
-      report.summary.discount,
-      report.summary.net_sales,
-      report.summary.tax,
-      report.summary.service_charge,
-      report.summary.average_ticket
-    ],
-    [],
-    ["day", "orders", "revenue"],
-    ...report.byDay.map((row) => [row.day, row.orders, row.revenue])
-  ];
-  reply.header("Content-Type", "text/csv; charset=utf-8");
-  reply.header("Content-Disposition", `attachment; filename="sales-${report.from}-${report.to}.csv"`);
-  return rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
-});
-
-app.get("/audit-logs", async (request, reply) => {
-  if (!await requirePermission(request, reply, "view_audit_logs")) return;
-  return query(
-    `SELECT a.*, u.name AS actor_name
-     FROM audit_logs a
-     LEFT JOIN users u ON u.id = a.actor_id
-     ORDER BY a.created_at DESC
-     LIMIT 2000`
-  );
-});
-
-app.get("/ops/health", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_ops")) return;
-  const started = Date.now();
-  const checks = [];
-  async function check(name, action) {
-    const start = Date.now();
-    try {
-      const data = await action();
-      checks.push({ name, ok: true, latency_ms: Date.now() - start, data });
-    } catch (error) {
-      checks.push({ name, ok: false, latency_ms: Date.now() - start, error: error.message });
-    }
-  }
-
-  await check("database", async () => {
-    await pool.query("SELECT 1");
-    const stats = await one("SELECT COUNT(*)::integer AS orders FROM orders");
-    return stats;
-  });
-  await check("redis", async () => ({ pong: await redis.ping() }));
-  await check("print_queue", async () => one("SELECT status, COUNT(*)::integer FROM print_jobs GROUP BY status ORDER BY status LIMIT 1"));
-  await check("backups", async () => {
-    const files = await listBackupFiles();
-    return { count: files.length, latest: files[0] ?? null };
-  });
-
-  const settings = await getSettings();
-  return {
-    ok: checks.every((item) => item.ok),
-    uptime_seconds: Math.round(process.uptime()),
-    latency_ms: Date.now() - started,
-    settings: {
-      backup_enabled: settings.backup_enabled,
-      backup_interval_hours: settings.backup_interval_hours,
-      last_backup_at: settings.last_backup_at
-    },
-    printers: printerProfiles(settings),
-    checks
-  };
-});
-
-app.get("/ops/backups", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_ops")) return;
-  return listBackupFiles();
-});
-
-app.post("/ops/backups", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_ops")) return;
-  const file = await createBackup("manual");
-  await auditLog(request, "backup.create", "backup", null, file);
-  return file;
-});
-
-app.get("/ops/backups/:name", async (request, reply) => {
-  if (!await requirePermission(request, reply, "manage_ops")) return;
-  const filename = path.basename(request.params.name);
-  if (!filename.endsWith(".sql")) {
-    reply.code(400);
-    return { error: "Invalid backup filename" };
-  }
-  const filepath = path.join(backupDir, filename);
-  const content = await fs.readFile(filepath, "utf8");
-  reply.header("Content-Type", "application/sql; charset=utf-8");
-  reply.header("Content-Disposition", `attachment; filename="${filename}"`);
-  return content;
-});
-
+// ── Route modules ──────────────────────────────────────────────────────────
+import registerAuth from "./routes/auth.js";
+import registerSchedules from "./routes/schedules.js";
+import registerUsers from "./routes/users.js";
+import registerSettings from "./routes/settings.js";
+import registerMenu from "./routes/menu.js";
+import registerFloors from "./routes/floors.js";
+import registerOrders from "./routes/orders.js";
+import registerReports from "./routes/reports.js";
+import registerOps from "./routes/ops.js";
+
+const routeCtx = {
+  app,
+  pool,
+  redis,
+  redisSub,
+  sockets,
+  query,
+  one,
+  getSettings,
+  requirePermission,
+  requireAnyPermission,
+  auditLog,
+  clientIp,
+  checkRateLimit,
+  emit,
+  recalculateOrder,
+  createPrintJob,
+  getOrderItems,
+  recordPayment,
+  updateOrderKitchenState,
+  ensureSchema,
+  runMigrations,
+  httpError,
+  safePaymentAttempt,
+  UUID_PATTERN,
+  LEGACY_UUID_PATTERN,
+  ADMIN_GRANT_TTL_SECONDS,
+  LOGIN_RATE_WINDOW,
+  LOGIN_RATE_MAX_ATTEMPTS,
+  ADMIN_GRANT_RATE_MAX_ATTEMPTS,
+  listBackupFiles,
+  createBackup,
+  userFromToken,
+  adminGrantFromRequest,
+  hashPin,
+  verifyPin,
+  normalizePermissions,
+  ADMIN_GRANT_SCOPES,
+  CASHIER_PERMISSIONS,
+  OWNER_PERMISSIONS,
+  canPatchMenuItem,
+  cancelDojoTerminalSession,
+  createDojoTerminalPayment,
+  dojoConfig,
+  getDojoPaymentIntent,
+  getDojoTerminalSession,
+  isDojoConfigured,
+  listDojoTerminals,
+  mapDojoSessionStatus,
+  respondToDojoSignature,
+  assertPositivePayment,
+  selectPrinter,
+  isValidPrinter,
+  calculateTotals,
+  localToday,
+  parseDateOnly,
+  parseTimeOnly,
+  scheduleAutoBackup,
+  scheduleIdleTableClear,
+  insertOrderWithRetry,
+  printerProfiles,
+  backupDir,
+  nextOrderNo,
+  datePrefix,
+};
+
+registerAuth(routeCtx);
+registerSchedules(routeCtx);
+registerUsers(routeCtx);
+registerSettings(routeCtx);
+registerMenu(routeCtx);
+registerFloors(routeCtx);
+registerOrders(routeCtx);
+registerReports(routeCtx);
+registerOps(routeCtx);
+
+// ── Start server ──────────────────────────────────────────────────────────
 const port = Number(process.env.API_PORT ?? 4000);
 scheduleAutoBackup();
 scheduleIdleTableClear();
