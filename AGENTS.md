@@ -72,11 +72,10 @@ docker compose exec -T postgres psql -U qypos -d qypos -c "SELECT name, pin FROM
 
 ### 组件拆分约定
 
-后台管理组件已从 `page.jsx`（原 5734 行）拆分为 `_components/` 目录下 12 个独立文件。
-- 新增后台组件放在 `apps/web/src/app/admin/_components/` 下
-- 共享工具函数（`t`、`money`、日期格式化等）从 `./helpers` 导入
-- API 客户端（`api`、`labelOf`）从 `../../lib/api` 导入
-- 每个组件文件自包含 imports，不依赖 page.jsx 的全局变量
+**前台 POS**（`page.jsx` 2,127→864 行）拆出 16 个组件到 `_components/`，**后台管理**（`admin/page.jsx` 5,734→635 行）拆出 12 个组件到 `admin/_components/`。
+- CSS 拆分为 `base.css`（共享）、`pos.css`（POS 专用）、`admin.css`（后台专用），统一在 `layout.jsx` 导入
+- API 路由从 `server.js`（3,542→843 行）拆为 `routes/` 下 9 个模块，每个导出 `register(routeCtx)` 函数
+- 新增组件放在对应 `_components/` 目录下，自包含 imports，不依赖父页面的全局变量
 
 ### ESLint 设计原则
 ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-undef`）+ `react-hooks/exhaustive-deps`（warn）。不启用风格规则或 `no-unused-vars`。Lint 仅在 CI 和本地开发中运行，不嵌入 Docker 镜像构建。
@@ -101,11 +100,24 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 
 | 文件 | 内容 |
 |---|---|
-| `apps/api/src/server.js` | API 全部路由（约数千行） |
+| `apps/api/src/server.js` | API 入口 + 所有共享 helper（~843 行） |
+| `apps/api/src/routes/` | API 路由模块（9 文件：auth/schedules/users/settings/menu/floors/orders/reports/ops） |
 | `apps/api/src/services/permissions.js` | 认证与权限中间件、PIN 哈希/验证 (`hashPin`/`verifyPin`) |
 | `apps/api/src/services/role-permissions.js` | 角色权限定义 |
-| `apps/web/src/app/page.jsx` | 点餐前台主页面 |
-| `apps/web/src/app/admin/page.jsx` | 后台管理路由壳（~635 行，组件已拆分） |
+| `apps/api/src/services/printers.js` | 打印机配置与选择 |
+| `apps/api/src/services/dojo.js` | Dojo 刷卡支付集成 |
+| `apps/api/src/services/validation.js` | 支付金额校验 |
+| `apps/web/src/app/layout.jsx` | 根布局（导入 base.css / pos.css / admin.css） |
+| `apps/web/src/app/page.jsx` | 点餐前台主页面（~864 行，16 个组件已拆分） |
+| `apps/web/src/app/_components/` | POS 前台组件目录（16 个文件） |
+| `apps/web/src/app/_components/pos-helpers.jsx` | POS 共享工具函数 (`text`, `money`, `statusLabel` 等) |
+| `apps/web/src/app/_components/order-panel.jsx` | 订单面板（菜品列表/数量/备注/提交） |
+| `apps/web/src/app/_components/menu-picker.jsx` | 菜单选择器（分类/搜索/菜品网格） |
+| `apps/web/src/app/_components/payment-modal.jsx` | 支付弹窗（现金/刷卡/Dojo） |
+| `apps/web/src/app/base.css` | 共享基础样式（变量/重置/布局，~1.6k 行） |
+| `apps/web/src/app/pos.css` | POS 专用样式（~1.4k 行） |
+| `apps/web/src/app/admin.css` | 后台管理专用样式（~3.6k 行） |
+| `apps/web/src/app/admin/page.jsx` | 后台管理路由壳（~635 行，12 个组件已拆分） |
 | `apps/web/src/app/admin/_components/` | 后台管理组件目录（12 个文件） |
 | `apps/web/src/app/admin/_components/helpers.jsx` | 共享工具函数 (`t`, `money`, 日期等) |
 | `apps/web/src/app/admin/_components/menu-admin.jsx` | 菜单管理（含 13 个子组件，~1288 行） |
