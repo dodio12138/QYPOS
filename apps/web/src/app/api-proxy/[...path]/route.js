@@ -14,6 +14,11 @@ async function proxyRequest(request, { params }) {
       headers.set(key, value);
     }
   }
+  // Forward the real client IP so rate-limiting works per-user.
+  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || request.headers.get("x-real-ip")
+    || "127.0.0.1";
+  headers.set("x-real-ip", clientIp);
 
   const hasBody = !["GET", "HEAD"].includes(request.method);
 
