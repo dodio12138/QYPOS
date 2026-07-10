@@ -222,13 +222,13 @@ qypos/
 
 ```mermaid
 graph TD
-    Browser[浏览器] -->|HTTP| Web[Next.js :3000]
-    Web -->|API Proxy| API[Fastify API :4000]
-    API -->|SQL| PG[(PostgreSQL :5433)]
-    API -->|Pub/Sub| Redis[(Redis :6379)]
+    Browser["浏览器"] -->|HTTP| Web["Next.js :3000"]
+    Web -->|"API Proxy"| API["Fastify API :4000"]
+    API -->|SQL| PG[("PostgreSQL :5433")]
+    API -->|"Pub/Sub"| Redis[("Redis :6379")]
     API -->|WebSocket| Browser
-    Redis -->|打印任务| Printer[Printer Worker]
-    Printer -->|RAW TCP| ESCP[ESC/POS 打印机]
+    Redis -->|"打印任务"| Printer["Printer Worker"]
+    Printer -->|"RAW TCP"| ESCP["ESC/POS 打印机"]
     Printer -->|SQL| PG
 ```
 
