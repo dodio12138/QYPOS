@@ -12,8 +12,6 @@
   --green: #16a34a;
   --lavender: #fff1f2;
   --lavender-border: #fecdd3;
-  --bg-from: #2a2a2a;
-  --bg-to: #111111;
 }
 
 * {
@@ -2127,13 +2125,6 @@ h1 {
 }
 
 /* report three-column collection: hot items, modifiers, note frequencies */
-.report-hot-collection-grid {
-  display: flex;
-  gap: 12px;
-}
-.report-hot-collection {
-  grid-column: 1 / -1;
-}
 .report-hot-collection-grid {
   display: flex;
   gap: 12px;

@@ -342,8 +342,12 @@ async function adminGrantFromRequest(request, user) {
   if (!token || !user) return null;
   const payload = await redis.get(`admin-grant:${token}`);
   if (!payload) return null;
-  const grant = JSON.parse(payload);
-  return grant.subject_user_id === user.id ? grant : null;
+  try {
+    const grant = JSON.parse(payload);
+    return grant.subject_user_id === user.id ? grant : null;
+  } catch {
+    return null;
+  }
 }
 
 async function requirePermission(request, reply, permission) {
@@ -1149,6 +1153,7 @@ app.post("/users", async (request, reply) => {
 
 app.patch("/users/:id", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_users")) return;
+  if (!UUID_PATTERN.test(request.params.id)) { reply.code(400); return { error: "Invalid user id" }; }
   const body = request.body ?? {};
   if (body.role_id !== undefined) {
     const roleId = String(body.role_id ?? "");
@@ -1172,6 +1177,7 @@ app.patch("/users/:id", async (request, reply) => {
 
 app.delete("/users/:id", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_users")) return;
+  if (!UUID_PATTERN.test(request.params.id)) { reply.code(400); return { error: "Invalid user id" }; }
   const user = await one("DELETE FROM users WHERE id = $1 RETURNING *", [request.params.id]);
   if (!user) { reply.code(404); return { error: "User not found" }; }
   await auditLog(request, "user.delete", "user", user.id, { name: user.name });
