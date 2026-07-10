@@ -7,28 +7,18 @@ import {
   listDojoTerminals,
   mapDojoSessionStatus
 } from "../apps/api/src/services/dojo.js";
+import { withEnv } from "./helpers.mjs";
+
+const DOJO_TEST_ENV = {
+  DOJO_API_KEY: "sk_sandbox_test",
+  DOJO_API_BASE_URL: "https://dojo.test",
+  DOJO_API_VERSION: "2026-02-27",
+  DOJO_SOFTWARE_HOUSE_ID: "software-house",
+  DOJO_RESELLER_ID: "reseller",
+};
 
 function withDojoEnv(run) {
-  const previous = {
-    DOJO_API_KEY: process.env.DOJO_API_KEY,
-    DOJO_API_BASE_URL: process.env.DOJO_API_BASE_URL,
-    DOJO_API_VERSION: process.env.DOJO_API_VERSION,
-    DOJO_SOFTWARE_HOUSE_ID: process.env.DOJO_SOFTWARE_HOUSE_ID,
-    DOJO_RESELLER_ID: process.env.DOJO_RESELLER_ID
-  };
-  Object.assign(process.env, {
-    DOJO_API_KEY: "sk_sandbox_test",
-    DOJO_API_BASE_URL: "https://dojo.test",
-    DOJO_API_VERSION: "2026-02-27",
-    DOJO_SOFTWARE_HOUSE_ID: "software-house",
-    DOJO_RESELLER_ID: "reseller"
-  });
-  return Promise.resolve(run()).finally(() => {
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  });
+  return withEnv(DOJO_TEST_ENV, run);
 }
 
 function jsonResponse(data, status = 200) {

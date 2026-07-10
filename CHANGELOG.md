@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **PBKDF2 PIN Hashing**: Staff PINs now stored as PBKDF2 hashes (SHA-512, 100k iterations, random salt) using Node.js built-in crypto. Legacy plaintext PINs auto-upgrade on first login — zero user impact.
+- **PIN Privacy**: `GET /users` API no longer returns the `pin` field; admin account page no longer displays PINs in plain text.
+- **Account Page Redesign**: Card-based layout, color-coded role badges (Owner🔴/Cashier🔵/Kitchen🟢), inline expand/edit, inline delete confirmation, PIN show/hide toggle, and PIN confirmation field.
+- **PIN Hashing Unit Tests**: 9 test cases covering hash/verify/upgrade/edge-case scenarios end-to-end.
+- **Shared Test Helpers** (`tests/helpers.mjs`): Unified API request wrappers, login helpers, env management, and cleanup utilities.
+- **AGENTS.md**: Project-level AI coding agent guidelines with tech stack, build commands, architecture decisions, and common pitfalls.
 - **Staff Management**: Employee CRUD, schedules, attendance tracking, and hourly wage.
 - **Staff Scheduling**: Weekly schedule planner with drag-and-drop time presets, actual attendance recording, and revenue-per-hour conversion metrics.
 - **Role-Based Permissions**: Fine-grained cashier-specific permission sets; service charge adjustment/exemption, discount, and order cancellation all require explicit permissions.

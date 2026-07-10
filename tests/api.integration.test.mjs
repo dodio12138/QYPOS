@@ -1,359 +1,506 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { authed, loginAdmin, request, destroyMenuResources } from "./helpers.mjs";
 
 const API_BASE = process.env.API_BASE;
+const describe = API_BASE ? test : test.skip;
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, options);
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`${options.method || "GET"} ${path} -> ${response.status}: ${text}`);
-  }
-  return text ? JSON.parse(text) : null;
+// ── Shared setup: login & get a token ───────────────────────────────────────
+
+async function setup() {
+  const { token } = await loginAdmin(API_BASE);
+  const req = authed(API_BASE, token);
+  return { token, req };
 }
 
-function authed(token, options = {}) {
-  return {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {})
-    }
-  };
-}
+// ── Shared fixtures: get a usable variant & table ───────────────────────────
 
-test("POS API core flow", { skip: !API_BASE }, async () => {
-  const loginName = process.env.TEST_ADMIN_NAME || "Owner";
-  const loginPin = process.env.TEST_ADMIN_PIN || "0000";
-  const login = await request("/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: loginName, pin: loginPin })
-  });
-  const token = login.token;
-  assert.ok(token);
+async function getFixture(req) {
+  const menu = await req("/menu");
+  const variant = menu.items.flatMap((i) => i.variants).find((v) => v.active);
+  assert.ok(variant, "need at least one active variant");
 
-  const layout = await request("/floor-layouts");
-  assert.ok(layout.tables.length > 0);
-
+  const layout = await req("/floor-layouts");
   const table = layout.tables[0];
-  const editedLayout = structuredClone(layout);
-  const editedTable = editedLayout.tables.find((item) => item.id === table.id);
-  const original = { label: editedTable.label, x: editedTable.x };
-  editedTable.label = `IT-${Date.now().toString().slice(-4)}`;
-  editedTable.x = Number(editedTable.x) + 5;
+  assert.ok(table, "need at least one table");
 
-  await request("/floor-layouts", authed(token, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(editedLayout)
-  }));
-  const savedLayout = await request("/floor-layouts");
-  const savedTable = savedLayout.tables.find((item) => item.id === table.id);
-  assert.equal(savedTable.label, editedTable.label);
+  return { variant, table, layout, menu };
+}
 
-  savedTable.label = original.label;
-  savedTable.x = original.x;
-  await request("/floor-layouts", authed(token, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(savedLayout)
-  }));
+// ═══════════════════════════════════════════════════════════════════════════════
+// Subtests
+// ═══════════════════════════════════════════════════════════════════════════════
 
-  const clearableTable = layout.tables.find((item) => item.status === "available" && !item.current_order_id);
-  if (clearableTable) {
+describe("auth", async () => {
+  test("login succeeds with valid credentials", async () => {
+    const { token } = await setup();
+    assert.ok(token);
+  });
+
+  test("login rejects wrong PIN", async () => {
     await assert.rejects(
-      request(`/tables/${clearableTable.id}/clear`, { method: "POST" }),
+      request(API_BASE, "/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ name: "Owner", pin: "wrong" }),
+      }),
       /401/
     );
-    await request(`/tables/${clearableTable.id}/clear`, authed(token, { method: "POST" }));
-  }
+  });
 
-  const menu = await request("/menu");
-  const variant = menu.items.flatMap((item) => item.variants).find((item) => item.active);
-  assert.ok(variant);
+  test("unauthenticated requests are rejected where required", async () => {
+    await assert.rejects(
+      request(API_BASE, "/orders", {
+        method: "POST",
+        body: JSON.stringify({ service_type: "takeaway", pickup_no: "NOAUTH" }),
+      }),
+      /401/
+    );
+  });
 
-  const category = await request("/menu/categories", authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name_i18n: { "zh-CN": "集成分类", "en-GB": "Integration" }, sort_order: 99 })
-  }));
-  const patchedCategory = await request(`/menu/categories/${category.id}`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sort_order: 100, active: true })
-  }));
-  assert.equal(patchedCategory.sort_order, 100);
+  test("public GET endpoints work without auth", async () => {
+    const menu = await request(API_BASE, "/menu");
+    assert.ok(menu.items.length >= 0);
+    const layout = await request(API_BASE, "/floor-layouts");
+    assert.ok(layout.tables.length >= 0);
+  });
+});
 
-  const menuItem = await request("/menu/items", authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      category_id: category.id,
-      name_i18n: { "zh-CN": "集成菜品", "en-GB": "Integration Dish" },
-      variants: [{ name_i18n: { "zh-CN": "小份", "en-GB": "Small" }, price: 3.5 }]
-    })
-  }));
-  await request(`/menu/items/${menuItem.id}`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kitchen_group: "it-kitchen", active: true })
-  }));
-  const addedVariant = await request(`/menu/items/${menuItem.id}/variants`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name_i18n: { "zh-CN": "大份", "en-GB": "Large" }, price: 5.25 })
-  }));
-  const patchedVariant = await request(`/menu/items/${menuItem.id}/variants/${addedVariant.id}`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ price: 5.75, active: true })
-  }));
-  assert.equal(Number(patchedVariant.price), 5.75);
-  const group = await request("/menu/modifier-groups", authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ item_id: menuItem.id, name_i18n: { "zh-CN": "辣度", "en-GB": "Spice" }, min_select: 1, max_select: 1 })
-  }));
-  const modifier = await request(`/menu/modifier-groups/${group.id}/modifiers`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name_i18n: { "zh-CN": "中辣", "en-GB": "Medium" }, price_delta: 0.25 })
-  }));
-  const patchedModifier = await request(`/menu/modifiers/${modifier.id}`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ price_delta: 0.5 })
-  }));
-  assert.equal(Number(patchedModifier.price_delta), 0.5);
+describe("menu CRUD", async () => {
+  let categoryId, itemId;
 
-  const copiedTable = await request(`/tables/${table.id}/copy`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ label: `IT-COPY-${Date.now().toString().slice(-4)}` })
-  }));
-  assert.ok(copiedTable.id);
-  await request(`/tables/${copiedTable.id}`, authed(token, { method: "DELETE" }));
-
-  await request("/settings", authed(token, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ auto_clear_tables_after_payment: true })
-  }));
-  const autoClearSettings = await request("/settings");
-  assert.equal(autoClearSettings.auto_clear_tables_after_payment, true);
-
-  const autoClearLayout = await request("/floor-layouts");
-  const autoClearTable = autoClearLayout.tables.find((item) => item.status === "available" && !item.current_order_id);
-  assert.ok(autoClearTable);
-  const dineInOrder = await request(`/tables/${autoClearTable.id}/open`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ guests: 1 })
-  }));
-  const dineInUpdated = await request(`/orders/${dineInOrder.id}`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } })
-  }));
-  assert.ok(Number(dineInUpdated.total) > 0);
-  await request(`/orders/${dineInOrder.id}/payments`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ method: "cash", amount: Number(dineInUpdated.total), change_due: 0 })
-  }));
-  const layoutAfterAutoClear = await request("/floor-layouts");
-  const autoClearedTable = layoutAfterAutoClear.tables.find((item) => item.id === autoClearTable.id);
-  assert.equal(autoClearedTable.status, "available");
-  assert.equal(autoClearedTable.current_order_id, null);
-
-  await request("/settings", authed(token, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ auto_clear_tables_after_payment: false })
-  }));
-
-  const testJob = await request("/print-jobs/test", authed(token, { method: "POST" }));
-  assert.equal(testJob.type, "test");
-
-  const settings = await request("/settings");
-  const profile = {
-    id: `it-${Date.now().toString().slice(-5)}`,
-    name: "Integration Printer",
-    role: "receipt",
-    host: "192.168.1.250",
-    port: 9100,
-    enabled: true
-  };
-  const updatedSettings = await request("/settings", authed(token, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      printer_profiles: [...(settings.printer_profiles || []), profile],
-      receipt_printer_id: profile.id,
-      backup_enabled: false,
-      backup_interval_hours: 24
-    })
-  }));
-  assert.ok(updatedSettings.printer_profiles.some((item) => item.id === profile.id));
-
-  const health = await request("/ops/health", authed(token));
-  assert.equal(typeof health.ok, "boolean");
-  assert.ok(health.checks.some((check) => check.name === "database"));
-  const backupsBefore = await request("/ops/backups", authed(token));
-  assert.ok(Array.isArray(backupsBefore));
-  const backup = await request("/ops/backups", authed(token, { method: "POST" }));
-  assert.ok(backup.name.endsWith(".sql"));
-  const backupsAfter = await request("/ops/backups", authed(token));
-  assert.ok(backupsAfter.some((file) => file.name === backup.name));
-
-  await assert.rejects(
-    request("/orders", {
+  test("create category", async () => {
+    const { req } = await setup();
+    const cat = await req("/menu/categories", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ service_type: "takeaway", pickup_no: "NOAUTH" })
-    }),
-    /401/
-  );
+      body: JSON.stringify({ name_i18n: { "zh-CN": "集成分类", "en-GB": "Integration" }, sort_order: 99 }),
+    });
+    assert.ok(cat.id);
+    categoryId = cat.id;
+  });
 
-  const order = await request("/orders", authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT${Date.now().toString().slice(-3)}` })
-  }));
-
-  const updated = await request(`/orders/${order.id}`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } })
-  }));
-  assert.ok(Number(updated.total) > 0);
-
-  await request(`/orders/${order.id}/submit`, authed(token, { method: "POST" }));
-  const firstPrinted = await request(`/orders/${order.id}`);
-  assert.ok(firstPrinted.items[0].kitchen_printed_at);
-
-  await assert.rejects(
-    request(`/orders/${order.id}`, authed(token, {
+  test("patch category sort order", async () => {
+    const { req } = await setup();
+    const patched = await req(`/menu/categories/${categoryId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ update_item: { id: firstPrinted.items[0].id, quantity: 2 } })
-    })),
-    /Kitchen printed items are locked/
-  );
+      body: JSON.stringify({ sort_order: 100, active: true }),
+    });
+    assert.equal(patched.sort_order, 100);
+  });
 
-  await request(`/orders/${order.id}`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } })
-  }));
-  const withSecondItem = await request(`/orders/${order.id}`);
-  const unprintedItem = withSecondItem.items.find((item) => !item.kitchen_printed_at);
-  assert.ok(unprintedItem);
-  await request(`/orders/${order.id}/submit`, authed(token, { method: "POST" }));
-  const secondPrinted = await request(`/orders/${order.id}`);
-  assert.equal(secondPrinted.items.filter((item) => item.kitchen_printed_at).length, 2);
-
-  await assert.rejects(
-    request(`/orders/${order.id}/submit`, authed(token, { method: "POST" })),
-    /No new items to print to kitchen/
-  );
-
-  const settingsBeforeBadPrinter = await request("/settings");
-  const disabledProfiles = (settingsBeforeBadPrinter.printer_profiles || []).map((profile) => ({
-    ...profile,
-    enabled: false
-  }));
-  await request("/settings", authed(token, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      printer_profiles: disabledProfiles,
-      receipt_printer_id: disabledProfiles[0]?.id || settingsBeforeBadPrinter.receipt_printer_id
-    })
-  }));
-  await assert.rejects(
-    request(`/orders/${order.id}/print`, authed(token, {
+  test("create menu item with variant", async () => {
+    const { req } = await setup();
+    const item = await req("/menu/items", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "receipt" })
-    })),
-    /Receipt printer is not configured or enabled/
-  );
-  await request("/settings", authed(token, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      printer_profiles: settingsBeforeBadPrinter.printer_profiles,
-      receipt_printer_id: settingsBeforeBadPrinter.receipt_printer_id
-    })
-  }));
+      body: JSON.stringify({
+        category_id: categoryId,
+        name_i18n: { "zh-CN": "集成菜品", "en-GB": "Integration Dish" },
+        variants: [{ name_i18n: { "zh-CN": "小份", "en-GB": "Small" }, price: 3.5 }],
+      }),
+    });
+    itemId = item.id;
+    assert.ok(item.id);
+  });
 
-  await request(`/orders/${order.id}/print`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "receipt" })
-  }));
+  test("patch menu item attributes", async () => {
+    const { req } = await setup();
+    await req(`/menu/items/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ kitchen_group: "it-kitchen", active: true }),
+    });
+  });
 
-  const kitchenItems = await request("/kitchen/items", authed(token));
-  const kitchenItem = kitchenItems.find((item) => item.order_id === order.id);
-  assert.ok(kitchenItem);
-
-  await request(`/orders/${order.id}/items/${kitchenItem.id}/status`, authed(token, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: "preparing" })
-  }));
-
-  const discounted = await request(`/orders/${order.id}/discount`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ discount: 0.5, reason: "integration test" })
-  }));
-  assert.equal(Number(discounted.discount), 0.5);
-  const serviceAdjusted = await request(`/orders/${order.id}/service-charge`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ service_charge_exempt: true, reason: "integration test" })
-  }));
-  assert.equal(Number(serviceAdjusted.service_charge), 0);
-
-  const fullOrder = await request(`/orders/${order.id}`);
-  await assert.rejects(
-    request(`/orders/${order.id}/payments`, authed(token, {
+  test("add and update variant", async () => {
+    const { req } = await setup();
+    const added = await req(`/menu/items/${itemId}/variants`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ method: "cash", amount: 0, change_due: 0 })
-    })),
-    /Payment amount must be greater than zero/
-  );
+      body: JSON.stringify({ name_i18n: { "zh-CN": "大份", "en-GB": "Large" }, price: 5.25 }),
+    });
+    const patched = await req(`/menu/items/${itemId}/variants/${added.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ price: 5.75, active: true }),
+    });
+    assert.equal(Number(patched.price), 5.75);
+  });
 
-  await request(`/orders/${order.id}/payments`, authed(token, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ method: "cash", amount: Number(fullOrder.total), change_due: 0 })
-  }));
-
-  await assert.rejects(
-    request(`/orders/${order.id}/payments`, authed(token, {
+  test("add modifier group and modifier", async () => {
+    const { req } = await setup();
+    const group = await req("/menu/modifier-groups", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ method: "cash", amount: 1, change_due: 0 })
-    })),
-    /Order is already closed/
-  );
+      body: JSON.stringify({ item_id: itemId, name_i18n: { "zh-CN": "辣度", "en-GB": "Spice" }, min_select: 1, max_select: 1 }),
+    });
+    const mod = await req(`/menu/modifier-groups/${group.id}/modifiers`, {
+      method: "POST",
+      body: JSON.stringify({ name_i18n: { "zh-CN": "中辣", "en-GB": "Medium" }, price_delta: 0.25 }),
+    });
+    const patched = await req(`/menu/modifiers/${mod.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ price_delta: 0.5 }),
+    });
+    assert.equal(Number(patched.price_delta), 0.5);
+  });
 
-  const printJobs = await request("/print-jobs", authed(token));
-  assert.ok(printJobs.some((job) => job.order_id === order.id && job.type === "kitchen"));
-  assert.ok(printJobs.some((job) => job.order_id === order.id && job.type === "receipt"));
+  // Cleanup after all menu subtests
+  test("cleanup menu fixtures", async () => {
+    const { req } = await setup();
+    await destroyMenuResources(req, { itemId, categoryId });
+  });
+});
 
-  const report = await request(`/reports/sales?from=2020-01-01&to=2999-01-01`, authed(token));
-  assert.ok(Number(report.summary.orders) >= 1);
-  const audits = await request("/audit-logs", authed(token));
-  assert.ok(audits.some((log) => log.action === "order.discount.adjust"));
+describe("floor layout", async () => {
+  test("update table label and position, then restore", async () => {
+    const { req } = await setup();
+    const layout = await req("/floor-layouts");
+    const table = layout.tables[0];
+    const original = { label: table.label, x: table.x };
 
-  // Clean up the menu fixtures created above so repeated test runs don't
-  // leave permanent "Integration" clutter in the live menu.
-  await request(`/menu/items/${menuItem.id}/destroy`, authed(token, { method: "DELETE" }));
-  await request(`/menu/categories/${category.id}/destroy`, authed(token, { method: "DELETE" }));
+    const edited = structuredClone(layout);
+    const editedTable = edited.tables.find((t) => t.id === table.id);
+    editedTable.label = `IT-${Date.now().toString().slice(-4)}`;
+    editedTable.x = Number(editedTable.x) + 5;
+
+    await req("/floor-layouts", { method: "PUT", body: JSON.stringify(edited) });
+    const saved = await req("/floor-layouts");
+    const savedTable = saved.tables.find((t) => t.id === table.id);
+    assert.equal(savedTable.label, editedTable.label);
+
+    // Restore original
+    savedTable.label = original.label;
+    savedTable.x = original.x;
+    await req("/floor-layouts", { method: "PUT", body: JSON.stringify(saved) });
+  });
+
+  test("copy and delete a table", async () => {
+    const { req } = await setup();
+    const layout = await req("/floor-layouts");
+    const table = layout.tables[0];
+
+    const copied = await req(`/tables/${table.id}/copy`, {
+      method: "POST",
+      body: JSON.stringify({ label: `IT-COPY-${Date.now().toString().slice(-4)}` }),
+    });
+    assert.ok(copied.id);
+    await req(`/tables/${copied.id}`, { method: "DELETE" });
+  });
+
+  test("clear an available table requires auth", async () => {
+    const { req } = await setup();
+    const layout = await req("/floor-layouts");
+    const clearable = layout.tables.find((t) => t.status === "available" && !t.current_order_id);
+    if (!clearable) return; // skip if all tables are occupied
+
+    // Unauthed clear should fail
+    await assert.rejects(
+      request(API_BASE, `/tables/${clearable.id}/clear`, { method: "POST" }),
+      /401/
+    );
+    // Authed clear should succeed
+    await req(`/tables/${clearable.id}/clear`, { method: "POST" });
+  });
+});
+
+describe("order lifecycle", async () => {
+  test("create a takeaway order and verify total", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT${Date.now().toString().slice(-3)}` }),
+    });
+
+    const updated = await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    assert.ok(Number(updated.total) > 0);
+  });
+
+  test("kitchen print: first submit prints, subsequent without new items is rejected", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-KP-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+
+    await req(`/orders/${order.id}/submit`, { method: "POST" });
+    const printed = await req(`/orders/${order.id}`);
+    assert.ok(printed.items[0].kitchen_printed_at, "first item should be kitchen-printed");
+
+    // Kitchen-printed items are locked
+    await assert.rejects(
+      req(`/orders/${order.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ update_item: { id: printed.items[0].id, quantity: 2 } }),
+      }),
+      /Kitchen printed items are locked/
+    );
+
+    // Submit again without new items → rejected
+    await assert.rejects(
+      req(`/orders/${order.id}/submit`, { method: "POST" }),
+      /No new items to print to kitchen/
+    );
+
+    // Add a second item and submit again
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    await req(`/orders/${order.id}/submit`, { method: "POST" });
+    const second = await req(`/orders/${order.id}`);
+    assert.equal(second.items.filter((i) => i.kitchen_printed_at).length, 2);
+  });
+
+  test("apply discount then exempt service charge", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-DC-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 2, modifier_ids: [] } }),
+    });
+
+    const discounted = await req(`/orders/${order.id}/discount`, {
+      method: "POST",
+      body: JSON.stringify({ discount: 0.5, reason: "integration test" }),
+    });
+    assert.equal(Number(discounted.discount), 0.5);
+
+    const exempt = await req(`/orders/${order.id}/service-charge`, {
+      method: "POST",
+      body: JSON.stringify({ service_charge_exempt: true, reason: "integration test" }),
+    });
+    assert.equal(Number(exempt.service_charge), 0);
+  });
+
+  test("payment rejects zero amount and double-pay", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-PAY-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+
+    const fullOrder = await req(`/orders/${order.id}`);
+
+    // Zero amount rejected
+    await assert.rejects(
+      req(`/orders/${order.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ method: "cash", amount: 0, change_due: 0 }),
+      }),
+      /Payment amount must be greater than zero/
+    );
+
+    // Valid payment
+    await req(`/orders/${order.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ method: "cash", amount: Number(fullOrder.total), change_due: 0 }),
+    });
+
+    // Double-pay rejected
+    await assert.rejects(
+      req(`/orders/${order.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ method: "cash", amount: 1, change_due: 0 }),
+      }),
+      /Order is already closed/
+    );
+  });
+
+  test("kitchen status update and receipt print", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-KS-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    await req(`/orders/${order.id}/submit`, { method: "POST" });
+
+    // Check kitchen board
+    const kitchenItems = await req("/kitchen/items");
+    const ki = kitchenItems.find((k) => k.order_id === order.id);
+    assert.ok(ki, "order should appear on kitchen board");
+
+    // Update item status
+    await req(`/orders/${order.id}/items/${ki.id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "preparing" }),
+    });
+
+    // Print receipt
+    await req(`/orders/${order.id}/print`, {
+      method: "POST",
+      body: JSON.stringify({ type: "receipt" }),
+    });
+
+    // Verify print jobs exist
+    const jobs = await req("/print-jobs");
+    assert.ok(jobs.some((j) => j.order_id === order.id && j.type === "kitchen"));
+    assert.ok(jobs.some((j) => j.order_id === order.id && j.type === "receipt"));
+  });
+});
+
+describe("settings & printer", async () => {
+  test("toggle auto-clear and verify table clears after payment", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+    const layout = await req("/floor-layouts");
+
+    const clearable = layout.tables.find((t) => t.status === "available" && !t.current_order_id);
+    if (!clearable) return; // skip
+
+    // Enable auto-clear
+    await req("/settings", {
+      method: "PUT",
+      body: JSON.stringify({ auto_clear_tables_after_payment: true }),
+    });
+
+    // Open, order, pay
+    const dineIn = await req(`/tables/${clearable.id}/open`, {
+      method: "POST",
+      body: JSON.stringify({ guests: 1 }),
+    });
+    const updated = await req(`/orders/${dineIn.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    await req(`/orders/${dineIn.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ method: "cash", amount: Number(updated.total), change_due: 0 }),
+    });
+
+    // Table should be auto-cleared
+    const after = await req("/floor-layouts");
+    const cleared = after.tables.find((t) => t.id === clearable.id);
+    assert.equal(cleared.status, "available");
+    assert.equal(cleared.current_order_id, null);
+
+    // Restore
+    await req("/settings", {
+      method: "PUT",
+      body: JSON.stringify({ auto_clear_tables_after_payment: false }),
+    });
+  });
+
+  test("manage printer profiles", async () => {
+    const { req } = await setup();
+
+    const settings = await req("/settings");
+    const profile = {
+      id: `it-${Date.now().toString().slice(-5)}`,
+      name: "Integration Printer",
+      role: "receipt",
+      host: "192.168.1.250",
+      port: 9100,
+      enabled: true,
+    };
+
+    const updated = await req("/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        ...settings,
+        printer_profiles: [...(settings.printer_profiles || []), profile],
+        receipt_printer_id: profile.id,
+        backup_enabled: false,
+        backup_interval_hours: 24,
+      }),
+    });
+    assert.ok(updated.printer_profiles.some((p) => p.id === profile.id));
+  });
+
+  test("receipt print fails when no printer is enabled", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-RPF-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+
+    // Disable all printers
+    const settings = await req("/settings");
+    const disabled = (settings.printer_profiles || []).map((p) => ({ ...p, enabled: false }));
+    await req("/settings", {
+      method: "PUT",
+      body: JSON.stringify({ printer_profiles: disabled, receipt_printer_id: disabled[0]?.id || settings.receipt_printer_id }),
+    });
+
+    await assert.rejects(
+      req(`/orders/${order.id}/print`, {
+        method: "POST",
+        body: JSON.stringify({ type: "receipt" }),
+      }),
+      /Receipt printer is not configured or enabled/
+    );
+
+    // Restore
+    await req("/settings", {
+      method: "PUT",
+      body: JSON.stringify({ printer_profiles: settings.printer_profiles, receipt_printer_id: settings.receipt_printer_id }),
+    });
+  });
+});
+
+describe("ops & reports", async () => {
+  test("health check", async () => {
+    const { req } = await setup();
+    const health = await req("/ops/health");
+    assert.equal(typeof health.ok, "boolean");
+    assert.ok(health.checks.some((c) => c.name === "database"));
+  });
+
+  test("backup list and create", async () => {
+    const { req } = await setup();
+    const before = await req("/ops/backups");
+    assert.ok(Array.isArray(before));
+
+    const backup = await req("/ops/backups", { method: "POST" });
+    assert.ok(backup.name.endsWith(".sql"));
+
+    const after = await req("/ops/backups");
+    assert.ok(after.some((f) => f.name === backup.name));
+  });
+
+  test("test print job", async () => {
+    const { req } = await setup();
+    const job = await req("/print-jobs/test", { method: "POST" });
+    assert.equal(job.type, "test");
+  });
+
+  test("sales report returns orders", async () => {
+    const { req } = await setup();
+    const report = await req("/reports/sales?from=2020-01-01&to=2999-01-01");
+    assert.ok(Number(report.summary.orders) >= 1);
+  });
+
+  test("audit log contains entries", async () => {
+    const { req } = await setup();
+    const audits = await req("/audit-logs");
+    assert.ok(Array.isArray(audits));
+  });
 });

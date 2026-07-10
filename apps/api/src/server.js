@@ -10,7 +10,7 @@ import Redis from "ioredis";
 import pg from "pg";
 import { calculateTotals, localToday } from "@qypos/shared";
 import { defaultPrinterProfiles, printerProfiles, selectPrinter, isValidPrinter } from "./services/printers.js";
-import { normalizePermissions, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
+import { normalizePermissions, hashPin, verifyPin, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
 import { assertPositivePayment } from "./services/validation.js";
 import { ADMIN_GRANT_SCOPES, CASHIER_PERMISSIONS, OWNER_PERMISSIONS, canPatchMenuItem } from "./services/role-permissions.js";
 import {
@@ -193,13 +193,15 @@ async function ensureSchema() {
   );
   await pool.query(
     `INSERT INTO users (role_id, name, pin)
-     SELECT id, 'Cashier', '1111' FROM roles WHERE name = 'cashier'
-     AND NOT EXISTS (SELECT 1 FROM users WHERE name = 'Cashier')`
+     SELECT id, 'Cashier', $1 FROM roles WHERE name = 'cashier'
+     AND NOT EXISTS (SELECT 1 FROM users WHERE name = 'Cashier')`,
+    [hashPin('1111')]
   );
   await pool.query(
     `INSERT INTO users (role_id, name, pin)
-     SELECT id, 'Kitchen', '2222' FROM roles WHERE name = 'kitchen'
-     AND NOT EXISTS (SELECT 1 FROM users WHERE name = 'Kitchen')`
+     SELECT id, 'Kitchen', $1 FROM roles WHERE name = 'kitchen'
+     AND NOT EXISTS (SELECT 1 FROM users WHERE name = 'Kitchen')`,
+    [hashPin('2222')]
   );
 }
 
@@ -715,18 +717,33 @@ app.get("/ws", { websocket: true }, (connection) => {
 
 app.post("/auth/login", async (request, reply) => {
   const body = request.body ?? {};
-  const user = await one(
-    `SELECT u.id, u.name, r.name AS role, r.permissions
-     FROM users u
-     LEFT JOIN roles r ON r.id = u.role_id
-     WHERE u.name = $1 AND u.pin = $2 AND u.active = true`,
-    [body.name, body.pin]
-  );
-  if (!user) {
+  const name = String(body.name ?? "").trim();
+  const plainPin = String(body.pin ?? "").trim();
+  if (!name || !plainPin) {
     reply.code(401);
     return { error: "Invalid credentials" };
   }
-  user.permissions = normalizePermissions(user.permissions);
+  const row = await one(
+    `SELECT u.id, u.name, u.pin, r.name AS role, r.permissions
+     FROM users u
+     LEFT JOIN roles r ON r.id = u.role_id
+     WHERE u.name = $1 AND u.active = true`,
+    [name]
+  );
+  if (!row) {
+    reply.code(401);
+    return { error: "Invalid credentials" };
+  }
+  const { valid, upgraded } = verifyPin(plainPin, row.pin);
+  if (!valid) {
+    reply.code(401);
+    return { error: "Invalid credentials" };
+  }
+  // Auto-upgrade legacy plaintext PIN to hash
+  if (upgraded) {
+    await pool.query("UPDATE users SET pin = $1 WHERE id = $2", [upgraded, row.id]);
+  }
+  const user = { id: row.id, name: row.name, role: row.role, permissions: normalizePermissions(row.permissions) };
   const token = crypto.randomBytes(32).toString("hex");
   await redis.set(`session:${token}`, JSON.stringify(user), "EX", 60 * 60 * 12);
   await auditLog({ headers: { authorization: `Bearer ${token}` } }, "auth.login", "user", user.id, { role: user.role });
@@ -771,18 +788,32 @@ app.post("/auth/admin-grant", async (request, reply) => {
   const scope = String(body.scope ?? "");
   const permissions = ADMIN_GRANT_SCOPES[scope];
   if (!permissions) { reply.code(400); return { error: "Invalid admin scope" }; }
-  const admin = await one(
-    `SELECT u.id, u.name, r.permissions
-     FROM users u
-     JOIN roles r ON r.id = u.role_id
-     WHERE u.name = $1 AND u.pin = $2 AND u.active = true`,
-    [String(body.name ?? "").trim(), String(body.pin ?? "").trim()]
-  );
-  if (!admin) {
+  const name = String(body.name ?? "").trim();
+  const plainPin = String(body.pin ?? "").trim();
+  if (!name || !plainPin) {
     reply.code(401);
     return { error: "管理员账号或 PIN 不正确，或权限不足" };
   }
-  admin.permissions = normalizePermissions(admin.permissions);
+  const row = await one(
+    `SELECT u.id, u.name, u.pin, r.permissions
+     FROM users u
+     JOIN roles r ON r.id = u.role_id
+     WHERE u.name = $1 AND u.active = true`,
+    [name]
+  );
+  if (!row) {
+    reply.code(401);
+    return { error: "管理员账号或 PIN 不正确，或权限不足" };
+  }
+  const { valid, upgraded } = verifyPin(plainPin, row.pin);
+  if (!valid) {
+    reply.code(401);
+    return { error: "管理员账号或 PIN 不正确，或权限不足" };
+  }
+  if (upgraded) {
+    await pool.query("UPDATE users SET pin = $1 WHERE id = $2", [upgraded, row.id]);
+  }
+  const admin = { id: row.id, name: row.name, permissions: normalizePermissions(row.permissions) };
   if (!permissions.every((permission) => admin.permissions.includes(permission))) {
     reply.code(401);
     return { error: "管理员账号或 PIN 不正确，或权限不足" };
@@ -1028,7 +1059,7 @@ app.put("/staff-schedules/cells", async (request, reply) => {
 app.get("/users", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_users")) return;
   return query(
-    `SELECT u.id, u.name, u.pin, u.active, r.id AS role_id, r.name AS role
+    `SELECT u.id, u.name, u.active, r.id AS role_id, r.name AS role
      FROM users u
      LEFT JOIN roles r ON r.id = u.role_id
      ORDER BY u.name`
@@ -1052,9 +1083,10 @@ app.post("/users", async (request, reply) => {
   if (!role) { reply.code(400); return { error: "A valid role is required" }; }
   const exists = await one("SELECT id FROM users WHERE name = $1", [name]);
   if (exists) { reply.code(409); return { error: "User already exists" }; }
+  const hashedPin = hashPin(pin);
   const user = await one(
     "INSERT INTO users (role_id, name, pin, active) VALUES ($1, $2, $3, COALESCE($4, true)) RETURNING *",
-    [role.id, name, pin, body.active]
+    [role.id, name, hashedPin, body.active]
   );
   await auditLog(request, "user.create", "user", user.id, { name: user.name });
   return user;
@@ -1068,6 +1100,7 @@ app.patch("/users/:id", async (request, reply) => {
     const role = UUID_PATTERN.test(roleId) ? await one("SELECT id FROM roles WHERE id = $1", [roleId]) : null;
     if (!role) { reply.code(400); return { error: "A valid role is required" }; }
   }
+  const hashedPin = body.pin ? hashPin(String(body.pin).trim()) : null;
   const user = await one(
     `UPDATE users SET
       name = COALESCE($2, name),
@@ -1075,7 +1108,7 @@ app.patch("/users/:id", async (request, reply) => {
       role_id = COALESCE($4, role_id),
       active = COALESCE($5, active)
      WHERE id = $1 RETURNING *`,
-    [request.params.id, body.name ?? null, body.pin ?? null, body.role_id ?? null, body.active ?? null]
+    [request.params.id, body.name ?? null, hashedPin, body.role_id ?? null, body.active ?? null]
   );
   if (!user) { reply.code(404); return { error: "User not found" }; }
   await auditLog(request, "user.update", "user", user.id, { name: user.name });
@@ -1108,11 +1141,18 @@ app.put("/settings", async (request, reply) => {
   if (taxRateChanged || serviceRateChanged || taxIncludedChanged || showTaxChanged) {
     const actor = await userFromToken(request);
     const grant = await adminGrantFromRequest(request, actor);
-    const confirmedUser = grant?.permissions?.includes("manage_settings") || (actor && await one(
-      "SELECT id FROM users WHERE id = $1 AND name = $2 AND pin = $3 AND active = true",
-      [actor.id, String(body.confirm_name ?? "").trim(), String(body.confirm_pin ?? "")]
-    ));
-    if (!confirmedUser) {
+    if (grant?.permissions?.includes("manage_settings")) {
+      // already admin-granted, skip confirm
+    } else if (actor) {
+      const row = await one(
+        "SELECT pin FROM users WHERE id = $1 AND name = $2 AND active = true",
+        [actor.id, String(body.confirm_name ?? "").trim()]
+      );
+      if (!row || !verifyPin(String(body.confirm_pin ?? ""), row.pin).valid) {
+        reply.code(401);
+        return { error: "修改税务或服务费设置需要输入当前账号名和 PIN" };
+      }
+    } else {
       reply.code(401);
       return { error: "修改税务或服务费设置需要输入当前账号名和 PIN" };
     }
