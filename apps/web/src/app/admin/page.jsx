@@ -43,7 +43,7 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../../lib/api";
 import qyposLogo from "../../pic/logo.png";
 
@@ -439,6 +439,22 @@ export default function AdminPage() {
   const currency = settings?.currency || "CNY";
   useEffect(() => {
     if (typeof document === "undefined") return;
+    // Remove pre-hydration style injected by the beforeInteractive script
+    var preStyle = document.getElementById("qypos-sidebar-prehydrate");
+    if (preStyle) preStyle.remove();
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (sidebarCollapsed) {
+      document.body.dataset.qyposSidebarCollapsed = "1";
+    } else {
+      document.body.removeAttribute("data-qypos-sidebar-collapsed");
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
     document.documentElement.lang = locale.startsWith("en") ? "en" : "zh-CN";
     document.documentElement.dataset.locale = locale;
   }, [locale]);
@@ -616,8 +632,8 @@ export default function AdminPage() {
   }
 
   return (
-    <main className={sidebarCollapsed ? "sidebar-collapsed" : ""}>
-      <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
+    <main className="admin-shell" style={{ display: 'table', width: '100%', tableLayout: 'fixed', minHeight: '100vh' }}>
+      <aside className={`sidebar animate${sidebarCollapsed ? " collapsed" : ""}`} style={{ display: 'table-cell', width: sidebarCollapsed ? 72 : 220, minWidth: sidebarCollapsed ? 72 : 220, overflow: 'hidden' }}>
         <div className="brand" onClick={() => { const next = !sidebarCollapsed; setSidebarCollapsed(next); localStorage.setItem("qypos_sidebar_collapsed", next ? "1" : "0"); }} title={sidebarCollapsed ? t(locale, "展开", "Expand") : t(locale, "收起", "Collapse")} style={{cursor:"pointer"}}>
           <img className="brand-logo" src={qyposLogo.src} alt="QYPOS" />
           {!sidebarCollapsed && <span>QYPOS</span>}
@@ -637,7 +653,7 @@ export default function AdminPage() {
         </nav>
       </aside>
 
-      <section className="workspace">
+      <section className="workspace" style={{ display: 'table-cell' }}>
         <header className="topbar">
           <div>
             <h1>{tabLabelOf(tabs.find(([id]) => id === activeTab), locale)}</h1>
