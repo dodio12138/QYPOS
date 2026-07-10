@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, ChevronLeft, CircleDollarSign, Loader2, X } from "lucide-react";
 import { text, money } from "./pos-helpers";
 export default function EvenSplitModal({ order, locale, currency, busy, onClose, onPayPartial }) {
   const [splitN, setSplitN] = useState(2);

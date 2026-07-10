@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Check, Minus, Plus, X } from "lucide-react";
+import { Check, ChevronLeft, Loader2, Minus, Plus, X } from "lucide-react";
 import { text, money } from "./pos-helpers";
 import { labelOf } from "../../lib/api";
 export default function ItemModal({ item, locale, currency, notePresets = [], initialVariantId, initialModifierIds, initialNotes, initialQuantity, editMode, onClose, onAdd }) {

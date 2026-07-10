@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Download, FileDown, Search, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, FileDown, RefreshCw, Search, TrendingDown, TrendingUp } from "lucide-react";
 import { t, money, API_URL, getLocalToday, formatDateStr, addDays, addYears, pctDelta, weekdayLabels, formatClockMinute, daySpan, mondayOf } from "./helpers";
 import { api, labelOf } from "../../../lib/api";
 

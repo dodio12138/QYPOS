@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Loader2, LogOut, Minus, Pencil, Plus, Printer, ShoppingBag, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Coins, Loader2, LogOut, Minus, Pencil, Plus, Printer, ShoppingBag, Trash2, Users, X } from "lucide-react";
 import { text, money, statusLabel } from "./pos-helpers";
 import { api, labelOf } from "../../lib/api";
 import VoidableOrderLine from "./voidable-order-line";

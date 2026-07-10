@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Copy, Plus, Save, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Eraser, Eye, EyeOff, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { t, money, getLocalToday, formatDateStr, addDays, mondayOf, weekdayLabels } from "./helpers";
 import { api } from "../../../lib/api";
 

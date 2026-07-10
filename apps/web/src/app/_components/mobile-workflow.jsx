@@ -1,5 +1,5 @@
 "use client";
-import { Armchair, ChevronLeft, ClipboardList, ShoppingBag } from "lucide-react";
+import { Armchair, ChevronLeft, CircleDollarSign, ClipboardList, ShoppingBag } from "lucide-react";
 import { text, money, statusText } from "./pos-helpers";
 export default function MobileWorkflow({ step, order, tables, locale, currency, onBack, onStep }) {
   const steps = [

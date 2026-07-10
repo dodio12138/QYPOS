@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { Check, Loader2, RefreshCw, X } from "lucide-react";
+import { Check, ChevronLeft, CircleDollarSign, Loader2, RefreshCw, X } from "lucide-react";
 import { text, money } from "./pos-helpers";
 import { api } from "../../lib/api";
 export default function PaymentModal({ order, locale, currency, dojoAvailable, onClose, onPay, onDojoPaid }) {

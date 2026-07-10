@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Check, ChevronLeft, Loader2, Minus, Plus, X } from "lucide-react";
+import { Check, ChevronLeft, Loader2, Minus, Plus, Users, X } from "lucide-react";
 import { text, money } from "./pos-helpers";
 import { labelOf } from "../../lib/api";
 export default function SplitByItemsModal({ order, locale, currency, busy, onClose, onSplit }) {
