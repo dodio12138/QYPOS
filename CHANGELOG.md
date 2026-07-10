@@ -16,7 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — Initial MVP Release
 
-#### 🛎️ POS Front Desk
+#### �️ Admin UX
+- Collapsible sidebar navigation: click logo to toggle 220px ↔ 72px, persisted in localStorage
+- Smooth bidirectional width animation (200ms ease) on collapse/expand
+- Identical icon sizes, button spacing, and padding in both states
+
+#### �🛎️ POS Front Desk
 - Visual table map & status management
 - Dine-in & takeaway ordering
 - Menu browsing, variants, modifiers & notes
