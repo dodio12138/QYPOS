@@ -7,6 +7,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/semver-2.0.0-blueviolet" alt="semver">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://github.com/dodio12138/QYPOS/actions/workflows/ci.yml/badge.svg" alt="CI">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="node">
@@ -52,6 +53,7 @@
 - [Architecture](#-architecture)
 - [Configuration](#-configuration)
 - [API Overview](#-api-overview)
+- [Versioning](#-versioning)
 - [Testing](#-testing)
 - [Backup & Restore](#-backup--restore)
 - [Roadmap](#-roadmap)
@@ -79,33 +81,39 @@ Core Principles:
 
 ### 🛎️ POS Front Desk
 - Visual table map with drag-and-drop layout editor
-- Dine-in table opening + takeaway order creation
+- Dine-in table opening + takeaway order creation with confirmation step
+- Login gate: all POS operations require staff authentication
 - Menu category browsing, variant selection, modifiers & notes
 - Required/optional modifier groups with default selections
-- Order add-items, discount, service charge adjustment
-- Multiple payment methods (cash/card/QR/other)
+- Order add-items, discount (capped to subtotal), service charge adjustment
+- Multiple payment methods: cash, card, QR, other, and **Dojo Go** terminal
 - Real-time table status via WebSocket
 
 ### 🖨️ Kitchen Printing
 - ESC/POS network printer support
 - Separate kitchen ticket & receipt printing
-- Multi-printer routing (kitchen/receipt/bar)
-- Automatic print retry on failure
+- Multi-printer routing (kitchen/receipt/bar) — strict mode, no silent fallback
+- New-items-only locking: already-printed items never re-print
+- Automatic print retry on failure with job management UI
 - Receipts include variants, modifiers, unit prices, and line totals
 - Item-level cooking status tracking (preparing → ready → served)
 
 ### 📊 Back Office
 - **Menu Management**: Full CRUD plus synchronized variant presets and group-level modifier presets with ordering and automatic detachment after direct edits
-- **Table Layout**: Visual editor with zones, copy/delete tables
+- **Table Layout**: Visual editor with zones, copy/delete tables, grid snapping, undo/redo
+- **Staff Management**: Employee CRUD, role-based permissions (owner vs cashier with fine-grained access control), schedules, attendance tracking, and hourly wage
 - **Settings**: Tax, service charge, currency, printer config; sensitive tax changes require current-account PIN confirmation
-- **Dashboard**: Today's revenue, order count, avg. ticket, top sellers
-- **Sales Reports**: Historical data with CSV export
+- **Dashboard**: Today's revenue, order count, avg. ticket, top sellers with multi-select drilldown and merged trend charts
+- **Sales Reports**: Historical data with day-of-week filter, expanded date presets (yesterday / this week / last week / last month), visual charts, and CSV export
 - **Audit Log**: Full audit trail with combined user, action, and exact time-range filters
+- **i18n**: Full Chinese / English coverage across POS and Admin interfaces
+- **Code Quality**: ESLint flat config with `no-undef` rule, integrated into CI pipeline
 
 ### 🔧 Operations
-- Auto & manual DB backups with download
-- Service health check panel
-- Offline & disconnection banners
+- Auto & manual DB backups with download and scheduling UI
+- Service health check panel (DB, Redis, print queue, backup status)
+- Offline & disconnection banners with API health failure alerts
+- Dojo Go payment terminal integration (Pay at Counter)
 
 ---
 
@@ -267,6 +275,27 @@ Configure via `.env` file:
 
 ---
 
+## 🔖 Versioning
+
+QYPOS follows [Semantic Versioning](https://semver.org/) (SemVer 2.0.0). The canonical version is defined in the root [`package.json`](./package.json) and applies to all workspace packages (`apps/*`, `packages/*`).
+
+### How to Check the Current Version
+
+| Method | Command / URL |
+|--------|--------------|
+| **API health endpoint** | `curl http://localhost:4000/health` → `{"ok":true,"version":"0.1.0"}` |
+| **Package file** | `node -e "console.log(require('./package.json').version)"` |
+| **Admin panel** | Navigate to `/admin` → version is shown in the footer |
+
+### Release Workflow
+
+1. Update the `version` field in `package.json` (root, and optionally individual workspace packages).
+2. Update the version badge in `README.md` and `README_zh.md`.
+3. Document changes in [`CHANGELOG.md`](./CHANGELOG.md) following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+4. Tag the release: `git tag -a v0.1.0 -m "Release v0.1.0" && git push origin v0.1.0`.
+
+---
+
 ## 🧪 Testing
 
 ```bash
@@ -307,7 +336,7 @@ You can also trigger backups manually, set auto-backup schedules, or download ba
 
 ## 🗺️ Roadmap
 
-### Current (v0.1.0) — MVP
+### ✅ v0.1.0 — MVP (Released: 2026-06-25)
 - [x] POS + Admin full loop
 - [x] Dine-in & takeaway modes
 - [x] ESC/POS network printing
@@ -316,8 +345,10 @@ You can also trigger backups manually, set auto-backup schedules, or download ba
 - [x] Flexible tax & service charge
 - [x] Dashboard & sales reports
 - [x] DB backup & restore
+- [x] Audit logging
+- [x] Collapsible admin sidebar
 
-### Next (v0.2.0)
+### 🚧 v0.2.0 — In Progress
 - [x] Staff management UI (CRUD)
 - [ ] PIN hashing
 - [ ] Menu image upload
@@ -326,13 +357,21 @@ You can also trigger backups manually, set auto-backup schedules, or download ba
 - [ ] Shift handover & daily settlement
 - [x] Real payment terminal integration (Dojo Go)
 - [x] Full i18n (zh/en)
+- [x] Option presets & modifier group binding
+- [x] Staff scheduling & attendance
 
-### Future (v0.3.0+)
+### 🔮 v0.3.0+ — Planned
 - [ ] Multi-store support
 - [ ] QR code ordering (customer side)
 - [ ] Inventory management
 - [ ] Membership system
 - [ ] 3rd-party delivery platform integration
+
+---
+
+## 📝 Changelog
+
+See [`CHANGELOG.md`](./CHANGELOG.md) for a detailed history of changes between versions.
 
 ---
 

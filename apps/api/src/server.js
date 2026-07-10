@@ -703,7 +703,8 @@ async function updateOrderKitchenState(orderId) {
 app.get("/health", async () => {
   await pool.query("SELECT 1");
   await redis.ping();
-  return { ok: true };
+  const pkg = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "../../package.json"), "utf-8"));
+  return { ok: true, version: pkg.version };
 });
 
 app.get("/ws", { websocket: true }, (connection) => {

@@ -12,6 +12,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Staff Management**: Employee CRUD, schedules, attendance tracking, and hourly wage.
+- **Staff Scheduling**: Weekly schedule planner with drag-and-drop time presets, actual attendance recording, and revenue-per-hour conversion metrics.
+- **Role-Based Permissions**: Fine-grained cashier-specific permission sets; service charge adjustment/exemption, discount, and order cancellation all require explicit permissions.
+- **POS Login Gate**: All front-desk operations (open table, add items, print, take payment, clear table) now require staff authentication.
+- **Order Confirmation**: Confirmation step before opening a dine-in table or creating a takeaway order to prevent accidental taps.
+- **Dojo Go Terminal Integration**: Pay-at-Counter support via Dojo Go payment terminals (Payment Intent + terminal session lifecycle).
+- **Strict Printer Routing**: Kitchen/receipt printers now fail explicitly when the assigned printer is missing, disabled, or has no IP — no silent fallback.
+- **New-Items-Only Kitchen Print Locking**: Only newly added items are locked and printed; already-printed items are never re-sent to the kitchen.
+- **Top-Seller Drilldown**: Dashboard top sellers now support multi-select with merged trend charts, compatible with historical data missing `item_id`.
+- **Report Enhancements**: Day-of-week multi-select filter; expanded date presets (today, yesterday, last 7/30 days, this month, this week, last week, last month).
+- **Full i18n**: Complete Chinese / English coverage across POS and Admin interfaces.
+- **ESLint Configuration**: Root-level flat config with `no-undef` rule integrated into CI pipeline to catch prop-passing regressions.
+- **Audit Log Filters**: Combined user, action, and exact time-range filters in Admin audit log view.
+- **Sensitive Settings Re-authentication**: Tax rate changes now require current-account PIN confirmation.
+- **Order Pagination**: Admin order list paginates at 20 items per page.
+
+### Fixed
+- **DST Timezone Bug**: Item trend chart date axis now aligns with main report dates — no longer off by one day during Daylight Saving Time.
+- **`locale` Prop Crashes**: Multiple components (`PosLogin`, `DiscountAdminModal`, `SettingsView`, etc.) that crashed with `ReferenceError: locale is not defined` due to missing prop declarations/passing — all fixed and guarded by ESLint.
+- **Discount Cap**: Discount amount is now capped to the order subtotal, preventing negative or anomalous totals.
+
+### Changed
+- **Payment Validation**: Payment amount must be > 0, change cannot be negative, and closed orders reject duplicate payments.
+- **Backup Scheduling**: Manual backup, auto-backup scheduling, backup file list, and download now available from the Admin Operations panel.
+
+---
+
 ## [0.1.0] - 2026-06-25
 
 ### Added — Initial MVP Release
