@@ -102,6 +102,10 @@ export default function UsersView({ usersList, rolesList, onSaved }) {
       }
       setLoadError("");
       cancel();
+      // Refresh local state immediately, then notify parent
+      const [u, r] = await Promise.all([api("/users"), api("/roles")]);
+      setLocalUsers(u);
+      setLocalRoles(r);
       await onSaved();
     } catch (error) { setLoadError(error.message || "保存账户失败"); }
   }
@@ -114,6 +118,9 @@ export default function UsersView({ usersList, rolesList, onSaved }) {
       await api(`/users/${resettingPinFor}`, { method: "PATCH", body: JSON.stringify({ pin: form.pin.trim() }) });
       setLoadError("");
       cancel();
+      const [u, r] = await Promise.all([api("/users"), api("/roles")]);
+      setLocalUsers(u);
+      setLocalRoles(r);
       await onSaved();
     } catch (error) { setLoadError(error.message || "重置 PIN 失败"); }
   }
@@ -122,6 +129,9 @@ export default function UsersView({ usersList, rolesList, onSaved }) {
     await api(`/users/${user.id}`, { method: "DELETE" });
     setDeletingId(null);
     setEditingId(null);
+    const [u, r] = await Promise.all([api("/users"), api("/roles")]);
+    setLocalUsers(u);
+    setLocalRoles(r);
     await onSaved();
   }
 
@@ -183,7 +193,7 @@ export default function UsersView({ usersList, rolesList, onSaved }) {
               <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />启用账户
             </label>
           </div>
-          <div style={{ marginTop: 12 }}><PinFields required submitLabel="创建账户" /></div>
+          <div style={{ marginTop: 12 }}><PinFields required submitLabel="创建账户" onSubmit={save} /></div>
         </div>
       )}
 
@@ -235,13 +245,13 @@ export default function UsersView({ usersList, rolesList, onSaved }) {
                       <button type="button" onClick={cancel}>取消</button>
                     </div>
                   </div>
-                  <PinFields required={false} submitLabel="修改 PIN" />
+                  <PinFields required={false} submitLabel="修改 PIN" onSubmit={saveResetPin} />
                 </div>
               )}
               {isResettingPin && (
                 <div style={{ padding: "12px 14px", background: "#fefce8", borderTop: "1px solid #fde68a" }}>
                   <p style={{ margin: "0 0 8px", fontWeight: 600, fontSize: 13, color: "#92400e" }}>重置 {u.name} 的 PIN</p>
-                  <PinFields required submitLabel="更新 PIN" />
+                  <PinFields required submitLabel="更新 PIN" onSubmit={saveResetPin} />
                 </div>
               )}
             </div>
