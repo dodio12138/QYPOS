@@ -3102,7 +3102,7 @@ function GradientTrendChart({ data, compareData, locale, currency }) {
       onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = "none"; }}
     >
       <canvas ref={canvasRef} />
-      {!days.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>暂无数据</div>}
+      {!days.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{t(locale, "暂无数据", "No data")}</div>}
       <div ref={tipRef} style={{ display: "none", position: "absolute", pointerEvents: "none", background: "rgba(17,24,39,0.9)", color: "#fff", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }} />
     </div>
   );
@@ -3358,7 +3358,7 @@ function DailyTrendChart({ data, metric, locale, currency }) {
       onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = "none"; }}
     >
       <canvas ref={canvasRef} />
-      {!days.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>暂无数据</div>}
+      {!days.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{t(locale, "暂无数据", "No data")}</div>}
       <div ref={tipRef} style={{ display: "none", position: "absolute", pointerEvents: "none", background: "rgba(17,24,39,0.9)", color: "#fff", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }} />
     </div>
   );

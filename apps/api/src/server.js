@@ -280,7 +280,11 @@ async function runMigrations() {
 await runMigrations();
 await ensureSchema();
 
-await app.register(cors, { origin: true });
+await app.register(cors, {
+  origin: process.env.NODE_ENV === "production"
+    ? (process.env.CORS_ORIGIN || "http://localhost:3000")
+    : [/^https?:\/\/localhost(:\d+)?$/], // dev: allow any localhost port
+});
 await app.register(websocket);
 
 await redisSub.subscribe("print_events");
@@ -728,6 +732,16 @@ app.get("/health", async () => {
   await redis.ping();
   const pkg = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "../../package.json"), "utf-8"));
   return { ok: true, version: pkg.version };
+});
+
+// ── Custom error handler: prevent stack-trace leaks to clients ─────────────
+app.setErrorHandler((error, request, reply) => {
+  app.log.error({ err: error, url: request.url }, "unhandled error");
+  const isProduction = process.env.NODE_ENV === "production";
+  reply.code(error.statusCode || 500).send({
+    error: isProduction ? "Internal server error" : error.message,
+    ...(isProduction ? {} : { detail: error.stack?.split("\n")[0] }),
+  });
 });
 
 app.get("/ws", { websocket: true }, (connection) => {
