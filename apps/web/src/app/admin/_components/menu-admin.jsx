@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Eye, EyeOff, FileDown, Image, List, Loader2, Lock, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Eye, EyeOff, FileDown, Image, List, Loader2, Lock, Pencil, Plus, Power, ReceiptText, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import { t, money } from "./helpers";
 import { api, labelOf } from "../../../lib/api";
 
