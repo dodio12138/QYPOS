@@ -194,11 +194,30 @@ qypos/
 ├── apps/
 │   ├── web/                   # Next.js 前端（POS + Admin）
 │   │   ├── src/app/           # 页面路由
+│   │   │   ├── page.jsx              # 点餐前台主页面
+│   │   │   ├── layout.jsx            # 根布局
+│   │   │   ├── base.css              # 共享基础样式
+│   │   │   ├── pos.css               # POS 专用样式
+│   │   │   ├── admin.css             # 后台管理专用样式
+│   │   │   ├── _components/          # POS 前台组件（16 个文件）
+│   │   │   └── admin/                # 后台管理页面
+│   │   │       ├── page.jsx          # 后台管理路由壳
+│   │   │       └── _components/      # 后台管理组件（12 个文件）
 │   │   ├── src/components/    # 共享组件
 │   │   └── src/lib/           # API 客户端
 │   ├── api/                   # Fastify 后端 API
 │   │   └── src/
-│   │       ├── server.js      # 主服务入口
+│   │       ├── server.js      # 主服务入口 + 共享 helper（~843 行）
+│   │       ├── routes/        # 路由模块（9 个文件）
+│   │       │   ├── auth.js           # 健康检查 / WebSocket / 认证
+│   │       │   ├── schedules.js      # 排班管理
+│   │       │   ├── users.js          # 用户与角色
+│   │       │   ├── settings.js       # 系统设置
+│   │       │   ├── menu.js           # 菜单管理
+│   │       │   ├── floors.js         # 桌台布局
+│   │       │   ├── orders.js         # 订单 / 支付 / 打印
+│   │       │   ├── reports.js        # 报表与审计
+│   │       │   └── ops.js            # 运维管理
 │   │       └── services/      # 业务服务
 │   │           ├── dojo.js           # Dojo Go 刷卡终端集成
 │   │           ├── permissions.js    # 权限校验

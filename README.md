@@ -194,11 +194,30 @@ qypos/
 ├── apps/
 │   ├── web/                   # Next.js Frontend (POS + Admin)
 │   │   ├── src/app/           # Page routes
+│   │   │   ├── page.jsx              # POS main page
+│   │   │   ├── layout.jsx            # Root layout
+│   │   │   ├── base.css              # Shared base styles
+│   │   │   ├── pos.css               # POS-specific styles
+│   │   │   ├── admin.css             # Admin-specific styles
+│   │   │   ├── _components/          # POS components (16 files)
+│   │   │   └── admin/                # Admin panel
+│   │   │       ├── page.jsx          # Admin shell
+│   │   │       └── _components/      # Admin components (12 files)
 │   │   ├── src/components/    # Shared components
 │   │   └── src/lib/           # API client
 │   ├── api/                   # Fastify Backend API
 │   │   └── src/
-│   │       ├── server.js      # Main entry
+│   │       ├── server.js      # Main entry + shared helpers (~843 lines)
+│   │       ├── routes/        # Route modules (9 files)
+│   │       │   ├── auth.js           # Health / WebSocket / Auth
+│   │       │   ├── schedules.js      # Staff schedules
+│   │       │   ├── users.js          # Users & roles
+│   │       │   ├── settings.js       # System settings
+│   │       │   ├── menu.js           # Menu management
+│   │       │   ├── floors.js         # Floor layouts
+│   │       │   ├── orders.js         # Orders / Payments / Printing
+│   │       │   ├── reports.js        # Reports & audit
+│   │       │   └── ops.js            # Operations
 │   │       └── services/      # Business services
 │   │           ├── dojo.js           # Dojo Go terminal integration
 │   │           ├── permissions.js    # Permission checks
