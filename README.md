@@ -200,9 +200,11 @@ qypos/
 │   │   └── src/
 │   │       ├── server.js      # Main entry
 │   │       └── services/      # Business services
-│   │           ├── permissions.js   # Permission checks
-│   │           ├── printers.js      # Printer routing
-│   │           └── validation.js    # Data validation
+│   │           ├── dojo.js           # Dojo Go terminal integration
+│   │           ├── permissions.js    # Permission checks
+│   │           ├── printers.js       # Printer routing
+│   │           ├── role-permissions.js # Role-based access control
+│   │           └── validation.js     # Data validation
 │   └── printer-service/       # Print Queue Worker
 │       └── src/worker.js      # Redis consumer + ESC/POS renderer
 ├── packages/
@@ -247,9 +249,15 @@ Configure via `.env` file:
 | `DATABASE_URL` | `postgres://...` | API DB connection string |
 | `REDIS_URL` | `redis://redis:6379` | Redis connection string |
 | `API_PORT` | `4000` | API server port |
+| `TZ` | `Europe/London` | Timezone for date calculations |
+| `NEXT_PUBLIC_API_URL` | `/api-proxy` | Web → API proxy path |
+| `API_INTERNAL_URL` | `http://api:4000` | Internal API URL for server-side requests |
 | `PRINTER_DEFAULT_HOST` | `192.168.1.100` | Default printer IP |
 | `PRINTER_DEFAULT_PORT` | `9100` | Default printer port |
 | `BACKUP_DIR` | `/app/backups` | Backup storage path |
+| `DOJO_API_KEY` | (optional) | Dojo Go API key for terminal payments |
+| `DOJO_API_BASE_URL` | `https://api.dojo.tech` | Dojo API base URL |
+| `DOJO_API_VERSION` | `2026-02-27` | Dojo API version |
 
 ---
 

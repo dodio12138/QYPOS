@@ -200,9 +200,11 @@ qypos/
 │   │   └── src/
 │   │       ├── server.js      # 主服务入口
 │   │       └── services/      # 业务服务
-│   │           ├── permissions.js   # 权限校验
-│   │           ├── printers.js      # 打印机路由
-│   │           └── validation.js    # 数据校验
+│   │           ├── dojo.js           # Dojo Go 刷卡终端集成
+│   │           ├── permissions.js    # 权限校验
+│   │           ├── printers.js       # 打印机路由
+│   │           ├── role-permissions.js # 角色权限控制
+│   │           └── validation.js     # 数据校验
 │   └── printer-service/       # 打印队列 Worker
 │       └── src/worker.js      # Redis 消费 + ESC/POS 渲染
 ├── packages/
@@ -247,9 +249,15 @@ graph TD
 | `DATABASE_URL` | `postgres://...` | API 数据库连接串 |
 | `REDIS_URL` | `redis://redis:6379` | Redis 连接串 |
 | `API_PORT` | `4000` | API 服务端口 |
+| `TZ` | `Europe/London` | 日期计算的时区 |
+| `NEXT_PUBLIC_API_URL` | `/api-proxy` | 前端 → API 代理路径 |
+| `API_INTERNAL_URL` | `http://api:4000` | 服务端内部 API 地址 |
 | `PRINTER_DEFAULT_HOST` | `192.168.1.100` | 默认打印机 IP |
 | `PRINTER_DEFAULT_PORT` | `9100` | 默认打印机端口 |
 | `BACKUP_DIR` | `/app/backups` | 备份文件存储路径 |
+| `DOJO_API_KEY` | （可选） | Dojo Go 终端支付 API Key |
+| `DOJO_API_BASE_URL` | `https://api.dojo.tech` | Dojo API 基础地址 |
+| `DOJO_API_VERSION` | `2026-02-27` | Dojo API 版本 |
 
 ---
 

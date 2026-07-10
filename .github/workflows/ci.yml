@@ -25,7 +25,7 @@ jobs:
         run: npm run lint
 
       - name: Run unit tests
-        run: node --test tests/calculations.test.mjs
+        run: node --test tests/calculations.test.mjs tests/dojo.test.mjs tests/role-permissions.test.mjs tests/printer-service.unit.test.mjs
 
   docker:
     runs-on: ubuntu-latest
