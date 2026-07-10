@@ -73,6 +73,22 @@ docker compose exec -T postgres psql -U qypos -d qypos -c "SELECT name, pin FROM
 ### ESLint 设计原则
 ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-undef`）+ `react-hooks/exhaustive-deps`（warn）。不启用风格规则或 `no-unused-vars`。Lint 仅在 CI 和本地开发中运行，不嵌入 Docker 镜像构建。
 
+### Git 提交约定
+
+提交信息格式：`<type>: <简短描述>`，type 可选值：
+- `feat:` — 新功能
+- `fix:` — Bug 修复
+- `refactor:` — 重构（不改变功能）
+- `docs:` — 文档更新
+- `test:` — 测试相关
+- `chore:` — 构建/工具链
+
+**提交前必须做的同步工作**：
+1. 如果改动涉及新功能/修复，更新 `CHANGELOG_zh.md` 和 `CHANGELOG.md`（在 `[Unreleased]` 下对应子标题）
+2. 如果改动涉及 Roadmap 中的项（如 PIN 哈希），将 `README.md` 和 `README_zh.md` 中对应的 `- [ ]` 改为 `- [x]`
+3. 如果新增/删除关键文件，更新 `AGENTS.md` 中的关键文件索引
+4. 推荐在 Docker 环境中重建验证后再提交：`docker compose up --build -d && npm test && npm run lint`
+
 ## 关键文件索引
 
 | 文件 | 内容 |
