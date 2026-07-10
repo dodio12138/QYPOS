@@ -9,6 +9,7 @@ import {
   ChefHat,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   ChevronUp,
   CircleDollarSign,
   ClipboardList,
@@ -413,6 +414,7 @@ function AdminGateModal({ tab, locale, onCancel, onGranted }) {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState("orders");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && localStorage.getItem("qypos_sidebar_collapsed") === "1");
   const [adminGateTarget, setAdminGateTarget] = useState(null);
   const [adminGrantTab, setAdminGrantTab] = useState(null);
   const [online, setOnline] = useState(true);
@@ -614,11 +616,11 @@ export default function AdminPage() {
   }
 
   return (
-    <main>
-      <aside className="sidebar">
-        <div className="brand">
+    <main className={sidebarCollapsed ? "sidebar-collapsed" : ""}>
+      <aside className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`}>
+        <div className="brand" onClick={() => { const next = !sidebarCollapsed; setSidebarCollapsed(next); localStorage.setItem("qypos_sidebar_collapsed", next ? "1" : "0"); }} title={sidebarCollapsed ? t(locale, "展开", "Expand") : t(locale, "收起", "Collapse")} style={{cursor:"pointer"}}>
           <img className="brand-logo" src={qyposLogo.src} alt="QYPOS" />
-          <span>QYPOS</span>
+          {!sidebarCollapsed && <span>QYPOS</span>}
         </div>
         <nav>
           {allowedTabs.map((tab) => {
@@ -4005,6 +4007,107 @@ function dateMonthDay(dateStr) {
   return `${Number(month)}/${Number(day)}`;
 }
 
+function DayGanttView({ day, employees, cellByKey, locale, currency, onClose }) {
+  const SLOT_MINUTES = 30;
+  const DAY_START = 0;
+  const DAY_END = 23 * 60 + 30;
+  const totalRange = DAY_END - DAY_START;
+  const toMin = (t) => t ? parseInt(t.slice(0, 2)) * 60 + parseInt(t.slice(3, 5)) : null;
+  const prevDay = addDays(day, -1);
+
+  // Today's shifts, with continuation from previous day's overnight merged into same row
+  const shifts = employees.map((emp) => {
+    const cell = cellByKey.get(`${emp.id}:${day}`);
+    const prevCell = cellByKey.get(`${emp.id}:${prevDay}`);
+    // Check for continuation from previous day
+    let contEnd = null;
+    if (prevCell && !prevCell.is_off) {
+      const ps = toMin(prevCell.start_time);
+      const pe = toMin(prevCell.end_time);
+      if (ps != null && pe != null && pe < ps) contEnd = pe; // overnight continues to today
+    }
+    if (!cell || cell.is_off) {
+      // No shift today, but may have continuation
+      if (contEnd != null) return { employee: emp, startMin: null, endMin: null, overnight: false, breakMin: 0, color: emp.color, contEnd };
+      return null;
+    }
+    const s = toMin(cell.start_time);
+    const e = toMin(cell.end_time);
+    const overnight = s != null && e != null && e < s;
+    return { employee: emp, startMin: s, endMin: e, overnight, breakMin: cell.break_minutes || 0, color: emp.color, contEnd };
+  }).filter(Boolean);
+
+  function formatMin(min) {
+    const h = Math.floor(((min % 1440) + 1440) % 1440 / 60);
+    const m = ((min % 1440) + 1440) % 1440 % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+
+  function pct(min) { return Math.max(0, Math.min(100, ((min - DAY_START) / totalRange) * 100)); }
+
+  // Build timeline slots: whole hours only
+  const timelineSlots = [];
+  for (let m = DAY_START; m < DAY_END; m += 60) {
+    timelineSlots.push(m);
+  }
+
+  return (
+    <div className="schedule-gantt">
+      <div className="schedule-gantt-header">
+        <div>
+          <h3>{dateMonthDay(day)} · {weekdayLabels(locale)[daysOfWeek(day)]}</h3>
+        </div>
+        <button type="button" onClick={onClose}><X size={18} /></button>
+      </div>
+      <div className="schedule-gantt-body">
+        <div className="schedule-gantt-timeline">
+          {timelineSlots.map((min) => (
+            <div key={min} className="schedule-gantt-slot" style={{ left: `${pct(min)}%`, width: `${(SLOT_MINUTES / totalRange) * 100}%` }}>
+              <span className="schedule-gantt-tick">{formatMin(min)}</span>
+            </div>
+          ))}
+        </div>
+        {shifts.map((shift) => (
+          <div key={shift.employee.id} className="schedule-gantt-row">
+            <div className="schedule-gantt-label" style={{ "--employee-color": shift.color }}>
+              <span className="schedule-gantt-name">{shift.employee.name}</span>
+              {shift.startMin != null && (
+                <span className="schedule-gantt-time">{formatMin(shift.startMin)}-{formatMin(shift.endMin)}{shift.overnight ? "+1" : ""}</span>
+              )}
+            </div>
+            <div className="schedule-gantt-track">
+              {/* Continuation from previous day's overnight */}
+              {shift.contEnd != null && (
+                <div className="schedule-gantt-bar schedule-gantt-continuation" style={{ left: "0%", width: `${pct(shift.contEnd)}%`, backgroundColor: shift.color, borderRadius: "0 6px 6px 0" }}
+                  title={`${shift.employee.name}: 00:00-${formatMin(shift.contEnd)} (${t(locale, "接前日", "from prev day")})`}>
+                  <span>00:00-{formatMin(shift.contEnd)}</span>
+                </div>
+              )}
+              {/* Today's shift */}
+              {shift.startMin != null && shift.overnight && (
+                <div className="schedule-gantt-bar" style={{ left: `${pct(shift.startMin)}%`, width: `${pct(DAY_END) - pct(shift.startMin)}%`, backgroundColor: shift.color, borderRadius: "6px 0 0 6px" }}
+                  title={`${shift.employee.name}: ${formatMin(shift.startMin)}→(次日${formatMin(shift.endMin)})`}>
+                  <span>{formatMin(shift.startMin)}→</span>
+                </div>
+              )}
+              {shift.startMin != null && !shift.overnight && (
+                <div className="schedule-gantt-bar" style={{ left: `${pct(shift.startMin)}%`, width: `${Math.max(0.5, pct(shift.endMin) - pct(shift.startMin))}%`, backgroundColor: shift.color }}
+                  title={`${shift.employee.name}: ${formatMin(shift.startMin)}-${formatMin(shift.endMin)}`}>
+                  <span>{formatMin(shift.startMin)}-{formatMin(shift.endMin)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function daysOfWeek(dateStr) {
+  return new Date(`${dateStr}T00:00:00`).getDay() === 0 ? 6 : new Date(`${dateStr}T00:00:00`).getDay() - 1;
+}
+
 function StaffScheduleView({ locale, currency, onNotify, canManage = false }) {
   const [weekStart, setWeekStart] = useState(mondayOf(getLocalToday()));
   const [data, setData] = useState({ employees: [], cells: [] });
@@ -4026,6 +4129,7 @@ function StaffScheduleView({ locale, currency, onNotify, canManage = false }) {
   const [showRevenue, setShowRevenue] = useState(true);
   const [showConversion, setShowConversion] = useState(true);
   const [showLaborRatio, setShowLaborRatio] = useState(true);
+  const [expandedDay, setExpandedDay] = useState(null); // date string of expanded day for Gantt view
   const days = useMemo(() => Array.from({ length: 7 }, (_, idx) => addDays(weekStart, idx)), [weekStart]);
   const todayDateStr = useMemo(() => getLocalToday(), []);
   const cellByKey = useMemo(() => {
@@ -4551,13 +4655,14 @@ function StaffScheduleView({ locale, currency, onNotify, canManage = false }) {
         </>
       )}
 
+      {!expandedDay && (
       <div className="schedule-sheet-wrap">
         <table className="schedule-sheet">
           <thead>
             <tr>
               <th className="schedule-name-col">{t(locale, "姓名 (Name)", "Name")}</th>
               {days.map((day, idx) => (
-                <th key={day} className={day === todayDateStr ? "is-today" : ""}>
+                <th key={day} className={`${day === todayDateStr ? "is-today" : ""} ${mode === "view" ? "clickable" : ""}`} onClick={() => { if (mode === "view") setExpandedDay(expandedDay === day ? null : day); }}>
                   <strong>{weekdayLabels(locale)[idx]}</strong>
                   <span>{dateMonthDay(day)}</span>
                 </th>
@@ -4680,6 +4785,18 @@ function StaffScheduleView({ locale, currency, onNotify, canManage = false }) {
           )}
         </table>
       </div>
+      )}
+
+      {expandedDay && mode === "view" && (
+        <DayGanttView
+          day={expandedDay}
+          employees={visibleEmployees}
+          cellByKey={cellByKey}
+          locale={locale}
+          currency={currency}
+          onClose={() => setExpandedDay(null)}
+        />
+      )}
 
       {editingCell && (
         <div className="modal-backdrop">
