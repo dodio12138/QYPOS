@@ -143,7 +143,7 @@ export default function UsersView({ usersList, rolesList, onSaved }) {
           <div style={{ display: "flex", gap: 4 }}>
             <input type={showPin ? "text" : "password"} inputMode="numeric" value={form.pin}
               onChange={(e) => setForm({ ...form, pin: e.target.value })}
-              placeholder={required ? "设置数字 PIN" : "留空则不修改"} autoFocus style={{ width: 130 }} />
+              placeholder={required ? "设置数字 PIN" : "留空则不修改"} style={{ width: 130 }} />
             <button type="button" onClick={() => setShowPin(!showPin)} style={{ padding: "4px 6px", fontSize: 12, lineHeight: 1 }} title={showPin ? "隐藏" : "显示"}>
               {showPin ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
