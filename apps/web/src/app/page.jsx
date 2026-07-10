@@ -26,6 +26,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, API_URL, labelOf } from "../lib/api";
 import qyposLogo from "../pic/logo.png";
+import ConfirmModal from "./_components/confirm-modal";
+import ReceiptTitle from "./_components/receipt-title";
+import PosLogin from "./_components/pos-login";
 
 const statusText = {
   "zh-CN": {
@@ -979,43 +982,7 @@ function FloorMap({ layout, locale, currency, selectedOrder, busyTableId, onSele
   );
 }
 
-function PosLogin({ notice, online, apiOnline, busy, locale, onLogin }) {
-  const [name, setName] = useState("Cashier");
-  const [pin, setPin] = useState("1111");
-
-  return (
-    <section className="login-panel pos-login-panel">
-      <div className="brand login-brand">
-        <img className="brand-logo login-logo" src={qyposLogo.src} alt="QYPOS" />
-        <span>QYPOS</span>
-      </div>
-      <h1>{text(locale, "点餐前台登录", "POS sign in")}</h1>
-      <p>{text(locale, "开台、点餐、打印和收款需要员工账号。", "Open tables, order, print, and take payment with a staff account.")}</p>
-      {!online && <div className="offline-banner"><WifiOff size={16} />{text(locale, "当前离线，无法登录。", "You're offline, so sign-in is unavailable.")}</div>}
-      {online && !apiOnline && <div className="offline-banner"><WifiOff size={16} />{text(locale, "本地 API 暂不可用，请检查 Docker 服务。", "The local API is unavailable. Check the Docker service.")}</div>}
-      {notice && <div className="inline-error">{notice}</div>}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          onLogin({ name, pin });
-        }}
-      >
-        <label>
-          {text(locale, "员工", "Staff")}
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={text(locale, "Cashier", "Cashier")} autoComplete="username" />
-        </label>
-        <label>
-          PIN
-          <input type="password" inputMode="numeric" value={pin} onChange={(event) => setPin(event.target.value)} placeholder="1111" autoComplete="current-password" />
-        </label>
-        <button className="primary wide-button" type="submit" disabled={busy || !name || !pin}>
-          {busy ? <Loader2 className="spin" size={18} /> : <UserRound size={18} />}
-          <span>{text(locale, "登录点餐", "Sign in")}</span>
-        </button>
-      </form>
-    </section>
-  );
-}
+// PosLogin imported from ./_components/pos-login
 
 function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, search, setSearch, locale, currency, hasOrder, onNeedOrder, onPick, onCustom }) {
   return (
@@ -1064,14 +1031,7 @@ function MenuPicker({ categories, items, selectedCategory, setSelectedCategory, 
   );
 }
 
-function ReceiptTitle({ locale }) {
-  return (
-    <div className="inline-title">
-      <ClipboardList size={18} />
-      <h2>{text(locale, "菜单", "Menu")}</h2>
-    </div>
-  );
-}
+// ReceiptTitle imported from ./_components/receipt-title
 
 function OrderPanel({ order, orders, tables, locale, currency, user, onSelectOrder, onQuantity, onEditItem, onSaveNotes, onSubmit, onPrintBill, onPay, onSplit, onMerge, onAdjustService, onDiscount, onCancelOrder, onExit, busy }) {
   const [notes, setNotes] = useState("");
@@ -1357,30 +1317,7 @@ function TableActionModal({ table, locale, currency, busy, isSelected, onClose, 
   );
 }
 
-function ConfirmModal({ locale, title, message, confirmLabel, icon, extra, busy, onCancel, onConfirm }) {
-  return (
-    <div className="modal-backdrop">
-      <section className="modal action-modal">
-        <header className="modal-header">
-          <button onClick={onCancel} title={text(locale, "关闭", "Close")}><X size={20} /></button>
-          <div>
-            <h2>{title}</h2>
-            <p>{message}</p>
-          </div>
-          {icon}
-        </header>
-        {extra && <div className="modal-extra">{extra}</div>}
-        <footer className="modal-footer">
-          <button onClick={onCancel}>{text(locale, "取消", "Cancel")}</button>
-          <button className="primary" onClick={onConfirm} disabled={busy}>
-            {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-            <span>{confirmLabel}</span>
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
-}
+// ConfirmModal imported from ./_components/confirm-modal
 
 function VoidableOrderLine({ item, locale, currency, locked, canVoidThis, voidReason, onQuantity, onEditItem, onVoidDone }) {
   const maxQty = Number(item.quantity);
