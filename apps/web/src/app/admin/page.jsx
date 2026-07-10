@@ -4026,7 +4026,7 @@ function dateMonthDay(dateStr) {
 function DayGanttView({ day, employees, cellByKey, locale, currency, onClose }) {
   const SLOT_MINUTES = 30;
   const DAY_START = 0;
-  const DAY_END = 23 * 60 + 30;
+  const DAY_END = 24 * 60;
   const totalRange = DAY_END - DAY_START;
   const toMin = (t) => t ? parseInt(t.slice(0, 2)) * 60 + parseInt(t.slice(3, 5)) : null;
   const prevDay = addDays(day, -1);
@@ -4053,6 +4053,9 @@ function DayGanttView({ day, employees, cellByKey, locale, currency, onClose }) 
     return { employee: emp, startMin: s, endMin: e, overnight, breakMin: cell.break_minutes || 0, color: emp.color, contEnd };
   }).filter(Boolean);
 
+  const [hoveredId, setHoveredId] = useState(null);
+  const hoveredShift = hoveredId != null ? shifts.find((s) => s.employee.id === hoveredId) : null;
+
   function formatMin(min) {
     const h = Math.floor(((min % 1440) + 1440) % 1440 / 60);
     const m = ((min % 1440) + 1440) % 1440 % 60;
@@ -4061,11 +4064,19 @@ function DayGanttView({ day, employees, cellByKey, locale, currency, onClose }) 
 
   function pct(min) { return Math.max(0, Math.min(100, ((min - DAY_START) / totalRange) * 100)); }
 
-  // Build timeline slots: whole hours only
+  // Build timeline slots with half-hour grid lines
   const timelineSlots = [];
-  for (let m = DAY_START; m < DAY_END; m += 60) {
-    timelineSlots.push(m);
+  for (let m = DAY_START; m <= DAY_END; m += 60) {
+    if (m < DAY_END) timelineSlots.push({ min: m, isHour: true });
+    if (m + 30 < DAY_END) timelineSlots.push({ min: m + 30, isHour: false });
   }
+  // Add 24:00 tick at the end
+  timelineSlots.push({ min: DAY_END, isHour: true, isEnd: true });
+
+  // Current time indicator (only for today)
+  const isToday = day === getLocalToday();
+  const nowMinutes = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : null;
+  const showNow = nowMinutes != null && nowMinutes >= DAY_START && nowMinutes < DAY_END;
 
   return (
     <div className="schedule-gantt">
@@ -4077,44 +4088,87 @@ function DayGanttView({ day, employees, cellByKey, locale, currency, onClose }) 
       </div>
       <div className="schedule-gantt-body">
         <div className="schedule-gantt-timeline">
-          {timelineSlots.map((min) => (
-            <div key={min} className="schedule-gantt-slot" style={{ left: `${pct(min)}%`, width: `${(SLOT_MINUTES / totalRange) * 100}%` }}>
+          {/* Half-hour grid lines */}
+          {timelineSlots.map(({ min, isHour }) => (
+            <div key={min} className={`schedule-gantt-gridline${isHour ? " hour" : ""}`} style={{ left: `${pct(min)}%` }} />
+          ))}
+          {/* Hour tick labels (on top of grid lines) */}
+          {timelineSlots.filter((s) => s.isHour).map(({ min }) => (
+            <div key={`tick-${min}`} className="schedule-gantt-slot" style={{ left: `${pct(min)}%`, width: "40px" }}>
               <span className="schedule-gantt-tick">{formatMin(min)}</span>
             </div>
           ))}
+          {/* Current time indicator */}
+          {showNow && (
+            <div className="schedule-gantt-now" style={{ left: `${pct(nowMinutes)}%` }} />
+          )}
         </div>
-        {shifts.map((shift) => (
-          <div key={shift.employee.id} className="schedule-gantt-row">
-            <div className="schedule-gantt-label" style={{ "--employee-color": shift.color }}>
-              <span className="schedule-gantt-name">{shift.employee.name}</span>
-              {shift.startMin != null && (
-                <span className="schedule-gantt-time">{formatMin(shift.startMin)}-{formatMin(shift.endMin)}{shift.overnight ? "+1" : ""}</span>
-              )}
-            </div>
-            <div className="schedule-gantt-track">
-              {/* Continuation from previous day's overnight */}
-              {shift.contEnd != null && (
-                <div className="schedule-gantt-bar schedule-gantt-continuation" style={{ left: "0%", width: `${pct(shift.contEnd)}%`, backgroundColor: shift.color, borderRadius: "0 6px 6px 0" }}
-                  title={`${shift.employee.name}: 00:00-${formatMin(shift.contEnd)} (${t(locale, "接前日", "from prev day")})`}>
-                  <span>00:00-{formatMin(shift.contEnd)}</span>
-                </div>
-              )}
-              {/* Today's shift */}
-              {shift.startMin != null && shift.overnight && (
-                <div className="schedule-gantt-bar" style={{ left: `${pct(shift.startMin)}%`, width: `${pct(DAY_END) - pct(shift.startMin)}%`, backgroundColor: shift.color, borderRadius: "6px 0 0 6px" }}
-                  title={`${shift.employee.name}: ${formatMin(shift.startMin)}→(次日${formatMin(shift.endMin)})`}>
-                  <span>{formatMin(shift.startMin)}→</span>
-                </div>
-              )}
-              {shift.startMin != null && !shift.overnight && (
-                <div className="schedule-gantt-bar" style={{ left: `${pct(shift.startMin)}%`, width: `${Math.max(0.5, pct(shift.endMin) - pct(shift.startMin))}%`, backgroundColor: shift.color }}
-                  title={`${shift.employee.name}: ${formatMin(shift.startMin)}-${formatMin(shift.endMin)}`}>
-                  <span>{formatMin(shift.startMin)}-{formatMin(shift.endMin)}</span>
-                </div>
-              )}
-            </div>
+        {/* Guide line overlay — spans from timeline through all rows */}
+        {hoveredShift && hoveredShift.startMin != null && (
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: 180, right: 0, pointerEvents: "none", zIndex: 5 }}>
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${pct(hoveredShift.startMin)}%`, borderLeft: "2px dashed rgba(0,0,0,0.35)" }} />
+            <div style={{ position: "absolute", top: 0, bottom: 0, left: `${pct(hoveredShift.overnight ? DAY_END : hoveredShift.endMin)}%`, borderLeft: "2px dashed rgba(0,0,0,0.35)" }} />
           </div>
-        ))}
+        )}
+        {shifts.map((shift) => {
+          const barW = shift.startMin != null
+            ? shift.overnight
+              ? Math.max(0.5, pct(DAY_END) - pct(shift.startMin))
+              : Math.max(0.5, pct(shift.endMin) - pct(shift.startMin))
+            : 0;
+          const barL = shift.startMin != null ? pct(shift.startMin) : 0;
+          return (
+            <div key={shift.employee.id} className="schedule-gantt-row"
+              onMouseEnter={() => setHoveredId(shift.employee.id)}
+              onMouseLeave={() => setHoveredId(null)}>
+              <div className="schedule-gantt-label" style={{ "--employee-color": shift.color }}>
+                <span className="schedule-gantt-name">{shift.employee.name}</span>
+                {shift.startMin != null && (
+                  <span className="schedule-gantt-time">{formatMin(shift.startMin)}-{formatMin(shift.endMin)}{shift.overnight ? "+1" : ""}{shift.breakMin > 0 ? ` · ${shift.breakMin}min` : ""}</span>
+                )}
+              </div>
+              <div className={`schedule-gantt-track${showNow ? " has-now" : ""}`} style={showNow ? { "--now-pct": `${pct(nowMinutes)}%` } : undefined}>
+                {/* Current time indicator per-row */}
+                {showNow && (
+                  <div className="schedule-gantt-now" style={{ left: `${pct(nowMinutes)}%`, top: "-2px", bottom: "0" }} />
+                )}
+                {/* Continuation from previous day's overnight */}
+                {shift.contEnd != null && (
+                  <div className="schedule-gantt-bar schedule-gantt-continuation" style={{ left: "0%", width: `${pct(shift.contEnd)}%`, backgroundColor: shift.color, borderRadius: "0 6px 6px 0" }}
+                    title={`${shift.employee.name}: 00:00-${formatMin(shift.contEnd)} (${t(locale, "接前日", "from prev day")})`}>
+                    <span className="schedule-gantt-bar-text">00:00-{formatMin(shift.contEnd)}</span>
+                  </div>
+                )}
+                {/* Today's shift */}
+                {shift.startMin != null && !shift.overnight && (
+                  <div
+                    className="schedule-gantt-bar clickable"
+                    style={{ left: `${barL}%`, width: `${barW}%`, backgroundColor: shift.color }}
+                    title={`${shift.employee.name}: ${formatMin(shift.startMin)}-${formatMin(shift.endMin)}${shift.breakMin > 0 ? ` (${shift.breakMin}min ${t(locale, "休息", "break")})` : ""}`}
+                  >
+                    <span className="schedule-gantt-bar-text">
+                      {formatMin(shift.startMin)}-{formatMin(shift.endMin)}
+                      {shift.breakMin > 0 && ` · ${shift.breakMin}m`}
+                    </span>
+                    {/* Break period overlap indicator */}
+                    {shift.breakMin > 0 && (
+                      <div className="schedule-gantt-break" style={{
+                        left: `${Math.max(0, (barW / 2) - (shift.breakMin / (shift.endMin - shift.startMin) * barW) / 2)}%`,
+                        width: `${Math.min(barW * 0.35, (shift.breakMin / (shift.endMin - shift.startMin)) * barW)}%`
+                      }} />
+                    )}
+                  </div>
+                )}
+                {shift.startMin != null && shift.overnight && (
+                  <div className="schedule-gantt-bar clickable" style={{ left: `${barL}%`, width: `${barW}%`, backgroundColor: shift.color, borderRadius: "6px 0 0 6px" }}
+                    title={`${shift.employee.name}: ${formatMin(shift.startMin)}→(${t(locale, "次日", "next day")}${formatMin(shift.endMin)})`}>
+                    <span className="schedule-gantt-bar-text">{formatMin(shift.startMin)}→+1</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
