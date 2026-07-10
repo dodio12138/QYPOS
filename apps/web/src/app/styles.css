@@ -856,7 +856,7 @@ h1 {
   background: #f3f4f6;
   border-radius: 999px;
   padding: 0 16px;
-  min-height: 40px;
+  min-height: 44px;
   white-space: nowrap;
   font-size: 13px;
   font-weight: 500;
@@ -864,6 +864,7 @@ h1 {
   transition: all 140ms;
   scroll-snap-align: start;
   flex-shrink: 0;
+  touch-action: manipulation;
 }
 
 .category-strip button.selected,
