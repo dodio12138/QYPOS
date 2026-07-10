@@ -1,6 +1,8 @@
 import Script from "next/script";
 import SidebarStateSync from "./sidebar-state-sync";
-import "./styles.css";
+import "./base.css";
+import "./pos.css";
+import "./admin.css";
 
 export const metadata = {
   title: "QYPOS",

@@ -5,7 +5,7 @@ import { Activity, Download, HardDrive, Plus, Printer, RefreshCw, Save, Trash2 }
 import { t, money } from "./helpers";
 import { api, API_URL } from "../../../lib/api";
 
-function OpsView({ health, backups, settings, setSettings, locale, onRefresh, onSaved }) {
+export default function OpsView({ health, backups, settings, setSettings, locale, onRefresh, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [profiles, setProfiles] = useState(settings.printer_profiles || []);
   const [showAllBackups, setShowAllBackups] = useState(false);

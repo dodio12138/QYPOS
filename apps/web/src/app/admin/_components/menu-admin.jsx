@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, Copy, Download, Eye,
 import { t, money } from "./helpers";
 import { api, labelOf } from "../../../lib/api";
 
-function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
+export function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
   const [selectedCatId, setSelectedCatId] = useState("all");
   const [busyItemId, setBusyItemId] = useState(null);
   const items = selectedCatId === "all"
@@ -72,7 +72,7 @@ function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
   );
 }
 
-function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
+export default function MenuAdmin({ menu, locale, currency, onSaved, onNotify }) {
   const [selectedCatId, setSelectedCatId] = useState(null);
   const [expandedItemId, setExpandedItemId] = useState(null);
   const [showCatForm, setShowCatForm] = useState(false);

@@ -298,7 +298,7 @@ function daysOfWeek(dateStr) {
   return new Date(`${dateStr}T00:00:00`).getDay() === 0 ? 6 : new Date(`${dateStr}T00:00:00`).getDay() - 1;
 }
 
-function StaffScheduleView({ locale, currency, onNotify, canManage = false }) {
+export default function StaffScheduleView({ locale, currency, onNotify, canManage = false }) {
   const [weekStart, setWeekStart] = useState(mondayOf(getLocalToday()));
   const [data, setData] = useState({ employees: [], cells: [] });
   const [dailyRevenue, setDailyRevenue] = useState([]); // [{ day, revenue }, ...]

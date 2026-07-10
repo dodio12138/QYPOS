@@ -15,7 +15,7 @@ function combineTrendRows(l, kf, lf, fb) { const b=new Map();for(const rs of l||
 function combineHotItemTrends(items, trendsByKey) { const li=items.filter(i=>trendsByKey[hotItemKeyFor(i)]?.data);if(!li.length)return null;const d=combineTrendRows(li.map(i=>trendsByKey[hotItemKeyFor(i)]?.data?.byDay||[]),"day","day","").sort((a,b)=>String(a.day).localeCompare(String(b.day)));const t=combineTrendRows(li.map(i=>trendsByKey[hotItemKeyFor(i)]?.data?.byTime||[]),"slot","slot","").sort((a,b)=>String(a.slot).localeCompare(String(b.slot)));const s=li.reduce((a,i)=>{const tr=trendsByKey[hotItemKeyFor(i)]?.data;a.orders+=Number(tr?.summary?.orders||0);a.revenue+=Number(tr?.summary?.revenue||0);return a;},{orders:0,revenue:0});return{summary:s,byDay:d,byTime:t};}
 
 
-function ReportsAnalytics({ report, setReport, locale, currency }) {
+export default function ReportsAnalytics({ report, setReport, locale, currency }) {
   const today = getLocalToday();
   const [from, setFrom] = useState(addDays(today, -6));
   const [to, setTo] = useState(today);
