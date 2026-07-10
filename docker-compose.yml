@@ -61,6 +61,9 @@ services:
     build:
       context: .
       dockerfile: apps/printer-service/Dockerfile
+    restart: unless-stopped
+    # host networking + privileged are required for direct printer hardware access
+    # (TCP RAW port 9100, USB/Bluetooth /dev devices)
     network_mode: host
     privileged: true
     volumes:

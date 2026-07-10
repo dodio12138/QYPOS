@@ -42,6 +42,23 @@ let idleClearTimer = null;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LEGACY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ADMIN_GRANT_TTL_SECONDS = 60 * 30;
+const LOGIN_RATE_WINDOW = 60;       // seconds
+const LOGIN_RATE_MAX_ATTEMPTS = 10;  // max failures per window per IP
+const ADMIN_GRANT_RATE_MAX_ATTEMPTS = 5;
+
+// ── Rate limiting helper ──────────────────────────────────────────────────
+async function checkRateLimit(key, maxAttempts, windowSec) {
+  const count = await redis.incr(key);
+  if (count === 1) await redis.expire(key, windowSec);
+  return count > maxAttempts;
+}
+
+function clientIp(request) {
+  return request.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+    || request.headers["x-real-ip"]
+    || request.socket?.remoteAddress
+    || "unknown";
+}
 
 async function ensureSchema() {
   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10,2) NOT NULL DEFAULT 0");
@@ -268,8 +285,12 @@ await app.register(websocket);
 
 await redisSub.subscribe("print_events");
 redisSub.on("message", (_channel, message) => {
-  const parsed = JSON.parse(message);
-  emit(parsed.event, parsed.data);
+  try {
+    const parsed = JSON.parse(message);
+    emit(parsed.event, parsed.data);
+  } catch (err) {
+    app.log.error({ err }, "Failed to parse print_events message");
+  }
 });
 
 function emit(event, data) {
@@ -723,6 +744,14 @@ app.post("/auth/login", async (request, reply) => {
     reply.code(401);
     return { error: "Invalid credentials" };
   }
+  // Rate limit: max N failed attempts per IP per window
+  const ip = clientIp(request);
+  const rateKey = `login_rate:${ip}`;
+  const blocked = await checkRateLimit(rateKey, LOGIN_RATE_MAX_ATTEMPTS, LOGIN_RATE_WINDOW);
+  if (blocked) {
+    reply.code(429);
+    return { error: "Too many login attempts. Please wait and try again." };
+  }
   const row = await one(
     `SELECT u.id, u.name, u.pin, r.name AS role, r.permissions
      FROM users u
@@ -739,6 +768,8 @@ app.post("/auth/login", async (request, reply) => {
     reply.code(401);
     return { error: "Invalid credentials" };
   }
+  // Reset rate limit on successful login
+  await redis.del(rateKey);
   // Auto-upgrade legacy plaintext PIN to hash
   if (upgraded) {
     await pool.query("UPDATE users SET pin = $1 WHERE id = $2", [upgraded, row.id]);
@@ -794,6 +825,14 @@ app.post("/auth/admin-grant", async (request, reply) => {
     reply.code(401);
     return { error: "管理员账号或 PIN 不正确，或权限不足" };
   }
+  // Rate limit: max N failed admin-grant attempts per IP per window
+  const ip = clientIp(request);
+  const rateKey = `admin_grant_rate:${ip}`;
+  const blocked = await checkRateLimit(rateKey, ADMIN_GRANT_RATE_MAX_ATTEMPTS, LOGIN_RATE_WINDOW);
+  if (blocked) {
+    reply.code(429);
+    return { error: "Too many attempts. Please wait and try again." };
+  }
   const row = await one(
     `SELECT u.id, u.name, u.pin, r.permissions
      FROM users u
@@ -810,6 +849,8 @@ app.post("/auth/admin-grant", async (request, reply) => {
     reply.code(401);
     return { error: "管理员账号或 PIN 不正确，或权限不足" };
   }
+  // Reset rate limit on success
+  await redis.del(rateKey);
   if (upgraded) {
     await pool.query("UPDATE users SET pin = $1 WHERE id = $2", [upgraded, row.id]);
   }

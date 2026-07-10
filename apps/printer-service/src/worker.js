@@ -456,14 +456,22 @@ export { buildKitchenDoc, buildReceiptDoc, buildTestDoc, docToBuffer, render };
 async function startWorker() {
   pool = new Pool({ connectionString: process.env.DATABASE_URL });
   redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
+
+  // Handle connection errors & reconnection
+  redis.on("error", (err) => console.error("[print] redis error:", err.message));
+  pool.on("error", (err) => console.error("[print] db pool error:", err.message));
+
   console.log("printer-service ready");
+  let backoff = 1000;
   while (true) {
     try {
       const result = await redis.brpop("print_jobs", 0);
+      backoff = 1000; // reset on success
       if (result?.[1]) await processJob(result[1]);
     } catch (err) {
       console.error("[print] worker error:", err.message);
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, backoff));
+      backoff = Math.min(backoff * 2, 30000); // exponential backoff, max 30s
     }
   }
 }
