@@ -561,8 +561,8 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="admin-shell" style={{ display: 'table', width: '100%', tableLayout: 'fixed', minHeight: '100vh' }}>
-      <aside className={`sidebar animate${sidebarCollapsed ? " collapsed" : ""}`} style={{ display: 'table-cell', width: sidebarCollapsed ? 72 : 220, minWidth: sidebarCollapsed ? 72 : 220, overflow: 'hidden' }}>
+    <main className={`admin-shell${sidebarCollapsed ? " sidebar-is-collapsed" : ""}`}>
+      <aside className={`sidebar animate${sidebarCollapsed ? " collapsed" : ""}`}>
         <div className="brand" onClick={() => { const next = !sidebarCollapsed; setSidebarCollapsed(next); localStorage.setItem("qypos_sidebar_collapsed", next ? "1" : "0"); }} title={sidebarCollapsed ? t(locale, "展开", "Expand") : t(locale, "收起", "Collapse")} style={{cursor:"pointer"}}>
           <img className="brand-logo" src={qyposLogo.src} alt="QYPOS" />
           {!sidebarCollapsed && <span>QYPOS</span>}
@@ -582,7 +582,7 @@ export default function AdminPage() {
         </nav>
       </aside>
 
-      <section className="workspace" style={{ display: 'table-cell' }}>
+      <section className="workspace">
         <header className="topbar">
           <div>
             <h1>{tabLabelOf(tabs.find(([id]) => id === activeTab), locale)}</h1>

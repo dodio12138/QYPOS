@@ -132,6 +132,14 @@ async function buildSalesReport(from, to) {
      WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status IN ('submitted','preparing','ready','paid')`,
     params
   );
+  const itemUnits = await one(
+    `SELECT COALESCE(SUM(oi.quantity), 0)::integer AS items_sold
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status IN ('submitted','preparing','ready','paid')`,
+    params
+  );
+  summary.items_sold = Number(itemUnits?.items_sold || 0);
   const byDay = await query(
     `SELECT created_at::date AS day, COUNT(*)::integer AS orders, COALESCE(SUM(total), 0)::numeric AS revenue
      FROM orders
@@ -164,7 +172,22 @@ async function buildSalesReport(from, to) {
      )
      SELECT item_key, item_id, name_i18n, quantity, sales
      FROM item_sales
-     ORDER BY quantity DESC, sales DESC`,
+    ORDER BY quantity DESC, sales DESC`,
+    params
+  );
+  const categoryMix = await query(
+    `SELECT
+       COALESCE(mc.id::text, 'uncategorized') AS category_id,
+       COALESCE(mc.name_i18n, '{"zh-CN":"未分类","en-GB":"Uncategorized"}'::jsonb) AS name_i18n,
+       COALESCE(SUM(oi.quantity), 0)::integer AS quantity,
+       COALESCE(SUM(oi.unit_price * oi.quantity), 0)::numeric AS sales
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     LEFT JOIN menu_items mi ON mi.id = oi.item_id
+     LEFT JOIN menu_categories mc ON mc.id = mi.category_id
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status IN ('submitted','preparing','ready','paid')
+     GROUP BY COALESCE(mc.id::text, 'uncategorized'), COALESCE(mc.name_i18n, '{"zh-CN":"未分类","en-GB":"Uncategorized"}'::jsonb), mc.sort_order
+     ORDER BY sales DESC, quantity DESC, mc.sort_order NULLS LAST`,
     params
   );
   const hotModifiers = await query(
@@ -231,7 +254,7 @@ async function buildSalesReport(from, to) {
       byTime[i].revenue = Number(r.revenue || 0);
     }
   }
-  return { from, to, summary, byDay, hotItems, hotModifiers, notePresets, common_notes: commonNotes, byTime };
+  return { from, to, summary, byDay, hotItems, categoryMix, hotModifiers, notePresets, common_notes: commonNotes, byTime };
 }
 
 function buildDateSeries(from, to, rows) {
@@ -363,11 +386,12 @@ app.get("/reports/sales.csv", async (request, reply) => {
   const today = localToday();
   const report = await buildSalesReport(request.query.from ?? today, request.query.to ?? today);
   const rows = [
-    ["from", "to", "orders", "revenue", "subtotal", "discount", "net_sales", "tax", "service_charge", "average_ticket"],
+    ["from", "to", "orders", "items_sold", "revenue", "subtotal", "discount", "net_sales", "tax", "service_charge", "average_ticket"],
     [
       report.from,
       report.to,
       report.summary.orders,
+      report.summary.items_sold,
       report.summary.revenue,
       report.summary.subtotal,
       report.summary.discount,

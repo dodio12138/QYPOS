@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New-Items-Only Kitchen Print Locking**: Only newly added items are locked and printed; already-printed items are never re-sent to the kitchen.
 - **Top-Seller Drilldown**: Dashboard top sellers now support multi-select with merged trend charts, compatible with historical data missing `item_id`.
 - **Report Enhancements**: Day-of-week multi-select filter; expanded date presets (today, yesterday, last 7/30 days, this month, this week, last week, last month).
+- **Report Analytics Mix Charts**: Sales analytics now includes items sold, service charge, discount, VAT summaries, category mix charts for item count/revenue, linked highlighting, and a hideable trend line.
 - **Full i18n**: Complete Chinese / English coverage across POS and Admin interfaces.
 - **ESLint Configuration**: Root-level flat config with `no-undef` rule integrated into CI pipeline to catch prop-passing regressions.
 - **Audit Log Filters**: Combined user, action, and exact time-range filters in Admin audit log view.

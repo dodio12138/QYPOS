@@ -14,6 +14,87 @@ function hotItemKeyFor(item) { if(!item)return"";return item.item_key||item.item
 function combineTrendRows(l, kf, lf, fb) { const b=new Map();for(const rs of l||[])for(const r of rs||[]){const k=String(r?.[kf]||"");if(!k)continue;const e=b.get(k)||{[kf]:k,[lf]:r?.[lf]||fb||k,orders:0,revenue:0};e.orders+=Number(r?.orders||0);e.revenue+=Number(r?.revenue||0);if(!e[lf]&&r?.[lf])e[lf]=r[lf];b.set(k,e);}return[...b.values()];}
 function combineHotItemTrends(items, trendsByKey) { const li=items.filter(i=>trendsByKey[hotItemKeyFor(i)]?.data);if(!li.length)return null;const d=combineTrendRows(li.map(i=>trendsByKey[hotItemKeyFor(i)]?.data?.byDay||[]),"day","day","").sort((a,b)=>String(a.day).localeCompare(String(b.day)));const t=combineTrendRows(li.map(i=>trendsByKey[hotItemKeyFor(i)]?.data?.byTime||[]),"slot","slot","").sort((a,b)=>String(a.slot).localeCompare(String(b.slot)));const s=li.reduce((a,i)=>{const tr=trendsByKey[hotItemKeyFor(i)]?.data;a.orders+=Number(tr?.summary?.orders||0);a.revenue+=Number(tr?.summary?.revenue||0);return a;},{orders:0,revenue:0});return{summary:s,byDay:d,byTime:t};}
 
+function traceSmoothCurve(ctx, points, strength = 1) {
+  if (!points.length) return;
+  ctx.moveTo(points[0].x, points[0].y);
+  if (points.length === 1) return;
+  if (points.length === 2) {
+    ctx.lineTo(points[1].x, points[1].y);
+    return;
+  }
+
+  const segmentSlopes = [];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const dx = points[index + 1].x - points[index].x;
+    segmentSlopes.push(dx ? (points[index + 1].y - points[index].y) / dx : 0);
+  }
+
+  const slopes = points.map((point, index) => {
+    if (index === 0) return segmentSlopes[0];
+    if (index === points.length - 1) return segmentSlopes[segmentSlopes.length - 1];
+    const prev = segmentSlopes[index - 1];
+    const next = segmentSlopes[index];
+    return prev * next <= 0 ? 0 : (prev + next) / 2;
+  });
+
+  for (let index = 0; index < segmentSlopes.length; index += 1) {
+    const segmentSlope = segmentSlopes[index];
+    if (segmentSlope === 0) {
+      slopes[index] = 0;
+      slopes[index + 1] = 0;
+      continue;
+    }
+    const a = slopes[index] / segmentSlope;
+    const b = slopes[index + 1] / segmentSlope;
+    const distance = Math.hypot(a, b);
+    if (distance > 3) {
+      const scale = 3 / distance;
+      slopes[index] = scale * a * segmentSlope;
+      slopes[index + 1] = scale * b * segmentSlope;
+    }
+  }
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const dx = next.x - current.x;
+    const controlDx = (dx / 3) * strength;
+    ctx.bezierCurveTo(
+      current.x + controlDx,
+      current.y + slopes[index] * controlDx,
+      next.x - controlDx,
+      next.y - slopes[index + 1] * controlDx,
+      next.x,
+      next.y
+    );
+  }
+}
+
+function drawSmoothLine(ctx, points, strength = 1) {
+  ctx.beginPath();
+  traceSmoothCurve(ctx, points, strength);
+  ctx.stroke();
+}
+
+function drawSmoothArea(ctx, points, baselineY, strength = 1) {
+  if (!points.length) return;
+  ctx.beginPath();
+  traceSmoothCurve(ctx, points, strength);
+  ctx.lineTo(points[points.length - 1].x, baselineY);
+  ctx.lineTo(points[0].x, baselineY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+const CATEGORY_COLORS = ["#f97316", "#14b8a6", "#60a5fa", "#f59e0b", "#a78bfa", "#fb7185", "#34d399", "#38bdf8", "#c084fc", "#94a3b8"];
+
+function pct(value, total) {
+  const number = Number(value || 0);
+  const base = Number(total || 0);
+  if (!base) return "0.0%";
+  return `${((number / base) * 100).toFixed(1)}%`;
+}
+
 
 export default function ReportsAnalytics({ report, setReport, locale, currency }) {
   const today = getLocalToday();
@@ -22,6 +103,7 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
   const [preset, setPreset] = useState("7d");
   const [compareMode, setCompareMode] = useState("mom");
   const [trendMetric, setTrendMetric] = useState("revenue");
+  const [showDailyTrend, setShowDailyTrend] = useState(true);
   const [trendWeekdays, setTrendWeekdays] = useState([]);
   const [timeSlotInterval, setTimeSlotInterval] = useState(30);
   const [selectedHotItemKeys, setSelectedHotItemKeys] = useState([]);
@@ -197,8 +279,12 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
   const summaryFields = [
     [t(locale, "营业额", "Revenue"), "revenue"],
     [t(locale, "订单数", "Orders"), "orders"],
+    [t(locale, "售出单品", "Items sold"), "items_sold"],
     [t(locale, "客单价", "Average ticket"), "average_ticket"],
-    [t(locale, "净销售额", "Net sales"), "net_sales"]
+    [t(locale, "净销售额", "Net sales"), "net_sales"],
+    [t(locale, "服务费", "Service charge"), "service_charge"],
+    [t(locale, "折扣", "Discount"), "discount"],
+    ["VAT", "tax"]
   ];
 
   return (
@@ -249,7 +335,7 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
               return (
                 <section className="metric reports-summary-card" key={key}>
                   <span>{label}</span>
-                  <strong>{key === "orders" ? Number(currVal || 0) : money(currVal, currency, locale)}</strong>
+                  <strong>{["orders", "items_sold"].includes(key) ? Number(currVal || 0) : money(currVal, currency, locale)}</strong>
                   {delta != null && (
                     <span className={`reports-delta ${delta >= 0 ? "up" : "down"}`}>
                       {delta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
@@ -260,6 +346,49 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
               );
             })}
           </section>
+
+          <section className="panel report-chart dashboard-list report-daily-trend-panel">
+            <div className="panel-title split">
+              <h3>{trendMetric === "revenue" ? t(locale, "每日营业额趋势", "Daily revenue trend") : trendMetric === "orders" ? t(locale, "每日单量趋势", "Daily orders trend") : t(locale, "每日客单价趋势", "Daily average ticket trend")}</h3>
+              <button
+                type="button"
+                className={`report-trend-toggle ${showDailyTrend ? "active" : "inactive"}`}
+                aria-pressed={showDailyTrend}
+                onClick={() => setShowDailyTrend((current) => !current)}
+              >
+                <TrendingUp size={14} />
+                {t(locale, "趋势", "Trend")}
+              </button>
+            </div>
+            <div className="reports-preset-row daily-trend-toolbar">
+              <div className="reports-preset-group">
+                <button type="button" className={trendMetric === "revenue" ? "selected" : ""} onClick={() => setTrendMetric("revenue")}>{t(locale, "营业额", "Revenue")}</button>
+                <button type="button" className={trendMetric === "orders" ? "selected" : ""} onClick={() => setTrendMetric("orders")}>{t(locale, "单量", "Orders")}</button>
+                <button type="button" className={trendMetric === "avg_ticket" ? "selected" : ""} onClick={() => setTrendMetric("avg_ticket")}>{t(locale, "客单价", "Avg. ticket")}</button>
+              </div>
+              <div className="reports-preset-group daily-trend-weekday-group">
+                <button type="button" className={!trendWeekdays.length ? "selected" : ""} onClick={() => setTrendWeekdays([])}>{t(locale, "全部", "All")}</button>
+                {weekdayLabels(locale).map((label, dow) => (
+                  <button
+                    type="button"
+                    key={dow}
+                    className={trendWeekdays.includes(dow) ? "selected" : ""}
+                    aria-pressed={trendWeekdays.includes(dow)}
+                    onClick={() => toggleTrendWeekday(dow)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {dailyTrendData.length ? (
+              <div style={{ padding: 12 }}>
+                <DailyTrendChart data={dailyTrendData} metric={trendMetric} locale={locale} currency={currency} showTrend={showDailyTrend} />
+              </div>
+            ) : <div className="empty">{t(locale, "无数据", "No data")}</div>}
+          </section>
+
+          <CategoryMixSection rows={report.categoryMix || []} locale={locale} currency={currency} />
 
           <section className="panel dashboard-list reports-insights-panel">
             <div className="panel-title split">
@@ -387,24 +516,28 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
 
               <div className="panel report-hot-modifiers-col">
                 <div className="panel-title"><h4>{t(locale, "热销小料", "Top modifiers")}</h4></div>
-                {(report.hotModifiers || []).map((m) => (
-                  <div className="list-row" key={m.id || m.name}>
-                    <div className="hot-item-name">{m.label && typeof m.label === "object" ? labelOf(m.label, locale) : (m.label || m.name)}</div>
-                    <div className="hot-item-stats"><span>{m.quantity || m.count || 0}</span><strong>{money(m.sales || 0, currency, locale)}</strong></div>
-                  </div>
-                ))}
-                {!report.hotModifiers?.length && <div className="empty">{t(locale, "无数据", "No data")}</div>}
+                <div className="report-hot-scroll">
+                  {(report.hotModifiers || []).map((m) => (
+                    <div className="list-row" key={m.id || m.name}>
+                      <div className="hot-item-name">{m.label && typeof m.label === "object" ? labelOf(m.label, locale) : (m.label || m.name)}</div>
+                      <div className="hot-item-stats"><span>{m.quantity || m.count || 0}</span><strong>{money(m.sales || 0, currency, locale)}</strong></div>
+                    </div>
+                  ))}
+                  {!report.hotModifiers?.length && <div className="empty">{t(locale, "无数据", "No data")}</div>}
+                </div>
               </div>
 
               <div className="panel report-hot-notes-col">
                 <div className="panel-title"><h4>{t(locale, "常用备注频率", "Frequent notes")}</h4></div>
-                {(report.notePresets || report.common_notes || []).map((n) => (
-                  <div className="list-row" key={n.label || n.name}>
-                    <div className="hot-item-name">{n.label || n.name}</div>
-                    <div className="hot-item-stats"><span>{n.count || n.frequency || ""}</span></div>
-                  </div>
-                ))}
-                {!((report.notePresets || report.common_notes || []).length) && <div className="empty">{t(locale, "无数据", "No data")}</div>}
+                <div className="report-hot-scroll">
+                  {(report.notePresets || report.common_notes || []).map((n) => (
+                    <div className="list-row" key={n.label || n.name}>
+                      <div className="hot-item-name">{n.label || n.name}</div>
+                      <div className="hot-item-stats"><span>{n.count || n.frequency || ""}</span></div>
+                    </div>
+                  ))}
+                  {!((report.notePresets || report.common_notes || []).length) && <div className="empty">{t(locale, "无数据", "No data")}</div>}
+                </div>
               </div>
             </div>
           </section>
@@ -478,38 +611,6 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
             )}
           </section>
 
-          <section className="panel report-chart dashboard-list report-daily-trend-panel">
-            <div className="panel-title split">
-              <h3>{trendMetric === "revenue" ? t(locale, "每日营业额趋势", "Daily revenue trend") : trendMetric === "orders" ? t(locale, "每日单量趋势", "Daily orders trend") : t(locale, "每日客单价趋势", "Daily average ticket trend")}</h3>
-            </div>
-            <div className="reports-preset-row daily-trend-toolbar">
-              <div className="reports-preset-group">
-                <button type="button" className={trendMetric === "revenue" ? "selected" : ""} onClick={() => setTrendMetric("revenue")}>{t(locale, "营业额", "Revenue")}</button>
-                <button type="button" className={trendMetric === "orders" ? "selected" : ""} onClick={() => setTrendMetric("orders")}>{t(locale, "单量", "Orders")}</button>
-                <button type="button" className={trendMetric === "avg_ticket" ? "selected" : ""} onClick={() => setTrendMetric("avg_ticket")}>{t(locale, "客单价", "Avg. ticket")}</button>
-              </div>
-              <div className="reports-preset-group daily-trend-weekday-group">
-                <button type="button" className={!trendWeekdays.length ? "selected" : ""} onClick={() => setTrendWeekdays([])}>{t(locale, "全部", "All")}</button>
-                {weekdayLabels(locale).map((label, dow) => (
-                  <button
-                    type="button"
-                    key={dow}
-                    className={trendWeekdays.includes(dow) ? "selected" : ""}
-                    aria-pressed={trendWeekdays.includes(dow)}
-                    onClick={() => toggleTrendWeekday(dow)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {dailyTrendData.length ? (
-              <div style={{ padding: 12 }}>
-                <DailyTrendChart data={dailyTrendData} metric={trendMetric} locale={locale} currency={currency} />
-              </div>
-            ) : <div className="empty">{t(locale, "无数据", "No data")}</div>}
-          </section>
-
           <section className="panel report-time-chart dashboard-list">
             <div className="panel-title split">
               <h3>{t(locale, "按时段", "By time slot")}（{timeSlotInterval} {t(locale, "分钟", "min")}) {t(locale, "单量、营业额与客单价", "orders, revenue and avg ticket")}</h3>
@@ -531,6 +632,214 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
         </>
       )}
     </div>
+  );
+}
+
+function CategoryMixSection({ rows, locale, currency }) {
+  const [hoveredCategoryId, setHoveredCategoryId] = useState(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const categories = (rows || [])
+    .map((row, index) => ({
+      ...row,
+      categoryKey: row.category_id || `category-${index}`,
+      label: labelOf(row.name_i18n, locale),
+      quantity: Number(row.quantity || 0),
+      sales: Number(row.sales || 0),
+      color: CATEGORY_COLORS[index % CATEGORY_COLORS.length]
+    }))
+    .filter((row) => row.quantity > 0 || row.sales > 0);
+  const totalQuantity = categories.reduce((sum, row) => sum + row.quantity, 0);
+  const totalSales = categories.reduce((sum, row) => sum + row.sales, 0);
+  const activeCategoryId = hoveredCategoryId || selectedCategoryId;
+
+  function toggleSelectedCategory(categoryId) {
+    setSelectedCategoryId((current) => current === categoryId ? null : categoryId);
+  }
+
+  return (
+    <section className="panel dashboard-list reports-category-mix-panel">
+      <div className="panel-title split">
+        <h2>{t(locale, "分类构成", "Category mix")} <small className="muted">Category Mix</small></h2>
+        <small className="muted">{t(locale, "按菜单分类统计点单份数与单品营业额", "Items sold and item revenue by menu category")}</small>
+      </div>
+      {categories.length ? (
+        <div className="reports-category-mix-grid">
+          <CategoryPieChart
+            title={t(locale, "点单次数占比", "Items sold share")}
+            rows={categories}
+            valueKey="quantity"
+            total={totalQuantity}
+            valueFormatter={(value) => `${Number(value || 0)} ${t(locale, "份", "items")}`}
+            activeCategoryId={activeCategoryId}
+            selectedCategoryId={selectedCategoryId}
+            onHoverCategory={setHoveredCategoryId}
+            onToggleCategory={toggleSelectedCategory}
+          />
+          <CategoryPieChart
+            title={t(locale, "营业额占比", "Revenue share")}
+            rows={categories}
+            valueKey="sales"
+            total={totalSales}
+            valueFormatter={(value) => money(value, currency, locale)}
+            activeCategoryId={activeCategoryId}
+            selectedCategoryId={selectedCategoryId}
+            onHoverCategory={setHoveredCategoryId}
+            onToggleCategory={toggleSelectedCategory}
+          />
+        </div>
+      ) : (
+        <div className="empty">{t(locale, "无分类销售数据", "No category sales data")}</div>
+      )}
+    </section>
+  );
+}
+
+function CategoryPieChart({ title, rows, valueKey, total, valueFormatter, activeCategoryId, selectedCategoryId, onHoverCategory, onToggleCategory }) {
+  const canvasRef = useRef(null);
+  const segmentsRef = useRef([]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const size = 190;
+    canvas.width = Math.floor(size * dpr);
+    canvas.height = Math.floor(size * dpr);
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, size, size);
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = 68;
+    const lineWidth = 28;
+    let start = -Math.PI / 2;
+    segmentsRef.current = [];
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.16)";
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+
+    if (!total) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.24)";
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+      return;
+    }
+
+    rows.forEach((row) => {
+      const value = Number(row[valueKey] || 0);
+      const angle = (value / total) * Math.PI * 2;
+      if (angle <= 0) return;
+      const gap = Math.min(0.018, angle / 3);
+      const segmentStart = start;
+      const segmentEnd = start + angle;
+      const isActive = row.categoryKey === activeCategoryId;
+      const isDimmed = activeCategoryId && !isActive;
+      segmentsRef.current.push({ id: row.categoryKey, start: segmentStart, end: segmentEnd });
+      ctx.beginPath();
+      ctx.arc(cx, cy, isActive ? radius + 2 : radius, segmentStart + gap, segmentEnd - gap);
+      ctx.strokeStyle = row.color;
+      ctx.globalAlpha = isDimmed ? 0.26 : 1;
+      ctx.lineWidth = isActive ? lineWidth + 8 : lineWidth;
+      ctx.lineCap = "butt";
+      if (isActive) {
+        ctx.shadowColor = row.color;
+        ctx.shadowBlur = 14;
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      start += angle;
+    });
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 45, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 45, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(15, 23, 42, 0.08)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const activeRow = rows.find((row) => row.categoryKey === activeCategoryId);
+    if (activeRow) {
+      ctx.fillStyle = "#111827";
+      ctx.font = "700 13px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const label = String(activeRow.label || "").slice(0, 8);
+      ctx.fillText(label, cx, cy - 7);
+      ctx.fillStyle = "#64748b";
+      ctx.font = "600 12px sans-serif";
+      ctx.fillText(pct(Number(activeRow[valueKey] || 0), total), cx, cy + 10);
+    }
+  }, [rows, valueKey, total, activeCategoryId]);
+
+  function categoryAtEvent(event) {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const size = 190;
+    const x = ((event.clientX - rect.left) / rect.width) * size;
+    const y = ((event.clientY - rect.top) / rect.height) * size;
+    const dx = x - size / 2;
+    const dy = y - size / 2;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 48 || distance > 88) return null;
+    let angle = Math.atan2(dy, dx);
+    if (angle < -Math.PI / 2) angle += Math.PI * 2;
+    return segmentsRef.current.find((segment) => angle >= segment.start && angle <= segment.end)?.id || null;
+  }
+
+  return (
+    <article className="reports-category-chart">
+      <div className="reports-category-chart-canvas">
+        <canvas
+          ref={canvasRef}
+          aria-label={title}
+          role="img"
+          onClick={(event) => {
+            const categoryId = categoryAtEvent(event);
+            if (categoryId) onToggleCategory(categoryId);
+          }}
+          onMouseMove={(event) => onHoverCategory(categoryAtEvent(event))}
+          onMouseLeave={() => onHoverCategory(null)}
+        />
+      </div>
+      <div className="reports-category-chart-details">
+        <h3>{title}</h3>
+        <strong>{valueFormatter(total)}</strong>
+        <div className="reports-category-legend">
+          {rows.map((row) => {
+            const value = Number(row[valueKey] || 0);
+            const isActive = row.categoryKey === activeCategoryId;
+            return (
+              <button
+                type="button"
+                className={`reports-category-legend-row${isActive ? " is-active" : ""}`}
+                key={`${valueKey}-${row.categoryKey}`}
+                aria-pressed={selectedCategoryId === row.categoryKey}
+                onClick={() => onToggleCategory(row.categoryKey)}
+                onMouseEnter={() => onHoverCategory(row.categoryKey)}
+                onMouseLeave={() => onHoverCategory(null)}
+              >
+                <i style={{ background: row.color }} />
+                <span>{row.label}</span>
+                <b>{pct(value, total)}</b>
+                <small>{valueFormatter(value)}</small>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -571,40 +880,24 @@ function GradientTrendChart({ data, compareData, locale, currency }) {
       };
 
       if (compareDays.length) {
+        const comparePoints = compareDays.map((_, i) => pointAt(compareDays, i));
         ctx.setLineDash([5, 4]);
         ctx.strokeStyle = "#94a3b8";
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        compareDays.forEach((_, i) => {
-          const { x, y } = pointAt(compareDays, i);
-          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
+        drawSmoothLine(ctx, comparePoints);
         ctx.setLineDash([]);
       }
 
+      const points = days.map((_, i) => pointAt(days, i));
       const gradient = ctx.createLinearGradient(0, pad, 0, pad + plotH);
       gradient.addColorStop(0, "rgba(185, 28, 28, 0.35)");
       gradient.addColorStop(1, "rgba(185, 28, 28, 0)");
-      ctx.beginPath();
-      days.forEach((_, i) => {
-        const { x, y } = pointAt(days, i);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.lineTo(pad + (days.length - 1) * step, pad + plotH);
-      ctx.lineTo(pad, pad + plotH);
-      ctx.closePath();
       ctx.fillStyle = gradient;
-      ctx.fill();
+      drawSmoothArea(ctx, points, pad + plotH);
 
       ctx.strokeStyle = "#b91c1c";
       ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      days.forEach((_, i) => {
-        const { x, y } = pointAt(days, i);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
+      drawSmoothLine(ctx, points);
 
       ctx.fillStyle = "#b91c1c";
       days.forEach((_, i) => {
@@ -703,21 +996,18 @@ function CanvasDualChart({ data, locale, currency }) {
       });
 
       // draw revenue line
+      const revenuePoints = days.map((d, i) => {
+        const rv = Number(d.revenue || 0);
+        return {
+          x: pad + i * step,
+          y: pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0))
+        };
+      });
       ctx.strokeStyle = "#10b981";
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      days.forEach((d, i) => {
-        const rv = Number(d.revenue || 0);
-        const x = pad + i * step;
-        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
+      drawSmoothLine(ctx, revenuePoints);
       ctx.fillStyle = "#10b981";
-      days.forEach((d, i) => {
-        const rv = Number(d.revenue || 0);
-        const x = pad + i * step;
-        const y = pad + (plotH - (maxRevenue ? (rv / maxRevenue) * plotH : 0));
+      revenuePoints.forEach(({ x, y }) => {
         ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
       });
 
@@ -778,7 +1068,7 @@ function CanvasDualChart({ data, locale, currency }) {
   );
 }
 
-function DailyTrendChart({ data, metric, locale, currency }) {
+function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const tipRef = useRef(null);
@@ -814,42 +1104,49 @@ function DailyTrendChart({ data, metric, locale, currency }) {
         : metric === "avg_ticket"
           ? (Number(d.orders || 0) ? Number(d.revenue || 0) / Number(d.orders || 0) : 0)
           : Number(d.revenue || 0));
-      const maxValue = Math.max(1, ...values);
+      const trendValues = showTrend && values.length > 1
+        ? values.map((_, index) => {
+          const windowSize = Math.min(values.length, 5);
+          const radius = Math.floor(windowSize / 2);
+          const start = Math.max(0, index - radius);
+          const end = Math.min(values.length, index + radius + 1);
+          const sample = values.slice(start, end);
+          return sample.reduce((sum, value) => sum + value, 0) / sample.length;
+        })
+        : [];
+      const maxValue = Math.max(1, ...values, ...trendValues);
       const step = plotW / Math.max(1, days.length - 1);
-      const pointAt = (index) => {
-        const value = values[index] || 0;
+      const pointAt = (index, sourceValues = values) => {
+        const value = sourceValues[index] || 0;
         return {
           x: pad + index * step,
           y: pad + (plotH - (value / maxValue) * plotH)
         };
       };
+      const points = days.map((_, index) => pointAt(index));
 
       const gradient = ctx.createLinearGradient(0, pad, 0, pad + plotH);
       gradient.addColorStop(0, `rgba(${areaColor[0]}, ${areaColor[1]}, ${areaColor[2]}, 0.34)`);
       gradient.addColorStop(1, `rgba(${areaColor[0]}, ${areaColor[1]}, ${areaColor[2]}, 0)`);
-      ctx.beginPath();
-      days.forEach((_, index) => {
-        const { x, y } = pointAt(index);
-        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.lineTo(pad + (days.length - 1) * step, pad + plotH);
-      ctx.lineTo(pad, pad + plotH);
-      ctx.closePath();
       ctx.fillStyle = gradient;
-      ctx.fill();
+      drawSmoothArea(ctx, points, pad + plotH);
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      days.forEach((_, index) => {
-        const { x, y } = pointAt(index);
-        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
+      drawSmoothLine(ctx, points);
+
+      if (showTrend && trendValues.length > 1) {
+        const trendPoints = trendValues.map((_, index) => pointAt(index, trendValues));
+        ctx.save();
+        ctx.setLineDash([8, 6]);
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.55)";
+        ctx.lineWidth = 2;
+        drawSmoothLine(ctx, trendPoints, 0.42);
+        ctx.restore();
+      }
 
       ctx.fillStyle = color;
-      days.forEach((_, index) => {
-        const { x, y } = pointAt(index);
+      points.forEach(({ x, y }) => {
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
@@ -869,7 +1166,7 @@ function DailyTrendChart({ data, metric, locale, currency }) {
     const ro = new ResizeObserver(() => draw());
     ro.observe(container);
     return () => ro.disconnect();
-  }, [days, metric, locale]);
+  }, [days, metric, locale, showTrend]);
 
   return (
     <div
@@ -958,6 +1255,7 @@ function DualSeriesTrendChart({ data, locale, currency, countLabel, amountLabel,
           y: pad + (plotH - ((maxValue ? value / maxValue : 0) * plotH))
         };
       };
+      const amountPoints = series.map((row, index) => pointAt(amountValues, index, maxAmount));
 
       ctx.fillStyle = "#60a5fa";
       series.forEach((row, index) => {
@@ -971,29 +1269,15 @@ function DualSeriesTrendChart({ data, locale, currency, countLabel, amountLabel,
       const gradient = ctx.createLinearGradient(0, pad, 0, pad + plotH);
       gradient.addColorStop(0, "rgba(16, 185, 129, 0.34)");
       gradient.addColorStop(1, "rgba(16, 185, 129, 0)");
-      ctx.beginPath();
-      series.forEach((row, index) => {
-        const { x, y } = pointAt(amountValues, index, maxAmount);
-        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.lineTo(pad + (series.length - 1) * step, pad + plotH);
-      ctx.lineTo(pad, pad + plotH);
-      ctx.closePath();
       ctx.fillStyle = gradient;
-      ctx.fill();
+      drawSmoothArea(ctx, amountPoints, pad + plotH);
 
       ctx.strokeStyle = "#10b981";
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      series.forEach((row, index) => {
-        const { x, y } = pointAt(amountValues, index, maxAmount);
-        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
+      drawSmoothLine(ctx, amountPoints);
 
       ctx.fillStyle = "#10b981";
-      series.forEach((row, index) => {
-        const { x, y } = pointAt(amountValues, index, maxAmount);
+      amountPoints.forEach(({ x, y }) => {
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
@@ -1130,36 +1414,26 @@ function CanvasTimeChart({ data, locale, currency }) {
 
       // revenue line
       if (visibleSeries.revenue) {
+        const revenuePoints = slots.map((s, i) => pointAt(revenueSeries, i, maxRevenue));
         ctx.strokeStyle = "#10b981";
         ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        slots.forEach((s, i) => {
-          const { x, y } = pointAt(revenueSeries, i, maxRevenue);
-          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
+        drawSmoothLine(ctx, revenuePoints);
         ctx.fillStyle = "#10b981";
-        slots.forEach((s, i) => {
-          const { x, y } = pointAt(revenueSeries, i, maxRevenue);
+        revenuePoints.forEach(({ x, y }) => {
           ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
         });
       }
 
       // avg ticket line
       if (visibleSeries.avgTicket) {
+        const avgTicketPoints = slots.map((s, i) => pointAt(avgTicketSeries, i, maxAvgTicket));
         ctx.setLineDash([6, 4]);
         ctx.strokeStyle = "#f59e0b";
         ctx.lineWidth = 1.8;
-        ctx.beginPath();
-        slots.forEach((s, i) => {
-          const { x, y } = pointAt(avgTicketSeries, i, maxAvgTicket);
-          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
+        drawSmoothLine(ctx, avgTicketPoints);
         ctx.setLineDash([]);
         ctx.fillStyle = "#f59e0b";
-        slots.forEach((s, i) => {
-          const { x, y } = pointAt(avgTicketSeries, i, maxAvgTicket);
+        avgTicketPoints.forEach(({ x, y }) => {
           ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
         });
       }
