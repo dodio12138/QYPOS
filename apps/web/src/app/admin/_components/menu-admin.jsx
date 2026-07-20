@@ -827,14 +827,14 @@ function NotePresetsAdmin({ presets, categories, locale, onSaved }) {
               {t(locale, "全部分类", "All categories")}
             </button>
             {categories.map((category) => (
-              <label key={category.id}>
-                <input
-                  type="checkbox"
-                  checked={scopeIds.includes(category.id)}
-                  onChange={() => toggleScope(category.id)}
-                />
-                <span>{labelOf(category.name_i18n, locale)}</span>
-              </label>
+              <button
+                key={category.id}
+                type="button"
+                className={scopeIds.includes(category.id) ? "selected" : ""}
+                onClick={() => toggleScope(category.id)}
+              >
+                {labelOf(category.name_i18n, locale)}
+              </button>
             ))}
           </div>
           <div className="note-preset-create-actions">
@@ -945,15 +945,15 @@ function NotePresetRow({ preset, index, total, categories, locale, busy, onMove,
           {t(locale, "全部分类", "All categories")}
         </button>
         {categories.map((category) => (
-          <label key={category.id} className={scopeIds.includes(category.id) ? "selected" : ""}>
-            <input
-              type="checkbox"
-              disabled={savingScope}
-              checked={scopeIds.includes(category.id)}
-              onChange={() => toggleCategory(category.id)}
-            />
-            <span>{labelOf(category.name_i18n, locale)}</span>
-          </label>
+          <button
+            key={category.id}
+            type="button"
+            disabled={savingScope}
+            className={scopeIds.includes(category.id) ? "selected" : ""}
+            onClick={() => toggleCategory(category.id)}
+          >
+            {labelOf(category.name_i18n, locale)}
+          </button>
         ))}
       </div>
     </article>

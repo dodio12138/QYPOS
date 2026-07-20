@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Order Pagination**: Admin order list paginates at 20 items per page.
 
 ### Fixed
+- **Note Preset Scope Selection**: Category scope chips now use full-button clicks, fixing unclear or missed reactions when applying a note preset to a single category.
 - **DST Timezone Bug**: Item trend chart date axis now aligns with main report dates — no longer off by one day during Daylight Saving Time.
 - **`locale` Prop Crashes**: Multiple components (`PosLogin`, `DiscountAdminModal`, `SettingsView`, etc.) that crashed with `ReferenceError: locale is not defined` due to missing prop declarations/passing — all fixed and guarded by ESLint.
 - **Discount Cap**: Discount amount is now capped to the order subtotal, preventing negative or anomalous totals.

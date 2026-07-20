@@ -3422,7 +3422,7 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 }
 
 
-.note-scope-editor label {
+.note-scope-editor button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -3437,18 +3437,11 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 }
 
 
-.note-scope-editor label.selected,
 .note-scope-editor button.selected {
   border-color: rgba(20,184,166,0.42);
   background: #ecfdf5;
   color: #0f766e;
   font-weight: 700;
-}
-
-
-.note-scope-editor input {
-  width: auto;
-  min-height: auto;
 }
 
 
