@@ -308,6 +308,7 @@ CREATE TABLE note_presets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   label TEXT NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  category_ids JSONB NOT NULL DEFAULT '[]',
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -848,29 +848,39 @@ app.get("/note-presets", async () => {
   return query("SELECT * FROM note_presets ORDER BY sort_order, created_at");
 });
 
+function normalizeNotePresetCategoryIds(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(String).filter((id) => UUID_PATTERN.test(id)))];
+}
+
 app.post("/note-presets", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_menu")) return;
   const body = request.body ?? {};
   const label = String(body.label ?? "").trim();
   if (!label) { reply.code(400); return { error: "label is required" }; }
+  const categoryIds = normalizeNotePresetCategoryIds(body.category_ids);
   const preset = await one(
-    "INSERT INTO note_presets (label, sort_order, active) VALUES ($1, COALESCE($2, 0), COALESCE($3, true)) RETURNING *",
-    [label, body.sort_order, body.active]
+    "INSERT INTO note_presets (label, sort_order, active, category_ids) VALUES ($1, COALESCE($2, 0), COALESCE($3, true), $4::jsonb) RETURNING *",
+    [label, body.sort_order, body.active, JSON.stringify(categoryIds)]
   );
-  await auditLog(request, "note_preset.create", "note_preset", preset.id, { label });
+  await auditLog(request, "note_preset.create", "note_preset", preset.id, { label, category_ids: categoryIds });
   return preset;
 });
 
 app.patch("/note-presets/:id", async (request, reply) => {
   if (!await requirePermission(request, reply, "manage_menu")) return;
   const body = request.body ?? {};
+  const categoryIds = Object.prototype.hasOwnProperty.call(body, "category_ids")
+    ? JSON.stringify(normalizeNotePresetCategoryIds(body.category_ids))
+    : null;
   const preset = await one(
     `UPDATE note_presets SET
       label = COALESCE($2, label),
       sort_order = COALESCE($3, sort_order),
-      active = COALESCE($4, active)
+      active = COALESCE($4, active),
+      category_ids = CASE WHEN $5::jsonb IS NULL THEN category_ids ELSE $5::jsonb END
      WHERE id = $1 RETURNING *`,
-    [request.params.id, body.label, body.sort_order, body.active]
+    [request.params.id, body.label, body.sort_order, body.active, categoryIds]
   );
   if (!preset) { reply.code(404); return { error: "Note preset not found" }; }
   await auditLog(request, "note_preset.update", "note_preset", preset.id, body);

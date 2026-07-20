@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Eye, EyeOff, FileDown, Image, List, Loader2, Lock, Pencil, Plus, Power, ReceiptText, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, Eye, EyeOff, FileDown, Image, List, Loader2, Lock, Pencil, Plus, Power, ReceiptText, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import { t, money } from "./helpers";
 import { api, labelOf } from "../../../lib/api";
+
+const MENU_ITEMS_PAGE_SIZE = 12;
+const NOTE_PRESETS_PAGE_SIZE = 8;
 
 export function MenuAvailabilityAdmin({ menu, locale, currency, onSaved, onNotify }) {
   const [selectedCatId, setSelectedCatId] = useState("all");
@@ -77,13 +80,39 @@ export default function MenuAdmin({ menu, locale, currency, onSaved, onNotify })
   const [expandedItemId, setExpandedItemId] = useState(null);
   const [showCatForm, setShowCatForm] = useState(false);
   const [showItemForm, setShowItemForm] = useState(false);
+  const [itemQuery, setItemQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [itemPage, setItemPage] = useState(1);
   const [categoryZh, setCategoryZh] = useState("");
   const [categoryEn, setCategoryEn] = useState("");
   const [newItem, setNewItem] = useState({ nameZh: "", nameEn: "", price: "0", categoryId: "", variantPresetId: "" });
 
   const firstCatId = menu.categories[0]?.id;
-  const filteredItems = selectedCatId ? menu.items.filter((item) => item.category_id === selectedCatId) : menu.items;
+  const categoryItems = selectedCatId ? menu.items.filter((item) => item.category_id === selectedCatId) : menu.items;
+  const query = itemQuery.trim().toLowerCase();
+  const filteredItems = categoryItems.filter((item) => {
+    const nameZh = labelOf(item.name_i18n, "zh-CN").toLowerCase();
+    const nameEn = labelOf(item.name_i18n, "en-GB").toLowerCase();
+    const categoryName = labelOf(menu.categories.find((category) => category.id === item.category_id)?.name_i18n, locale).toLowerCase();
+    const matchesQuery = !query || nameZh.includes(query) || nameEn.includes(query) || categoryName.includes(query);
+    const matchesStatus = statusFilter === "all" || (statusFilter === "active" ? item.active !== false : item.active === false);
+    return matchesQuery && matchesStatus;
+  });
   const selectedCat = selectedCatId ? menu.categories.find((c) => c.id === selectedCatId) : null;
+  const itemPageCount = Math.max(1, Math.ceil(filteredItems.length / MENU_ITEMS_PAGE_SIZE));
+  const itemPageStart = (itemPage - 1) * MENU_ITEMS_PAGE_SIZE;
+  const visibleItems = filteredItems.slice(itemPageStart, itemPageStart + MENU_ITEMS_PAGE_SIZE);
+  const activeItemCount = menu.items.filter((item) => item.active !== false).length;
+  const inactiveItemCount = menu.items.length - activeItemCount;
+  const activeCategoryCount = menu.categories.filter((category) => category.active !== false).length;
+
+  useEffect(() => {
+    setItemPage(1);
+  }, [selectedCatId, itemQuery, statusFilter]);
+
+  useEffect(() => {
+    if (itemPage > itemPageCount) setItemPage(itemPageCount);
+  }, [itemPage, itemPageCount]);
 
   async function deleteCategory(cat, itemCount) {
     const suffix = itemCount > 0 ? `\n该分类下 ${itemCount} 个菜品将变为"未分类"。` : "";
@@ -135,7 +164,28 @@ export default function MenuAdmin({ menu, locale, currency, onSaved, onNotify })
 
   return (
     <div className="menu-admin-stack">
-      <OptionPresetsAdmin presets={menu.option_presets ?? []} locale={locale} onSaved={onSaved} onNotify={onNotify} />
+      <section className="menu-admin-overview">
+        <div>
+          <span>{t(locale, "分类", "Categories")}</span>
+          <strong>{menu.categories.length}</strong>
+          <small>{activeCategoryCount} {t(locale, "启用", "enabled")}</small>
+        </div>
+        <div>
+          <span>{t(locale, "菜品", "Items")}</span>
+          <strong>{menu.items.length}</strong>
+          <small>{activeItemCount} {t(locale, "上架", "active")}</small>
+        </div>
+        <div>
+          <span>{t(locale, "下架菜品", "Inactive items")}</span>
+          <strong>{inactiveItemCount}</strong>
+          <small>{t(locale, "可在列表内筛选", "Filter in list")}</small>
+        </div>
+        <div>
+          <span>{t(locale, "预设库", "Preset library")}</span>
+          <strong>{menu.option_presets?.length ?? 0}</strong>
+          <small>{t(locale, "规格 / 小料", "options / extras")}</small>
+        </div>
+      </section>
       <div className="menu-split">
       <aside className="menu-sidebar">
           <div className="menu-sidebar-head">
@@ -191,18 +241,35 @@ export default function MenuAdmin({ menu, locale, currency, onSaved, onNotify })
         {selectedCat && (
           <CategoryEditor key={selectedCat.id} category={selectedCat} locale={locale} onSaved={onSaved} />
         )}
-        <NotePresetsAdmin presets={menu.note_presets ?? []} locale={locale} onSaved={onSaved} />
       </aside>
 
       <div className="menu-items-pane">
         <div className="menu-toolbar">
-          <h2>
-            {selectedCat ? labelOf(selectedCat.name_i18n, locale) : t(locale, "全部菜品", "All items")}
-            <span className="muted"> ({filteredItems.length})</span>
-          </h2>
+          <div className="menu-toolbar-title">
+            <h2>
+              {selectedCat ? labelOf(selectedCat.name_i18n, locale) : t(locale, "全部菜品", "All items")}
+              <span className="muted"> ({filteredItems.length}/{categoryItems.length})</span>
+            </h2>
+            <small>{t(locale, "点击菜品行展开编辑规格、加料和状态", "Click an item row to edit options, extras, and status")}</small>
+          </div>
           <button type="button" onClick={() => setShowItemForm((v) => !v)}>
             <Plus size={16} /><span>{t(locale, "新建菜品", "New item")}</span>
           </button>
+        </div>
+        <div className="menu-list-controls">
+          <label className="menu-search-box">
+            <Search size={15} />
+            <input
+              value={itemQuery}
+              onChange={(event) => setItemQuery(event.target.value)}
+              placeholder={t(locale, "搜索菜品或分类", "Search items or categories")}
+            />
+          </label>
+          <div className="menu-status-filter" role="group" aria-label={t(locale, "菜品状态", "Item status")}>
+            <button type="button" className={statusFilter === "all" ? "selected" : ""} onClick={() => setStatusFilter("all")}>{t(locale, "全部", "All")}</button>
+            <button type="button" className={statusFilter === "active" ? "selected" : ""} onClick={() => setStatusFilter("active")}>{t(locale, "上架", "Active")}</button>
+            <button type="button" className={statusFilter === "inactive" ? "selected" : ""} onClick={() => setStatusFilter("inactive")}>{t(locale, "下架", "Inactive")}</button>
+          </div>
         </div>
         {showItemForm && (
           <form className="form-panel menu-new-item-form" onSubmit={saveItem}>
@@ -228,7 +295,7 @@ export default function MenuAdmin({ menu, locale, currency, onSaved, onNotify })
           </form>
         )}
         <div className="menu-item-list">
-          {filteredItems.map((item) => (
+          {visibleItems.map((item) => (
             <MenuItemRow
               key={item.id}
               item={item}
@@ -242,10 +309,23 @@ export default function MenuAdmin({ menu, locale, currency, onSaved, onNotify })
               onNotify={onNotify}
             />
           ))}
-          {!filteredItems.length && <div className="empty">{t(locale, "暂无菜品", "No items")}</div>}
+          {!filteredItems.length && <div className="empty">{itemQuery || statusFilter !== "all" ? t(locale, "没有符合筛选条件的菜品", "No items match the current filters") : t(locale, "暂无菜品", "No items")}</div>}
         </div>
+        {!!filteredItems.length && (
+          <PaginationControls
+            locale={locale}
+            page={itemPage}
+            pageCount={itemPageCount}
+            total={filteredItems.length}
+            pageSize={MENU_ITEMS_PAGE_SIZE}
+            onPrev={() => setItemPage((page) => Math.max(1, page - 1))}
+            onNext={() => setItemPage((page) => Math.min(itemPageCount, page + 1))}
+          />
+        )}
       </div>
       </div>
+      <NotePresetsAdmin presets={menu.note_presets ?? []} categories={menu.categories} locale={locale} onSaved={onSaved} />
+      <OptionPresetsAdmin presets={menu.option_presets ?? []} locale={locale} onSaved={onSaved} onNotify={onNotify} />
     </div>
   );
 }
@@ -614,11 +694,48 @@ function CategoryEditor({ category, locale, onSaved }) {
   );
 }
 
-function NotePresetsAdmin({ presets, locale, onSaved }) {
+function PaginationControls({ locale, page, pageCount, total, pageSize, onPrev, onNext }) {
+  const start = total ? (page - 1) * pageSize + 1 : 0;
+  const end = Math.min(total, page * pageSize);
+
+  return (
+    <div className="menu-pagination">
+      <span>{t(locale, `显示 ${start}-${end} / ${total}`, `Showing ${start}-${end} of ${total}`)}</span>
+      <div>
+        <button type="button" onClick={onPrev} disabled={page <= 1}>
+          <ChevronLeft size={15} />
+          <span>{t(locale, "上一页", "Previous")}</span>
+        </button>
+        <strong>{t(locale, `第 ${page} / ${pageCount} 页`, `Page ${page} / ${pageCount}`)}</strong>
+        <button type="button" onClick={onNext} disabled={page >= pageCount}>
+          <span>{t(locale, "下一页", "Next")}</span>
+          <ChevronRight size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NotePresetsAdmin({ presets, categories, locale, onSaved }) {
   const [showForm, setShowForm] = useState(false);
   const [label, setLabel] = useState("");
+  const [scopeIds, setScopeIds] = useState([]);
+  const [notePage, setNotePage] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const notePageCount = Math.max(1, Math.ceil(presets.length / NOTE_PRESETS_PAGE_SIZE));
+  const notePageStart = (notePage - 1) * NOTE_PRESETS_PAGE_SIZE;
+  const visiblePresets = presets.slice(notePageStart, notePageStart + NOTE_PRESETS_PAGE_SIZE);
+
+  useEffect(() => {
+    if (notePage > notePageCount) setNotePage(notePageCount);
+  }, [notePage, notePageCount]);
+
+  function toggleScope(categoryId) {
+    setScopeIds((current) => current.includes(categoryId)
+      ? current.filter((id) => id !== categoryId)
+      : [...current, categoryId]);
+  }
 
   async function addPreset(event) {
     event.preventDefault();
@@ -629,10 +746,12 @@ function NotePresetsAdmin({ presets, locale, onSaved }) {
     try {
       await api("/note-presets", {
         method: "POST",
-        body: JSON.stringify({ label: value, sort_order: presets.length + 1 })
+        body: JSON.stringify({ label: value, sort_order: presets.length + 1, category_ids: scopeIds })
       });
       setLabel("");
+      setScopeIds([]);
       setShowForm(false);
+      setNotePage(Math.max(1, Math.ceil((presets.length + 1) / NOTE_PRESETS_PAGE_SIZE)));
       await onSaved();
     } catch (err) {
       setError(err.message);
@@ -684,18 +803,18 @@ function NotePresetsAdmin({ presets, locale, onSaved }) {
   }
 
   return (
-    <div className="cat-editor-panel" style={{ marginTop: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <p className="muted cat-editor-title" style={{ margin: 0 }}>{t(locale, "备注词条管理", "Note presets")}</p>
+    <section className="note-presets-panel">
+      <div className="option-presets-head">
+        <div>
+          <h2>{t(locale, "备注词条管理", "Note presets")}</h2>
+          <p>{t(locale, "可设置词条适用的菜单分类；留空则全部分类可用。", "Scope each quick note to menu categories; leave empty for all categories.")}</p>
+        </div>
         <button type="button" title={t(locale, "新建词条", "New note")} onClick={() => setShowForm((v) => !v)}>
           <Plus size={14} />
         </button>
       </div>
-      <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-        {t(locale, "点菜时可一键加到菜品备注，仅在厨房打印单上显示。", "Add to item notes with one click; shown only on kitchen tickets.")}
-      </p>
       {showForm && (
-        <form onSubmit={addPreset} style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+        <form className="note-preset-create" onSubmit={addPreset}>
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
@@ -703,48 +822,141 @@ function NotePresetsAdmin({ presets, locale, onSaved }) {
             autoFocus
             required
           />
-          <div style={{ display: "flex", gap: 6 }}>
+          <div className="note-scope-editor">
+            <button type="button" className={scopeIds.length === 0 ? "selected" : ""} onClick={() => setScopeIds([])}>
+              {t(locale, "全部分类", "All categories")}
+            </button>
+            {categories.map((category) => (
+              <label key={category.id}>
+                <input
+                  type="checkbox"
+                  checked={scopeIds.includes(category.id)}
+                  onChange={() => toggleScope(category.id)}
+                />
+                <span>{labelOf(category.name_i18n, locale)}</span>
+              </label>
+            ))}
+          </div>
+          <div className="note-preset-create-actions">
             <button className="primary" type="submit" disabled={busy}>{t(locale, "保存", "Save")}</button>
-            <button type="button" onClick={() => { setShowForm(false); setLabel(""); setError(""); }}>{t(locale, "取消", "Cancel")}</button>
+            <button type="button" onClick={() => { setShowForm(false); setLabel(""); setScopeIds([]); setError(""); }}>{t(locale, "取消", "Cancel")}</button>
           </div>
           {error && <div className="inline-error">{error}</div>}
         </form>
       )}
-      {!presets.length && <div className="empty" style={{ padding: "8px 0" }}>{t(locale, "暂无词条", "No notes")}</div>}
-      {presets.map((preset, index) => (
-        <div
-          key={preset.id}
-          className={`menu-sidebar-item${!preset.active ? " cat-inactive" : ""}`}
-          style={{ paddingRight: 6 }}
-        >
-          <div className="cat-order-controls">
-            <button type="button" title={t(locale, "上移", "Move up")} disabled={busy || index === 0} onClick={() => movePreset(index, -1)}>
-              <ChevronUp size={13} />
-            </button>
-            <button type="button" title={t(locale, "下移", "Move down")} disabled={busy || index === presets.length - 1} onClick={() => movePreset(index, 1)}>
-              <ChevronDown size={13} />
-            </button>
-          </div>
-          <button
-            type="button"
-            className="cat-select-btn"
-            title={preset.active ? t(locale, "点击停用", "Click to disable") : t(locale, "点击启用", "Click to enable")}
-            onClick={() => togglePreset(preset)}
-          >
-            <span>{preset.label}</span>
-            <span className="cat-count">{preset.active ? t(locale, "启用", "Enabled") : t(locale, "停用", "Disabled")}</span>
+      {!presets.length && <div className="empty note-empty">{t(locale, "暂无词条", "No notes")}</div>}
+      <div className="note-preset-list">
+        {visiblePresets.map((preset, index) => (
+          <NotePresetRow
+            key={preset.id}
+            preset={preset}
+            index={notePageStart + index}
+            total={presets.length}
+            categories={categories}
+            locale={locale}
+            busy={busy}
+            onMove={movePreset}
+            onToggle={togglePreset}
+            onDestroy={destroyPreset}
+            onSaved={onSaved}
+          />
+        ))}
+      </div>
+      {!!presets.length && (
+        <PaginationControls
+          locale={locale}
+          page={notePage}
+          pageCount={notePageCount}
+          total={presets.length}
+          pageSize={NOTE_PRESETS_PAGE_SIZE}
+          onPrev={() => setNotePage((page) => Math.max(1, page - 1))}
+          onNext={() => setNotePage((page) => Math.min(notePageCount, page + 1))}
+        />
+      )}
+    </section>
+  );
+}
+
+function NotePresetRow({ preset, index, total, categories, locale, busy, onMove, onToggle, onDestroy, onSaved }) {
+  const [scopeIds, setScopeIds] = useState(Array.isArray(preset.category_ids) ? preset.category_ids : []);
+  const [savingScope, setSavingScope] = useState(false);
+
+  useEffect(() => {
+    setScopeIds(Array.isArray(preset.category_ids) ? preset.category_ids : []);
+  }, [preset.category_ids]);
+
+  async function saveScope(nextIds) {
+    setScopeIds(nextIds);
+    setSavingScope(true);
+    try {
+      await api(`/note-presets/${preset.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ category_ids: nextIds })
+      });
+      await onSaved();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSavingScope(false);
+    }
+  }
+
+  function toggleCategory(categoryId) {
+    const nextIds = scopeIds.includes(categoryId)
+      ? scopeIds.filter((id) => id !== categoryId)
+      : [...scopeIds, categoryId];
+    saveScope(nextIds);
+  }
+
+  return (
+    <article className={`note-preset-card${!preset.active ? " inactive" : ""}`}>
+      <div className="note-preset-card-head">
+        <div className="cat-order-controls">
+          <button type="button" title={t(locale, "上移", "Move up")} disabled={busy || index === 0} onClick={() => onMove(index, -1)}>
+            <ChevronUp size={13} />
           </button>
-          <button
-            type="button"
-            className="cat-delete-btn"
-            title={t(locale, "删除词条", "Delete note")}
-            onClick={() => destroyPreset(preset)}
-          >
-            <Trash2 size={12} />
+          <button type="button" title={t(locale, "下移", "Move down")} disabled={busy || index === total - 1} onClick={() => onMove(index, 1)}>
+            <ChevronDown size={13} />
           </button>
         </div>
-      ))}
-    </div>
+        <div>
+          <strong>{preset.label}</strong>
+          <span>{preset.active ? t(locale, "启用", "Enabled") : t(locale, "停用", "Disabled")}</span>
+        </div>
+        <button
+          type="button"
+          className="action-toggle"
+          title={preset.active ? t(locale, "点击停用", "Click to disable") : t(locale, "点击启用", "Click to enable")}
+          onClick={() => onToggle(preset)}
+        >
+          <Power size={14} />
+        </button>
+        <button
+          type="button"
+          className="danger-icon"
+          title={t(locale, "删除词条", "Delete note")}
+          onClick={() => onDestroy(preset)}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+      <div className="note-scope-editor">
+        <button type="button" disabled={savingScope} className={scopeIds.length === 0 ? "selected" : ""} onClick={() => saveScope([])}>
+          {t(locale, "全部分类", "All categories")}
+        </button>
+        {categories.map((category) => (
+          <label key={category.id} className={scopeIds.includes(category.id) ? "selected" : ""}>
+            <input
+              type="checkbox"
+              disabled={savingScope}
+              checked={scopeIds.includes(category.id)}
+              onChange={() => toggleCategory(category.id)}
+            />
+            <span>{labelOf(category.name_i18n, locale)}</span>
+          </label>
+        ))}
+      </div>
+    </article>
   );
 }
 
@@ -1285,4 +1497,3 @@ function ModifierEditor({ modifier, index, locale, currency, onSaved, onNotify, 
     </div>
   );
 }
-

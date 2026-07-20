@@ -152,9 +152,11 @@ export async function ensureSchema() {
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     label TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    category_ids JSONB NOT NULL DEFAULT '[]',
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await pool.query("ALTER TABLE note_presets ADD COLUMN IF NOT EXISTS category_ids JSONB NOT NULL DEFAULT '[]'");
   const presetCount = await pool.query("SELECT COUNT(*)::int AS n FROM note_presets");
   if (presetCount.rows[0].n === 0) {
     await pool.query(

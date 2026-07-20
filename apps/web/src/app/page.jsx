@@ -607,6 +607,14 @@ export default function PosPage() {
     });
   }
 
+  function notePresetsForItem(item) {
+    return (menu.note_presets ?? []).filter((preset) => {
+      if (preset.active === false) return false;
+      const categoryIds = Array.isArray(preset.category_ids) ? preset.category_ids : [];
+      return !categoryIds.length || categoryIds.includes(item.category_id);
+    });
+  }
+
   if (!authChecked) {
     return (
       <main className="pos-shell">
@@ -735,7 +743,7 @@ export default function PosPage() {
           item={pickerItem}
           locale={locale}
           currency={currency}
-          notePresets={(menu.note_presets ?? []).filter((p) => p.active !== false)}
+          notePresets={notePresetsForItem(pickerItem)}
           onClose={() => setPickerItem(null)}
           onAdd={addConfiguredItem}
         />
@@ -746,7 +754,7 @@ export default function PosPage() {
           item={editingOrderItem.menuItem}
           locale={locale}
           currency={currency}
-          notePresets={(menu.note_presets ?? []).filter((p) => p.active !== false)}
+          notePresets={notePresetsForItem(editingOrderItem.menuItem)}
           initialVariantId={editingOrderItem.orderItem.variant_id}
           initialModifierIds={(editingOrderItem.orderItem.modifiers ?? []).map((m) => m.modifier_id).filter(Boolean)}
           initialNotes={editingOrderItem.orderItem.notes || ""}
@@ -861,4 +869,3 @@ export default function PosPage() {
 }
 
 // DiscountAdminModal imported from ./_components/discount-admin-modal
-

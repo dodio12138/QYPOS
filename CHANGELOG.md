@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Top-Seller Drilldown**: Dashboard top sellers now support multi-select with merged trend charts, compatible with historical data missing `item_id`.
 - **Report Enhancements**: Day-of-week multi-select filter; expanded date presets (today, yesterday, last 7/30 days, this month, this week, last week, last month).
 - **Report Analytics Mix Charts**: Sales analytics now includes items sold, service charge, discount, VAT summaries, category mix charts for item count/revenue, linked highlighting, and a hideable trend line.
+- **Admin Menu UX Improvements**: Menu management now includes overview stats, search, availability filters, previous/next item pagination, and a standalone note-preset area with category-scoped availability.
 - **Full i18n**: Complete Chinese / English coverage across POS and Admin interfaces.
 - **ESLint Configuration**: Root-level flat config with `no-undef` rule integrated into CI pipeline to catch prop-passing regressions.
 - **Audit Log Filters**: Combined user, action, and exact time-range filters in Admin audit log view.
