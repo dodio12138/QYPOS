@@ -850,7 +850,7 @@ app.get("/note-presets", async () => {
 
 function normalizeNotePresetCategoryIds(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(String).filter((id) => UUID_PATTERN.test(id)))];
+  return [...new Set(value.map(String).filter((id) => UUID_PATTERN.test(id) || LEGACY_UUID_PATTERN.test(id)))];
 }
 
 app.post("/note-presets", async (request, reply) => {
