@@ -107,6 +107,11 @@ function signedNumber(value, locale) {
   return `${number >= 0 ? "+" : "-"}${new Intl.NumberFormat(locale).format(Math.abs(number))}`;
 }
 
+function formatTrendTooltipDate(day, locale) {
+  const date = new Date(`${day}T00:00:00`);
+  return `${date.toLocaleDateString(locale, { month: "long", day: "numeric" })} · ${date.toLocaleDateString(locale, { weekday: "long" })}`;
+}
+
 export default function ReportsAnalytics({ report, setReport, locale, currency }) {
   const today = getLocalToday();
   const [from, setFrom] = useState(addDays(today, -6));
@@ -1090,6 +1095,7 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const tipRef = useRef(null);
+  const guideRef = useRef(null);
   const days = (data || []).slice().sort((a, b) => new Date(a.day) - new Date(b.day));
   const title = metric === "orders" ? "单量" : metric === "avg_ticket" ? "客单价" : "营业额";
   const color = metric === "orders" ? "#2563eb" : metric === "avg_ticket" ? "#0f766e" : "#b91c1c";
@@ -1193,13 +1199,15 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
       onMouseMove={(e) => {
         const container = containerRef.current;
         const tip = tipRef.current;
-        if (!container || !tip || !days.length) return;
+        const guide = guideRef.current;
+        if (!container || !tip || !guide || !days.length) return;
         const rect = container.getBoundingClientRect();
         const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
         const pad = 32;
+        const h = 240;
         const w = Math.max(300, Math.floor(rect.width));
         const plotW = w - pad * 2;
+        const plotH = h - pad * 2;
         const step = plotW / Math.max(1, days.length - 1);
         const idx = Math.min(days.length - 1, Math.max(0, Math.round((x - pad) / step)));
         const day = days[idx];
@@ -1212,22 +1220,54 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
           : metric === "avg_ticket"
             ? (Number(day.orders || 0) ? Number(day.revenue || 0) / Number(day.orders || 0) : 0)
             : Number(day.revenue || 0);
-        tip.innerHTML = `<div style="font-weight:600">${new Date(day.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })}</div><div>${title}: ${metric === "orders" ? value : money(value, currency, locale)}</div>`;
+        const values = days.map((entry) => metric === "orders"
+          ? Number(entry.orders || 0)
+          : metric === "avg_ticket"
+            ? (Number(entry.orders || 0) ? Number(entry.revenue || 0) / Number(entry.orders || 0) : 0)
+            : Number(entry.revenue || 0));
+        const maxValue = Math.max(1, ...values);
+        const pointX = pad + idx * step;
+        const pointY = pad + (plotH - (value / maxValue) * plotH);
+        const previousValue = idx > 0 ? values[idx - 1] : null;
+        const pointDelta = previousValue == null ? null : pctDelta(value, previousValue);
+        const trendClass = pointDelta == null ? "flat" : pointDelta >= 0 ? "up" : "down";
+        const trendText = pointDelta == null ? "0%" : `${pointDelta >= 0 ? "+" : ""}${pointDelta}%`;
+        const trendIcon = pointDelta == null
+          ? "−"
+          : pointDelta >= 0
+            ? "↑"
+            : "↓";
+        const displayValue = metric === "orders" ? new Intl.NumberFormat(locale).format(value) : money(value, currency, locale);
+        tip.innerHTML = `
+          <div class="daily-trend-tooltip-date">${formatTrendTooltipDate(day.day, locale)}</div>
+          <div class="daily-trend-tooltip-body">
+            <strong>${displayValue}</strong>
+            <span class="daily-trend-tooltip-delta ${trendClass}"><i>${trendIcon}</i>${trendText}</span>
+          </div>
+        `;
         tip.style.display = "block";
+        guide.style.display = "block";
+        guide.style.left = `${pointX}px`;
         const tipRect = tip.getBoundingClientRect();
-        let left = x + 12;
+        let left = pointX - tipRect.width / 2;
         if (left + tipRect.width > rect.width) left = x - tipRect.width - 12;
         if (left < 6) left = 6;
-        let top = y - tipRect.height - 8;
-        if (top < 6) top = y + 8;
+        let top = pointY - tipRect.height - 16;
+        if (top < 6) top = pointY + 16;
         tip.style.left = `${left}px`;
         tip.style.top = `${top}px`;
       }}
-      onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = "none"; }}
+      onMouseLeave={() => {
+        const tip = tipRef.current;
+        const guide = guideRef.current;
+        if (tip) tip.style.display = "none";
+        if (guide) guide.style.display = "none";
+      }}
     >
       <canvas ref={canvasRef} />
       {!days.length && <div className="empty" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{t(locale, "暂无数据", "No data")}</div>}
-      <div ref={tipRef} style={{ display: "none", position: "absolute", pointerEvents: "none", background: "rgba(17,24,39,0.9)", color: "#fff", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }} />
+      <div ref={guideRef} className="daily-trend-hover-guide" style={{ display: "none" }} />
+      <div ref={tipRef} className="daily-trend-tooltip" style={{ display: "none" }} />
     </div>
   );
 }

@@ -690,6 +690,115 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 }
 
 
+.daily-trend-hover-guide {
+  position: absolute;
+  top: 30px;
+  bottom: 28px;
+  width: 0;
+  border-left: 1px dashed rgba(245, 158, 11, 0.58);
+  pointer-events: none;
+  z-index: 40;
+}
+
+
+.daily-trend-tooltip {
+  position: absolute;
+  min-width: 176px;
+  overflow: hidden;
+  border: 1px solid #e8ecef;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #53565a;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  z-index: 50;
+}
+
+
+.daily-trend-tooltip-date {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-bottom: 1px solid #edf0f2;
+  color: #9aa1a9;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+
+.daily-trend-tooltip-date::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  margin-right: 8px;
+  background: currentColor;
+  opacity: 0.82;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM5 6a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1H5Zm2 7h3v3H7v-3Zm5 0h3v3h-3v-3Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+
+.daily-trend-tooltip-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 52px;
+  padding: 0 14px;
+}
+
+
+.daily-trend-tooltip-body strong {
+  color: #53565a;
+  font-size: 15px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+
+.daily-trend-tooltip-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+
+.daily-trend-tooltip-delta i {
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  font-style: normal;
+  line-height: 1;
+}
+
+
+.daily-trend-tooltip-delta.up {
+  background: #eefbf2;
+  color: #5ebd78;
+}
+
+
+.daily-trend-tooltip-delta.down {
+  background: #fff1f2;
+  color: #df7474;
+}
+
+
+.daily-trend-tooltip-delta.flat {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+
 .report-time-chart {
   grid-column: 1 / -1;
   position: relative;
