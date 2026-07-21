@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { TrendingDown, TrendingUp } from "lucide-react";
-import { api, labelOf } from "../../../lib/api";
+import { Calculator, CreditCard, DollarSign, Percent, Receipt, Wallet } from "lucide-react";
+import { labelOf } from "../../../lib/api";
+import MetricCard from "./metric-card";
 
 function t(locale, zh, en) { return locale === "en-GB" ? en : zh; }
 function money(value, currency = "CNY", locale = "zh-CN") {
@@ -12,6 +13,11 @@ function pctDelta(curr, prev) {
   const c = Number(curr||0), p = Number(prev||0);
   if (!p) return null;
   return Math.round(((c-p)/p)*1000)/10;
+}
+function signedMoney(value, currency, locale) {
+  const number = Number(value || 0);
+  const formatted = money(Math.abs(number), currency, locale);
+  return `${number >= 0 ? "+" : "-"}${formatted}`;
 }
 
 export default function Dashboard({ dashboard, auditLogs, locale, currency }) {
@@ -60,28 +66,30 @@ export default function Dashboard({ dashboard, auditLogs, locale, currency }) {
 
   return (
     <div className="dashboard">
-      {[[t(locale,"营业额","Revenue"),"revenue"],[t(locale,"折扣","Discount"),"discount"],[t(locale,"净销售额","Net sales"),"net_sales"],["Tax","tax"],[t(locale,"服务费","Service charge"),"service_charge"],[t(locale,"客单价","Average ticket"),"average_ticket"]].map(([label, key]) => {
+      {[
+        [t(locale,"营业额","Revenue"),"revenue", DollarSign],
+        [t(locale,"折扣","Discount"),"discount", Percent],
+        [t(locale,"净销售额","Net sales"),"net_sales", Wallet],
+        ["Tax","tax", Calculator],
+        [t(locale,"服务费","Service charge"),"service_charge", Receipt],
+        [t(locale,"客单价","Average ticket"),"average_ticket", CreditCard]
+      ].map(([label, key, Icon]) => {
         const value = summary[key];
         const currNum = Number(value || 0);
         const prevNum = yesterdaySummary ? Number(yesterdaySummary[key] || 0) : null;
         const delta = yesterdaySummary ? pctDelta(value, yesterdaySummary[key]) : null;
+        const actualChange = yesterdaySummary ? currNum - prevNum : 0;
+        const normalizedDelta = delta ?? (prevNum === 0 && currNum > 0 ? 100 : null);
         return (
-          <section className="metric" key={label}>
-            <span>{label}</span>
-            <strong>{money(value, currency, locale)}</strong>
-            {delta != null && (
-              <span className={`reports-delta ${delta >= 0 ? "up" : "down"}`}>
-                {delta >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-                {delta >= 0 ? "+" : ""}{delta}% <small className="muted">{t(locale, "较昨日", "vs yesterday")}</small>
-              </span>
-            )}
-            {delta == null && prevNum === 0 && currNum > 0 && (
-              <span className="reports-delta up"><TrendingUp size={13} />{t(locale, "新增", "New")} <small className="muted">{t(locale, "较昨日", "vs yesterday")}</small></span>
-            )}
-            {delta == null && prevNum === 0 && currNum === 0 && (
-              <span className="reports-delta flat">{t(locale, "持平", "Flat")} <small className="muted">{t(locale, "较昨日", "vs yesterday")}</small></span>
-            )}
-          </section>
+          <MetricCard
+            key={label}
+            title={label}
+            icon={Icon}
+            value={money(value, currency, locale)}
+            deltaPercent={normalizedDelta}
+            changeText={yesterdaySummary ? signedMoney(actualChange, currency, locale) : ""}
+            compareText={yesterdaySummary ? t(locale, "较昨日", "vs yesterday") : ""}
+          />
         );
       })}
       <section className="wide-list dashboard-list report-hot-items">

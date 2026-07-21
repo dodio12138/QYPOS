@@ -384,6 +384,128 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 }
 
 
+.metric-card {
+  min-height: 132px;
+  align-content: space-between;
+  gap: 26px;
+  border-color: #e8ecef;
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+
+.metric-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+
+.metric-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: #555f68 !important;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+
+.metric-card-title svg {
+  flex: 0 0 auto;
+  color: #7a838c;
+  stroke-width: 2.1;
+}
+
+
+.metric-card-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.metric-card-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+
+.metric-card-trend.up {
+  background: #eefbf2;
+  color: #5ebd78;
+}
+
+
+.metric-card-trend.down {
+  background: #fff1f2;
+  color: #df7474;
+}
+
+
+.metric-card-trend.flat {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+
+.metric-card-body {
+  display: grid;
+  gap: 6px;
+}
+
+
+.metric-card-body strong {
+  color: #53565a;
+  font-size: 26px;
+  line-height: 1.05;
+}
+
+
+.metric-card-change {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: #9aa1a9 !important;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+
+.metric-card-change b {
+  color: inherit;
+  font-size: 13px;
+}
+
+
+.metric-card-change small {
+  color: #a5abb2;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+
+.metric-card-change.up b {
+  color: #5ebd78;
+}
+
+
+.metric-card-change.down b {
+  color: #df7474;
+}
+
+
 .metric span {
   color: var(--muted);
 }

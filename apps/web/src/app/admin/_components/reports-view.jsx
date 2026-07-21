@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Download, FileDown, RefreshCw, Search, TrendingDown, TrendingUp } from "lucide-react";
+import { Calculator, ChevronDown, ChevronUp, CreditCard, DollarSign, Download, FileDown, Hash, Percent, Receipt, RefreshCw, Search, ShoppingBag, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { t, money, API_URL, getLocalToday, formatDateStr, addDays, addYears, pctDelta, weekdayLabels, formatClockMinute, daySpan, mondayOf } from "./helpers";
 import { api, labelOf } from "../../../lib/api";
+import MetricCard from "./metric-card";
 
 function groupByWeek(byDay, locale) { const w=new Map(); for(const r of byDay||[]){const d=new Date(r.day),dw=(d.getDay()+6)%7,ws=new Date(d);ws.setDate(d.getDate()-dw);const k=formatDateStr(ws);if(!w.has(k)){const we=new Date(ws);we.setDate(ws.getDate()+6);w.set(k,{key:k,label:`${ws.toLocaleDateString(locale,{month:"2-digit",day:"2-digit"})} - ${we.toLocaleDateString(locale,{month:"2-digit",day:"2-digit"})}`,orders:0,revenue:0});}const b=w.get(k);b.orders+=Number(r.orders||0);b.revenue+=Number(r.revenue||0);}return [...w.values()].sort((a,b)=>a.key.localeCompare(b.key));}
 function groupByWeekday(byDay, locale) { const b=weekdayLabels(locale).map((l,i)=>({dow:i,label:l,orders:0,revenue:0,days:0}));for(const r of byDay||[]){const d=new Date(r.day),dw=(d.getDay()+6)%7,bb=b[dw];bb.orders+=Number(r.orders||0);bb.revenue+=Number(r.revenue||0);bb.days+=1;}return b;}
@@ -95,6 +96,16 @@ function pct(value, total) {
   return `${((number / base) * 100).toFixed(1)}%`;
 }
 
+function signedMoney(value, currency, locale) {
+  const number = Number(value || 0);
+  const formatted = money(Math.abs(number), currency, locale);
+  return `${number >= 0 ? "+" : "-"}${formatted}`;
+}
+
+function signedNumber(value, locale) {
+  const number = Number(value || 0);
+  return `${number >= 0 ? "+" : "-"}${new Intl.NumberFormat(locale).format(Math.abs(number))}`;
+}
 
 export default function ReportsAnalytics({ report, setReport, locale, currency }) {
   const today = getLocalToday();
@@ -277,14 +288,14 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
   ].filter(Boolean);
 
   const summaryFields = [
-    [t(locale, "营业额", "Revenue"), "revenue"],
-    [t(locale, "订单数", "Orders"), "orders"],
-    [t(locale, "售出单品", "Items sold"), "items_sold"],
-    [t(locale, "客单价", "Average ticket"), "average_ticket"],
-    [t(locale, "净销售额", "Net sales"), "net_sales"],
-    [t(locale, "服务费", "Service charge"), "service_charge"],
-    [t(locale, "折扣", "Discount"), "discount"],
-    ["VAT", "tax"]
+    [t(locale, "营业额", "Revenue"), "revenue", DollarSign, "money"],
+    [t(locale, "订单数", "Orders"), "orders", Hash, "number"],
+    [t(locale, "售出单品", "Items sold"), "items_sold", ShoppingBag, "number"],
+    [t(locale, "客单价", "Average ticket"), "average_ticket", CreditCard, "money"],
+    [t(locale, "净销售额", "Net sales"), "net_sales", Wallet, "money"],
+    [t(locale, "服务费", "Service charge"), "service_charge", Receipt, "money"],
+    [t(locale, "折扣", "Discount"), "discount", Percent, "money"],
+    ["VAT", "tax", Calculator, "money"]
   ];
 
   return (
@@ -322,7 +333,7 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
       {report && (
         <>
           <section className="wide-list dashboard-list reports-summary-cards">
-            {summaryFields.map(([label, key]) => {
+            {summaryFields.map(([label, key, Icon, valueKind]) => {
               const currVal = key === "average_ticket"
                 ? (report.summary.average_ticket ?? (report.summary.orders ? report.summary.revenue / report.summary.orders : 0))
                 : report.summary[key];
@@ -332,17 +343,24 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
                   : comparisonReport.summary[key])
                 : null;
               const delta = comparisonReport ? pctDelta(currVal, prevVal) : null;
+              const currNum = Number(currVal || 0);
+              const prevNum = comparisonReport ? Number(prevVal || 0) : 0;
+              const change = currNum - prevNum;
+              const displayValue = valueKind === "number" ? new Intl.NumberFormat(locale).format(currNum) : money(currNum, currency, locale);
+              const changeText = comparisonReport
+                ? (valueKind === "number" ? signedNumber(change, locale) : signedMoney(change, currency, locale))
+                : "";
+              const normalizedDelta = delta ?? (comparisonReport && prevNum === 0 && currNum > 0 ? 100 : null);
               return (
-                <section className="metric reports-summary-card" key={key}>
-                  <span>{label}</span>
-                  <strong>{["orders", "items_sold"].includes(key) ? Number(currVal || 0) : money(currVal, currency, locale)}</strong>
-                  {delta != null && (
-                    <span className={`reports-delta ${delta >= 0 ? "up" : "down"}`}>
-                      {delta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                      {delta >= 0 ? "+" : ""}{delta}%
-                    </span>
-                  )}
-                </section>
+                <MetricCard
+                  key={key}
+                  title={label}
+                  icon={Icon}
+                  value={displayValue}
+                  deltaPercent={normalizedDelta}
+                  changeText={changeText}
+                  compareText={comparisonReport ? t(locale, `较${compareLabel}`, `vs ${compareLabel}`) : ""}
+                />
               );
             })}
           </section>
