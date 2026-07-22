@@ -408,7 +408,7 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  color: #555f68 !important;
+  color: #111827 !important;
   font-size: 14px;
   font-weight: 800;
 }
@@ -416,7 +416,7 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 
 .metric-card-title svg {
   flex: 0 0 auto;
-  color: #7a838c;
+  color: #111827;
   stroke-width: 2.1;
 }
 
@@ -443,14 +443,14 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 
 
 .metric-card-trend.up {
-  background: #eefbf2;
-  color: #5ebd78;
+  background: #dcfce7;
+  color: #16a34a;
 }
 
 
 .metric-card-trend.down {
-  background: #fff1f2;
-  color: #df7474;
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 
@@ -467,7 +467,7 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 
 
 .metric-card-body strong {
-  color: #53565a;
+  color: #111827;
   font-size: 26px;
   line-height: 1.05;
 }
@@ -497,12 +497,12 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 
 
 .metric-card-change.up b {
-  color: #5ebd78;
+  color: #16a34a;
 }
 
 
 .metric-card-change.down b {
-  color: #df7474;
+  color: #dc2626;
 }
 
 
@@ -708,7 +708,7 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
   border: 1px solid #e8ecef;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.96);
-  color: #53565a;
+  color: #111827;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
   backdrop-filter: blur(8px);
   pointer-events: none;
@@ -750,7 +750,7 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 
 
 .daily-trend-tooltip-body strong {
-  color: #53565a;
+  color: #111827;
   font-size: 15px;
   font-weight: 900;
   white-space: nowrap;
@@ -782,14 +782,14 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 
 
 .daily-trend-tooltip-delta.up {
-  background: #eefbf2;
-  color: #5ebd78;
+  background: #dcfce7;
+  color: #16a34a;
 }
 
 
 .daily-trend-tooltip-delta.down {
-  background: #fff1f2;
-  color: #df7474;
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 
