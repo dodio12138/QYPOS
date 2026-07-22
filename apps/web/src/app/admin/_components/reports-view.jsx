@@ -108,7 +108,9 @@ function signedNumber(value, locale) {
 }
 
 function formatTrendTooltipDate(day, locale) {
-  const date = new Date(`${day}T00:00:00`);
+  const value = String(day || "");
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value || "";
   return `${date.toLocaleDateString(locale, { month: "long", day: "numeric" })} · ${date.toLocaleDateString(locale, { weekday: "long" })}`;
 }
 
