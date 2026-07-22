@@ -124,17 +124,19 @@ function niceIntegerStep(rawStep) {
   const value = Math.max(1, Number(rawStep || 1));
   const power = 10 ** Math.floor(Math.log10(value));
   const fraction = value / power;
-  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10;
   return Math.max(1, Math.ceil(niceFraction * power));
 }
 
-function trendAxisScale(values, tickCount = 4) {
+function trendAxisScale(values) {
   const rawMax = Math.max(1, ...values.map((value) => Number(value || 0)));
-  const tickStep = niceIntegerStep(rawMax / tickCount);
-  return {
-    tickStep,
-    axisMax: tickStep * tickCount
-  };
+  const candidates = [];
+  for (const tickCount of [4, 5, 6]) {
+    const tickStep = niceIntegerStep(rawMax / tickCount);
+    const axisMax = tickStep * tickCount;
+    candidates.push({ tickCount, tickStep, axisMax, overshoot: axisMax - rawMax });
+  }
+  return candidates.sort((a, b) => a.overshoot - b.overshoot || a.tickCount - b.tickCount)[0];
 }
 
 export default function ReportsAnalytics({ report, setReport, locale, currency }) {
@@ -1166,7 +1168,7 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
           return sample.reduce((sum, value) => sum + value, 0) / sample.length;
         })
         : [];
-      const { tickStep, axisMax } = trendAxisScale([...values, ...trendValues]);
+      const { tickCount, tickStep, axisMax } = trendAxisScale([...values, ...trendValues]);
       const step = plotW / Math.max(1, days.length - 1);
       const pointAt = (index, sourceValues = values) => {
         const value = sourceValues[index] || 0;
@@ -1177,7 +1179,6 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
       };
       const points = days.map((_, index) => pointAt(index));
 
-      const tickCount = 4;
       ctx.save();
       ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
       ctx.fillStyle = "#94a3b8";
