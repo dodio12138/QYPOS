@@ -114,6 +114,12 @@ function formatTrendTooltipDate(day, locale) {
   return `${date.toLocaleDateString(locale, { month: "long", day: "numeric" })} · ${date.toLocaleDateString(locale, { weekday: "long" })}`;
 }
 
+function formatTrendAxisTick(value, metric, currency, locale) {
+  const number = Number(value || 0);
+  if (metric === "orders") return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(number);
+  return new Intl.NumberFormat(locale, { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(number);
+}
+
 export default function ReportsAnalytics({ report, setReport, locale, currency }) {
   const today = getLocalToday();
   const [from, setFrom] = useState(addDays(today, -6));
@@ -1122,9 +1128,12 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
       ctx.clearRect(0, 0, w, h);
       if (!days.length) return;
 
-      const pad = 32;
-      const plotW = w - pad * 2;
-      const plotH = h - pad * 2;
+      const leftPad = 58;
+      const rightPad = 32;
+      const topPad = 24;
+      const bottomPad = 32;
+      const plotW = w - leftPad - rightPad;
+      const plotH = h - topPad - bottomPad;
       const values = days.map((d) => metric === "orders"
         ? Number(d.orders || 0)
         : metric === "avg_ticket"
@@ -1145,17 +1154,36 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
       const pointAt = (index, sourceValues = values) => {
         const value = sourceValues[index] || 0;
         return {
-          x: pad + index * step,
-          y: pad + (plotH - (value / maxValue) * plotH)
+          x: leftPad + index * step,
+          y: topPad + (plotH - (value / maxValue) * plotH)
         };
       };
       const points = days.map((_, index) => pointAt(index));
 
-      const gradient = ctx.createLinearGradient(0, pad, 0, pad + plotH);
+      const tickCount = 4;
+      ctx.save();
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.18)";
+      ctx.fillStyle = "#94a3b8";
+      ctx.lineWidth = 1;
+      ctx.font = "11px sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for (let tick = 0; tick <= tickCount; tick += 1) {
+        const tickValue = (maxValue / tickCount) * tick;
+        const y = topPad + plotH - (tickValue / maxValue) * plotH;
+        ctx.beginPath();
+        ctx.moveTo(leftPad, y);
+        ctx.lineTo(w - rightPad, y);
+        ctx.stroke();
+        ctx.fillText(formatTrendAxisTick(tickValue, metric, currency, locale), leftPad - 8, y);
+      }
+      ctx.restore();
+
+      const gradient = ctx.createLinearGradient(0, topPad, 0, topPad + plotH);
       gradient.addColorStop(0, `rgba(${areaColor[0]}, ${areaColor[1]}, ${areaColor[2]}, 0.34)`);
       gradient.addColorStop(1, `rgba(${areaColor[0]}, ${areaColor[1]}, ${areaColor[2]}, 0)`);
       ctx.fillStyle = gradient;
-      drawSmoothArea(ctx, points, pad + plotH);
+      drawSmoothArea(ctx, points, topPad + plotH);
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 2.5;
@@ -1184,7 +1212,7 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
       days.forEach((day, index) => {
         if (days.length > 14 && index % Math.ceil(days.length / 10) !== 0) return;
         const label = new Date(day.day).toLocaleDateString(locale, { month: "2-digit", day: "2-digit" });
-        ctx.fillText(label, pad + index * step, h - 8);
+        ctx.fillText(label, leftPad + index * step, h - 8);
       });
     }
 
@@ -1205,13 +1233,16 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
         if (!container || !tip || !guide || !days.length) return;
         const rect = container.getBoundingClientRect();
         const x = e.clientX - rect.left;
-        const pad = 32;
+        const leftPad = 58;
+        const rightPad = 32;
+        const topPad = 24;
+        const bottomPad = 32;
         const h = 240;
         const w = Math.max(300, Math.floor(rect.width));
-        const plotW = w - pad * 2;
-        const plotH = h - pad * 2;
+        const plotW = w - leftPad - rightPad;
+        const plotH = h - topPad - bottomPad;
         const step = plotW / Math.max(1, days.length - 1);
-        const idx = Math.min(days.length - 1, Math.max(0, Math.round((x - pad) / step)));
+        const idx = Math.min(days.length - 1, Math.max(0, Math.round((x - leftPad) / step)));
         const day = days[idx];
         if (!day) {
           tip.style.display = "none";
@@ -1228,8 +1259,8 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
             ? (Number(entry.orders || 0) ? Number(entry.revenue || 0) / Number(entry.orders || 0) : 0)
             : Number(entry.revenue || 0));
         const maxValue = Math.max(1, ...values);
-        const pointX = pad + idx * step;
-        const pointY = pad + (plotH - (value / maxValue) * plotH);
+        const pointX = leftPad + idx * step;
+        const pointY = topPad + (plotH - (value / maxValue) * plotH);
         const previousValue = idx > 0 ? values[idx - 1] : null;
         const pointDelta = previousValue == null ? null : pctDelta(value, previousValue);
         const trendClass = pointDelta == null ? "flat" : pointDelta >= 0 ? "up" : "down";
