@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Report Enhancements**: Day-of-week multi-select filter; expanded date presets (today, yesterday, last 7/30 days, this month, this week, last week, last month).
 - **Report Analytics Mix Charts**: Sales analytics now includes items sold, service charge, discount, VAT summaries, category mix charts for item count/revenue, linked highlighting, and a hideable trend line.
 - **Daily Trend Hover Card**: Daily revenue/order/average-ticket trend charts now show a date + weekday hover card with point-over-previous-point percentage change.
-- **Daily Trend Y-Axis Ticks**: Daily trend charts now include y-axis tick labels and horizontal gridlines with compact amount/count formatting.
+- **Daily Trend Y-Axis Ticks**: Daily trend charts now include evenly spaced integer y-axis ticks and horizontal gridlines.
 - **Metric Card Refresh**: Dashboard and report summary cards now show metric icons, top-right trend percentages, and actual value changes below the main number.
 - **Admin Menu UX Improvements**: Menu management now includes overview stats, search, availability filters, previous/next item pagination, and a standalone note-preset area with category-scoped availability.
 - **Full i18n**: Complete Chinese / English coverage across POS and Admin interfaces.

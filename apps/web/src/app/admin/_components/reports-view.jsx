@@ -116,8 +116,25 @@ function formatTrendTooltipDate(day, locale) {
 
 function formatTrendAxisTick(value, metric, currency, locale) {
   const number = Number(value || 0);
-  if (metric === "orders") return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(number);
-  return new Intl.NumberFormat(locale, { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(number);
+  if (metric === "orders") return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(number);
+  return new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).format(number);
+}
+
+function niceIntegerStep(rawStep) {
+  const value = Math.max(1, Number(rawStep || 1));
+  const power = 10 ** Math.floor(Math.log10(value));
+  const fraction = value / power;
+  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  return Math.max(1, Math.ceil(niceFraction * power));
+}
+
+function trendAxisScale(values, tickCount = 4) {
+  const rawMax = Math.max(1, ...values.map((value) => Number(value || 0)));
+  const tickStep = niceIntegerStep(rawMax / tickCount);
+  return {
+    tickStep,
+    axisMax: tickStep * tickCount
+  };
 }
 
 export default function ReportsAnalytics({ report, setReport, locale, currency }) {
@@ -1149,13 +1166,13 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
           return sample.reduce((sum, value) => sum + value, 0) / sample.length;
         })
         : [];
-      const maxValue = Math.max(1, ...values, ...trendValues);
+      const { tickStep, axisMax } = trendAxisScale([...values, ...trendValues]);
       const step = plotW / Math.max(1, days.length - 1);
       const pointAt = (index, sourceValues = values) => {
         const value = sourceValues[index] || 0;
         return {
           x: leftPad + index * step,
-          y: topPad + (plotH - (value / maxValue) * plotH)
+          y: topPad + (plotH - (value / axisMax) * plotH)
         };
       };
       const points = days.map((_, index) => pointAt(index));
@@ -1169,8 +1186,8 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
       for (let tick = 0; tick <= tickCount; tick += 1) {
-        const tickValue = (maxValue / tickCount) * tick;
-        const y = topPad + plotH - (tickValue / maxValue) * plotH;
+        const tickValue = tickStep * tick;
+        const y = topPad + plotH - (tickValue / axisMax) * plotH;
         ctx.beginPath();
         ctx.moveTo(leftPad, y);
         ctx.lineTo(w - rightPad, y);
@@ -1258,9 +1275,9 @@ function DailyTrendChart({ data, metric, locale, currency, showTrend }) {
           : metric === "avg_ticket"
             ? (Number(entry.orders || 0) ? Number(entry.revenue || 0) / Number(entry.orders || 0) : 0)
             : Number(entry.revenue || 0));
-        const maxValue = Math.max(1, ...values);
+        const { axisMax } = trendAxisScale(values);
         const pointX = leftPad + idx * step;
-        const pointY = topPad + (plotH - (value / maxValue) * plotH);
+        const pointY = topPad + (plotH - (value / axisMax) * plotH);
         const previousValue = idx > 0 ? values[idx - 1] : null;
         const pointDelta = previousValue == null ? null : pctDelta(value, previousValue);
         const trendClass = pointDelta == null ? "flat" : pointDelta >= 0 ? "up" : "down";
