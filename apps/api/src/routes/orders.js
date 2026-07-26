@@ -108,7 +108,19 @@ app.get("/orders", async (request) => {
 
 app.get("/orders/:id", async (request) => {
   const order = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
-  return { ...order, items: await getOrderItems(order.id), payments: await query("SELECT * FROM payments WHERE order_id = $1", [order.id]) };
+  const childOrders = order?.status === "split"
+    ? await query("SELECT * FROM orders WHERE parent_order_id = $1 ORDER BY order_no", [order.id])
+    : [];
+  for (const child of childOrders) {
+    child.items = await getOrderItems(child.id);
+    child.payments = await query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [child.id]);
+  }
+  return {
+    ...order,
+    items: await getOrderItems(order.id),
+    payments: await query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [order.id]),
+    child_orders: childOrders
+  };
 });
 
 app.patch("/orders/:id", async (request, reply) => {

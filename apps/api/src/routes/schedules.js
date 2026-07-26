@@ -92,7 +92,7 @@ app.get("/staff-schedules", async (request, reply) => {
     `SELECT d::date::text AS day, COALESCE(SUM(o.total), 0) AS revenue
      FROM generate_series($1::date, $1::date + INTERVAL '6 days', '1 day') d
      LEFT JOIN orders o ON o.created_at::date = d::date
-       AND o.status NOT IN ('cancelled', 'draft')
+       AND o.status NOT IN ('cancelled', 'draft', 'split')
      GROUP BY d
      ORDER BY d`,
     [weekStart]

@@ -215,6 +215,103 @@ describe("order lifecycle", async () => {
     assert.ok(Number(updated.total) > 0);
   });
 
+  test("order detail includes per-item line totals", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-LT-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 2, modifier_ids: [] } }),
+    });
+
+    const fullOrder = await req(`/orders/${order.id}`);
+    assert.equal(fullOrder.items.length, 1);
+    const item = fullOrder.items[0];
+    assert.equal(Number(item.line_total), Number(item.unit_price) * Number(item.quantity));
+    assert.ok(Number(item.line_total) > 0);
+  });
+
+  test("staff schedule revenue excludes split parent orders", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+    const today = new Date().toISOString().slice(0, 10);
+    const before = await req(`/staff-schedules?week_start=${today}`);
+    const beforeRevenue = Number(before.daily_revenue.find((row) => row.day === today)?.revenue || 0);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-SP-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 2, modifier_ids: [] } }),
+    });
+    const fullOrder = await req(`/orders/${order.id}`);
+    const item = fullOrder.items[0];
+
+    const split = await req(`/orders/${order.id}/split`, {
+      method: "POST",
+      body: JSON.stringify({
+        splits: [
+          { label: "A", items: [{ id: item.id, quantity: 1 }] },
+          { label: "B", items: [{ id: item.id, quantity: 1 }] },
+        ],
+      }),
+    });
+    const childTotal = Math.round(split.orders.reduce((sum, child) => sum + Number(child.total || 0), 0) * 100) / 100;
+    for (const child of split.orders) {
+      await req(`/orders/${child.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ method: "cash", amount: Number(child.total), change_due: 0 }),
+      });
+    }
+
+    const after = await req(`/staff-schedules?week_start=${today}`);
+    const afterRevenue = Number(after.daily_revenue.find((row) => row.day === today)?.revenue || 0);
+    assert.equal(Math.round((afterRevenue - beforeRevenue) * 100) / 100, childTotal);
+    assert.ok(childTotal > 0);
+  });
+
+  test("split parent detail includes child orders with item details", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-PD-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 2, modifier_ids: [] } }),
+    });
+    const fullOrder = await req(`/orders/${order.id}`);
+    const item = fullOrder.items[0];
+    const split = await req(`/orders/${order.id}/split`, {
+      method: "POST",
+      body: JSON.stringify({
+        splits: [
+          { label: "A", items: [{ id: item.id, quantity: 1 }] },
+          { label: "B", items: [{ id: item.id, quantity: 1 }] },
+        ],
+      }),
+    });
+
+    const parentDetail = await req(`/orders/${order.id}`);
+    assert.equal(parentDetail.status, "split");
+    assert.equal(parentDetail.items.length, 0);
+    assert.equal(parentDetail.child_orders.length, split.orders.length);
+    assert.deepEqual(parentDetail.child_orders.map((child) => child.order_no), split.orders.map((child) => child.order_no).sort());
+    for (const child of parentDetail.child_orders) {
+      assert.equal(child.parent_order_id, order.id);
+      assert.equal(child.items.length, 1);
+      assert.ok(Number(child.items[0].line_total) > 0);
+    }
+  });
+
   test("kitchen print: first submit prints, subsequent without new items is rejected", async () => {
     const { req } = await setup();
     const { variant } = await getFixture(req);

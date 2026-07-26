@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Order Pagination**: Admin order list paginates at 20 items per page.
 
 ### Fixed
+- **Order Detail Line Totals**: Admin order detail now receives per-item line totals from the API, so item amounts no longer display as zero.
+- **Split Parent Details**: Split parent orders now show child order numbers with their item details in the Admin order detail modal.
+- **Staff Schedule Revenue**: Staff schedule revenue totals now exclude split parent orders, preventing split orders from being counted twice.
 - **Note Preset Category Scope Saving**: Legacy menu category UUIDs are now accepted, fixing single-category note scopes reverting to "All categories" after refresh.
 - **Note Preset Scope Selection**: Category scope chips now use full-button clicks, fixing unclear or missed reactions when applying a note preset to a single category.
 - **DST Timezone Bug**: Item trend chart date axis now aligns with main report dates — no longer off by one day during Daylight Saving Time.

@@ -9,18 +9,31 @@ function money(value, currency = "CNY", locale = "zh-CN") {
   return new Intl.NumberFormat(locale, { style: "currency", currency }).format(Number(value || 0));
 }
 function orderStatusLabel(status, locale) {
-  const labels = { draft: { "zh-CN": "草稿", "en-GB": "Draft" }, submitted: { "zh-CN": "已下单", "en-GB": "Submitted" }, paid: { "zh-CN": "已付款", "en-GB": "Paid" }, cancelled: { "zh-CN": "已取消", "en-GB": "Cancelled" } };
+  const labels = { draft: { "zh-CN": "草稿", "en-GB": "Draft" }, submitted: { "zh-CN": "已下单", "en-GB": "Submitted" }, paid: { "zh-CN": "已付款", "en-GB": "Paid" }, cancelled: { "zh-CN": "已取消", "en-GB": "Cancelled" }, split: { "zh-CN": "已分单", "en-GB": "Split" } };
   return labels[status]?.[locale] || labels[status]?.["zh-CN"] || status;
 }
 function serviceTypeLabel(type, locale) { return type === "dine_in" ? t(locale, "堂食", "Dine-in") : t(locale, "外带", "Takeaway"); }
 function printJobStatusLabel(s, l) { const m={queued:{"zh-CN":"排队中","en-GB":"Queued"},printing:{"zh-CN":"打印中","en-GB":"Printing"},succeeded:{"zh-CN":"已完成","en-GB":"Succeeded"},failed:{"zh-CN":"失败","en-GB":"Failed"}}; return m[s]?.[l]||m[s]?.["zh-CN"]||s; }
 function printJobTypeLabel(t, l) { const m={kitchen:{"zh-CN":"厨房单","en-GB":"Kitchen ticket"},receipt:{"zh-CN":"收银小票","en-GB":"Receipt"},test:{"zh-CN":"测试打印","en-GB":"Test print"}}; return m[t]?.[l]||m[t]?.["zh-CN"]||t; }
 
-const ORDER_STATUS_COLOR = { draft: "chip-grey", submitted: "chip-blue", paid: "chip-green", cancelled: "chip-red" };
+const ORDER_STATUS_COLOR = { draft: "chip-grey", submitted: "chip-blue", paid: "chip-green", cancelled: "chip-red", split: "chip-grey" };
+
+function OrderItemRows({ items, locale, currency }) {
+  return (items || []).map((item) => (
+    <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,padding:"4px 0"}}>
+      <div><strong>{labelOf(item.name_i18n, locale)}</strong> × {item.quantity}
+        {item.modifiers?.length > 0 && <small style={{display:"block",color:"var(--muted)"}}>{item.modifiers.map((m) => labelOf(m.name_i18n, locale)).join(", ")}</small>}
+        {item.notes && <small style={{display:"block",color:"var(--muted)"}}>{item.notes}</small>}
+      </div>
+      <strong>{money(Number(item.line_total || 0), currency, locale)}</strong>
+    </div>
+  ));
+}
 
 function OrderDetailModal({ order, locale, currency, onClose }) {
   const items = order.items || [];
   const payments = order.payments || [];
+  const childOrders = order.child_orders || [];
   const totalPayments = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -33,15 +46,35 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
           {order.service_type === "dine_in" && <p>{t(locale, "桌台", "Table")}: {order.table_label || "-"} · {t(locale, "用餐人数", "Guests")}: {order.guests || "-"}</p>}
           {order.service_type === "takeaway" && <p>{t(locale, "取餐号", "Pickup no.")}: {order.pickup_no || "-"}</p>}
           <div style={{margin:"12px 0",borderTop:"1px solid var(--line)"}} />
-          {items.map((item) => (
-            <div key={item.id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,padding:"4px 0"}}>
-              <div><strong>{labelOf(item.name_i18n, locale)}</strong> × {item.quantity}
-                {item.modifiers?.length > 0 && <small style={{display:"block",color:"var(--muted)"}}>{item.modifiers.map((m) => labelOf(m.name_i18n, locale)).join(", ")}</small>}
-                {item.notes && <small style={{display:"block",color:"var(--muted)"}}>{item.notes}</small>}
-              </div>
-              <strong>{money(Number(item.line_total || 0), currency, locale)}</strong>
+          {childOrders.length > 0 ? (
+            <div style={{display:"grid",gap:12}}>
+              {childOrders.map((child) => (
+                <section key={child.id}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"baseline",marginBottom:4}}>
+                    <strong>{child.order_no}</strong>
+                    <span style={{fontSize:13,color:"var(--muted)"}}>{orderStatusLabel(child.status, locale)} · {money(child.total, currency, locale)}</span>
+                  </div>
+                  <OrderItemRows items={child.items} locale={locale} currency={currency} />
+                </section>
+              ))}
             </div>
-          ))}
+          ) : (
+            <OrderItemRows items={items} locale={locale} currency={currency} />
+          )}
+          {childOrders.length > 0 && (
+            <>
+              <div style={{margin:"12px 0",borderTop:"1px solid var(--line)"}} />
+              <p style={{fontWeight:600,margin:"0 0 6px"}}>{t(locale,"关联子单","Linked split orders")}</p>
+              <div style={{display:"grid",gap:4,fontSize:13}}>
+                {childOrders.map((child) => (
+                  <div key={child.id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8}}>
+                    <span>{child.order_no} · {orderStatusLabel(child.status, locale)}</span>
+                    <strong>{money(child.total, currency, locale)}</strong>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           <div style={{margin:"12px 0",borderTop:"1px solid var(--line)"}} />
           <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:4,fontSize:13}}>
             <span>{t(locale,"小计","Subtotal")}</span><span>{money(order.subtotal, currency, locale)}</span>
@@ -106,7 +139,7 @@ export default function OrdersView({ orders, locale, currency }) {
       <div className="orders-toolbar">
         <div className="orders-filters">
           <div className="filter-group"><label>{t(locale, "状态", "Status")}</label><select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="all">{t(locale, "全部", "All")}</option><option value="draft">{t(locale, "草稿", "Draft")}</option><option value="submitted">{t(locale, "已下单", "Submitted")}</option><option value="paid">{t(locale, "已付款", "Paid")}</option><option value="cancelled">{t(locale, "已取消", "Cancelled")}</option>
+            <option value="all">{t(locale, "全部", "All")}</option><option value="draft">{t(locale, "草稿", "Draft")}</option><option value="submitted">{t(locale, "已下单", "Submitted")}</option><option value="paid">{t(locale, "已付款", "Paid")}</option><option value="split">{t(locale, "已分单", "Split")}</option><option value="cancelled">{t(locale, "已取消", "Cancelled")}</option>
           </select></div>
           <div className="filter-group"><label>{t(locale, "类型", "Type")}</label><select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
             <option value="all">{t(locale, "全部", "All")}</option><option value="dine_in">{t(locale, "堂食", "Dine-in")}</option><option value="takeaway">{t(locale, "外带", "Takeaway")}</option>

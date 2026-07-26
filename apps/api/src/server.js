@@ -638,6 +638,8 @@ export async function getOrderItems(orderId, options = {}) {
   const items = await query(`SELECT * FROM order_items WHERE ${where.join(" AND ")} ORDER BY created_at`, params);
   for (const item of items) {
     item.modifiers = await query("SELECT * FROM order_item_modifiers WHERE order_item_id = $1", [item.id]);
+    const modifierTotal = item.modifiers.reduce((sum, modifier) => sum + Number(modifier.price_delta || 0), 0);
+    item.line_total = Math.round((Number(item.unit_price || 0) + modifierTotal) * Number(item.quantity || 0) * 100) / 100;
   }
   return items;
 }
