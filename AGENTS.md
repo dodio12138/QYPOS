@@ -107,6 +107,8 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 | `apps/api/src/services/printers.js` | 打印机配置与选择 |
 | `apps/api/src/services/dojo.js` | Dojo 刷卡支付集成 |
 | `apps/api/src/services/validation.js` | 支付金额校验 |
+| `apps/api/src/services/accounting-csv.js` | 中英双语会计 CSV 结构、公式说明与安全序列化 |
+| `apps/api/src/services/accounting-xlsx.js` | 多工作表会计 Excel 导出与格式 |
 | `apps/web/src/app/layout.jsx` | 根布局（导入 base.css / pos.css / admin.css） |
 | `apps/web/src/app/page.jsx` | 点餐前台主页面（~864 行，16 个组件已拆分） |
 | `apps/web/src/app/_components/` | POS 前台组件目录（16 个文件） |
@@ -122,7 +124,9 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 | `apps/web/src/app/admin/_components/helpers.jsx` | 共享工具函数 (`t`, `money`, 日期等) |
 | `apps/web/src/app/admin/_components/menu-admin.jsx` | 菜单管理（含 13 个子组件，~1288 行） |
 | `apps/web/src/app/admin/_components/reports-view.jsx` | 报表分析 + 5 个 Canvas 图表 |
+| `apps/web/src/app/admin/_components/report-chart-data.js` | 报表时段累计趋势数据计算 |
 | `apps/web/src/app/admin/_components/schedule-view.jsx` | 排班系统 + DayGanttView |
+| `apps/web/src/app/admin/_components/schedule-metrics.js` | 班表截至当前时间的工时、成本与指标平均公式 |
 | `apps/web/src/app/admin/_components/orders-view.jsx` | 订单列表 + KitchenView + PrintJobsView |
 | `apps/web/src/app/admin/_components/users-view.jsx` | 账户管理 + RoleBadge |
 | `apps/web/src/app/admin/_components/layout-view.jsx` | 餐桌布局编辑器 |

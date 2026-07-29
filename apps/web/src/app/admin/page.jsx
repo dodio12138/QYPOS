@@ -609,7 +609,7 @@ export default function AdminPage() {
 
         {!online && <div className="offline-banner"><WifiOff size={16} />{t(locale, "当前离线，部分操作会失败，请检查网络或本地服务。", "You're offline. Some actions may fail. Check the network or local service.")}</div>}
         {notice && <button className="notice toast" onClick={() => setNotice("")}>{notice}</button>}
-        {activeTab === "orders" && <OrdersView orders={orders} locale={locale} currency={currency} />}
+        {activeTab === "orders" && <OrdersView orders={orders} locale={locale} currency={currency} user={user} onOrdersChange={setOrders} onNotify={showNotice} />}
         {activeTab === "kitchen" && <KitchenView items={kitchenItems} locale={locale} onStatus={async (item, status) => run(async () => {
           await api(`/orders/${item.order_id}/items/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
           await refresh();

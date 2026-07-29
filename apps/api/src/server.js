@@ -143,6 +143,7 @@ export async function ensureSchema() {
   await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS card_brand TEXT");
   await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS card_last4 TEXT");
   await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS auth_code TEXT");
+  await pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS retained_amount NUMERIC(10,2) NOT NULL DEFAULT 0");
   await pool.query("CREATE INDEX IF NOT EXISTS payment_attempts_order_idx ON payment_attempts(order_id, created_at DESC)");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payment_attempts_provider_payment_idx ON payment_attempts(provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payments_attempt_idx ON payments(payment_attempt_id) WHERE payment_attempt_id IS NOT NULL");
@@ -183,6 +184,7 @@ export async function ensureSchema() {
     end_time TIME,
     break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (break_minutes >= 0 AND break_minutes <= 1440),
     note TEXT NOT NULL DEFAULT '',
+    actual_is_off BOOLEAN NOT NULL DEFAULT false,
     actual_start_time TIME,
     actual_end_time TIME,
     actual_break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (actual_break_minutes >= 0 AND actual_break_minutes <= 1440),
@@ -196,6 +198,7 @@ export async function ensureSchema() {
     )
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS staff_schedule_cells_work_date_idx ON staff_schedule_cells(work_date)");
+  await pool.query("ALTER TABLE staff_schedule_cells ADD COLUMN IF NOT EXISTS actual_is_off BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE staff_schedule_cells ADD COLUMN IF NOT EXISTS actual_start_time TIME");
   await pool.query("ALTER TABLE staff_schedule_cells ADD COLUMN IF NOT EXISTS actual_end_time TIME");
   await pool.query("ALTER TABLE staff_schedule_cells ADD COLUMN IF NOT EXISTS actual_break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (actual_break_minutes >= 0 AND actual_break_minutes <= 1440)");
@@ -482,7 +485,8 @@ export async function recordPayment({
   terminalId = null,
   cardBrand = null,
   cardLast4 = null,
-  authCode = null
+  authCode = null,
+  retainExcess = false
 }) {
   const client = await pool.connect();
   let payment;
@@ -498,7 +502,7 @@ export async function recordPayment({
         payment = existing.rows[0];
         const orderResult = await client.query("SELECT * FROM orders WHERE id = $1", [orderId]);
         updated = orderResult.rows[0];
-        const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due), 0)::numeric AS paid FROM payments WHERE order_id = $1", [orderId]);
+        const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due - retained_amount), 0)::numeric AS paid FROM payments WHERE order_id = $1", [orderId]);
         paid = paidResult.rows[0];
         await client.query("COMMIT");
         return { payment, order: updated, paid: Number(paid.paid), duplicate: true };
@@ -510,14 +514,22 @@ export async function recordPayment({
     if (!order) throw httpError("Order not found", 404);
     if (order.status === "paid" || order.status === "cancelled") throw httpError("Order is already closed", 409);
 
+    const appliedBeforeResult = await client.query(
+      "SELECT COALESCE(SUM(amount - change_due - retained_amount), 0)::numeric AS paid FROM payments WHERE order_id = $1",
+      [orderId]
+    );
+    const remainingBefore = Math.max(0, Number(order.total) - Number(appliedBeforeResult.rows[0]?.paid || 0));
+    const retainedAmount = retainExcess && method === "cash"
+      ? Math.max(0, Math.round((Number(amount) - Number(changeDue) - remainingBefore) * 100) / 100)
+      : 0;
     const paymentResult = await client.query(
       `INSERT INTO payments
-       (order_id, method, amount, change_due, payment_attempt_id, provider, provider_payment_id, terminal_id, card_brand, card_last4, auth_code)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [orderId, method, amount, changeDue, paymentAttemptId, provider, providerPaymentId, terminalId, cardBrand, cardLast4, authCode]
+       (order_id, method, amount, change_due, retained_amount, payment_attempt_id, provider, provider_payment_id, terminal_id, card_brand, card_last4, auth_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [orderId, method, amount, changeDue, retainedAmount, paymentAttemptId, provider, providerPaymentId, terminalId, cardBrand, cardLast4, authCode]
     );
     payment = paymentResult.rows[0];
-    const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due), 0)::numeric AS paid FROM payments WHERE order_id = $1", [orderId]);
+    const paidResult = await client.query("SELECT COALESCE(SUM(amount - change_due - retained_amount), 0)::numeric AS paid FROM payments WHERE order_id = $1", [orderId]);
     paid = paidResult.rows[0];
     updated = order;
     if (Number(paid.paid) >= Number(order.total)) {

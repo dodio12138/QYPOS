@@ -10,7 +10,7 @@ export default function EvenSplitModal({ order, locale, currency, busy, onClose,
 
   const total = Number(order.total ?? 0);
   const paidSoFar = (order.payments ?? []).reduce(
-    (s, p) => s + Number(p.amount) - Number(p.change_due ?? 0), 0
+    (s, p) => s + Number(p.amount) - Number(p.change_due ?? 0) - Number(p.retained_amount ?? 0), 0
   );
   const remaining = Math.max(0, Math.round((total - paidSoFar) * 100) / 100);
   const perPerson = splitN > 0 ? Math.round((remaining / splitN) * 100) / 100 : remaining;
@@ -105,4 +105,3 @@ export default function EvenSplitModal({ order, locale, currency, busy, onClose,
     </div>
   );
 }
-

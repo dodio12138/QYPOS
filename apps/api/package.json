@@ -12,6 +12,7 @@
     "@qypos/shared": "file:../../packages/shared",
     "fastify": "^4.28.1",
     "ioredis": "^5.4.1",
-    "pg": "^8.12.0"
+    "pg": "^8.12.0",
+    "write-excel-file": "^4.1.1"
   }
 }

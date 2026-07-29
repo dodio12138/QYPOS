@@ -238,8 +238,8 @@ describe("order lifecycle", async () => {
   test("staff schedule revenue excludes split parent orders", async () => {
     const { req } = await setup();
     const { variant } = await getFixture(req);
-    const today = new Date().toISOString().slice(0, 10);
-    const before = await req(`/staff-schedules?week_start=${today}`);
+    const before = await req("/staff-schedules");
+    const today = before.week_start;
     const beforeRevenue = Number(before.daily_revenue.find((row) => row.day === today)?.revenue || 0);
 
     const order = await req("/orders", {
@@ -274,6 +274,48 @@ describe("order lifecycle", async () => {
     const afterRevenue = Number(after.daily_revenue.find((row) => row.day === today)?.revenue || 0);
     assert.equal(Math.round((afterRevenue - beforeRevenue) * 100) / 100, childTotal);
     assert.ok(childTotal > 0);
+  });
+
+  test("staff schedule supports 120 minute breaks and actual OFF attendance", async () => {
+    const { req } = await setup();
+    const schedule = await req("/staff-schedules");
+    const employee = await req("/staff-schedules/employees", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Integration Actual OFF ${Date.now()}`,
+        color: "#22c55e",
+        hourly_wage: 12,
+      }),
+    });
+
+    try {
+      const cell = await req("/staff-schedules/cells", {
+        method: "PUT",
+        body: JSON.stringify({
+          employee_id: employee.id,
+          work_date: schedule.week_start,
+          is_off: false,
+          start_time: "09:00",
+          end_time: "17:00",
+          break_minutes: 120,
+          actual_is_off: true,
+          actual_note: "Integration actual OFF",
+        }),
+      });
+
+      assert.equal(cell.break_minutes, 120);
+      assert.equal(cell.actual_is_off, true);
+      assert.equal(cell.actual_start_time, null);
+      assert.equal(cell.actual_end_time, null);
+      assert.equal(cell.actual_break_minutes, 0);
+
+      const reloaded = await req(`/staff-schedules?week_start=${schedule.week_start}`);
+      const saved = reloaded.cells.find((item) => item.employee_id === employee.id);
+      assert.equal(saved.actual_is_off, true);
+      assert.equal(saved.actual_note, "Integration actual OFF");
+    } finally {
+      await req(`/staff-schedules/employees/${employee.id}`, { method: "DELETE" });
+    }
   });
 
   test("split parent detail includes child orders with item details", async () => {
@@ -418,6 +460,159 @@ describe("order lifecycle", async () => {
       }),
       /Order is already closed/
     );
+  });
+
+  test("an order discounted to zero can complete a zero checkout", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-ZERO-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    const fullOrder = await req(`/orders/${order.id}`);
+    const discounted = await req(`/orders/${order.id}/discount`, {
+      method: "POST",
+      body: JSON.stringify({
+        discount_fixed: Number(fullOrder.subtotal),
+        reason: "integration zero checkout",
+      }),
+    });
+    assert.equal(Number(discounted.total), 0);
+
+    const result = await req(`/orders/${order.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ method: "zero", amount: 0, change_due: 0 }),
+    });
+    assert.equal(result.order.status, "paid");
+    assert.equal(result.payment.method, "zero");
+    assert.equal(Number(result.payment.amount), 0);
+    assert.equal(Number(result.paid), 0);
+  });
+
+  test("cash can retain excess received as recorded income without overpaying the order", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+    const beforeReport = await req("/reports/sales");
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-CASH-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    const fullOrder = await req(`/orders/${order.id}`);
+    const tendered = Math.round((Number(fullOrder.total) + 5) * 100) / 100;
+    const result = await req(`/orders/${order.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({
+        method: "cash",
+        amount: tendered,
+        change_due: 0,
+        retain_excess: true,
+      }),
+    });
+
+    assert.equal(result.order.status, "paid");
+    assert.equal(Number(result.paid), Number(fullOrder.total));
+    assert.equal(Number(result.payment.retained_amount), 5);
+    assert.equal(Number(result.payment.amount), tendered);
+    assert.equal(Number(result.payment.change_due), 0);
+
+    const afterReport = await req("/reports/sales");
+    assert.ok(Math.abs(
+      Number(afterReport.summary.revenue) - Number(beforeReport.summary.revenue) - Number(fullOrder.total)
+    ) <= 0.01);
+    assert.ok(Math.abs(
+      Number(afterReport.summary.recorded_income) - Number(beforeReport.summary.recorded_income) - tendered
+    ) <= 0.01);
+  });
+
+  test("complimentary checkout counts as paid while cancelled orders stay out of sales reports", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+    const beforeReport = await req("/reports/sales");
+
+    const cancelledOrder = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-CAN-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${cancelledOrder.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    await req(`/orders/${cancelledOrder.id}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "integration cancelled order" }),
+    });
+
+    const complimentaryOrder = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-COMP-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${complimentaryOrder.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    const settled = await req(`/orders/${complimentaryOrder.id}/complimentary`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "integration complimentary", note: "approved free meal" }),
+    });
+
+    assert.equal(settled.order.status, "paid");
+    assert.equal(Number(settled.order.total), 0);
+    assert.equal(Number(settled.order.discount), Number(settled.order.subtotal));
+    assert.equal(settled.payment.method, "complimentary");
+    assert.equal(Number(settled.payment.amount), 0);
+
+    const detail = await req(`/orders/${complimentaryOrder.id}`);
+    assert.match(detail.notes, /approved free meal/);
+
+    const afterReport = await req("/reports/sales");
+    assert.equal(Number(afterReport.summary.orders), Number(beforeReport.summary.orders) + 1);
+    assert.equal(
+      Number(afterReport.summary.complimentary_orders),
+      Number(beforeReport.summary.complimentary_orders) + 1
+    );
+  });
+
+  test("paid order amount adjustment lowers total and appends a note", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-ADJ-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 2, modifier_ids: [] } }),
+    });
+    const fullOrder = await req(`/orders/${order.id}`);
+    await req(`/orders/${order.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ method: "cash", amount: Number(fullOrder.total), change_due: 0 }),
+    });
+
+    const targetTotal = Math.max(0, Math.round((Number(fullOrder.total) - 0.5) * 100) / 100);
+    const adjusted = await req(`/orders/${order.id}/amount-adjustment`, {
+      method: "POST",
+      body: JSON.stringify({ total: targetTotal, reason: "integration refund", note: "customer refund note" }),
+    });
+    assert.equal(adjusted.status, "paid");
+    assert.ok(Math.abs(Number(adjusted.total) - targetTotal) <= 0.01);
+    assert.ok(Number(adjusted.discount) > 0);
+
+    const detail = await req(`/orders/${order.id}`);
+    assert.match(detail.notes, /customer refund note/);
+    assert.equal(detail.payments.length, 1);
+    assert.equal(Number(detail.payments[0].amount), Number(fullOrder.total));
   });
 
   test("kitchen status update and receipt print", async () => {

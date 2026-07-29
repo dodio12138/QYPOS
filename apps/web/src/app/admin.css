@@ -866,6 +866,17 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
   color: #b45309;
 }
 
+.report-time-toggle.cumulative-orders.active {
+  border-color: #1d4ed8;
+  color: #1d4ed8;
+}
+
+
+.report-time-toggle.cumulative-revenue.active {
+  border-color: #047857;
+  color: #047857;
+}
+
 
 .report-time-toggle:focus-visible {
   outline: 2px solid rgba(185, 28, 28, 0.35);
@@ -936,6 +947,65 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
 
 .report-time-dot.avg-ticket {
   background: #f59e0b;
+}
+
+
+.report-time-dot.cumulative-orders {
+  background: #1d4ed8;
+}
+
+
+.report-time-dot.cumulative-revenue {
+  background: #047857;
+}
+
+
+.time-trend-hover-guide {
+  top: 48px;
+  bottom: 36px;
+}
+
+
+.time-trend-tooltip {
+  min-width: 210px;
+}
+
+
+.time-trend-tooltip-slot::before {
+  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm1 3v4.59l3.2 3.2-1.41 1.42L11 12.41V7h2Z'/%3E%3C/svg%3E");
+}
+
+
+.time-trend-tooltip-body {
+  display: grid;
+  gap: 8px;
+  padding: 11px 14px 13px;
+}
+
+
+.time-trend-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+
+.time-trend-tooltip-row > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+
+.time-trend-tooltip-row strong {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 

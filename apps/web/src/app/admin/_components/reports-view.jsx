@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Calculator, ChevronDown, ChevronUp, CreditCard, DollarSign, Download, FileDown, Hash, Percent, Receipt, RefreshCw, Search, ShoppingBag, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Banknote, Calculator, ChevronDown, ChevronUp, CreditCard, DollarSign, Download, FileDown, FileSpreadsheet, Gift, Hash, Percent, Receipt, RefreshCw, Search, ShoppingBag, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { t, money, API_URL, getLocalToday, formatDateStr, addDays, addYears, pctDelta, weekdayLabels, formatClockMinute, daySpan, mondayOf } from "./helpers";
 import { api, labelOf } from "../../../lib/api";
 import MetricCard from "./metric-card";
+import { buildCumulativeTimeSeries } from "./report-chart-data";
 
 function groupByWeek(byDay, locale) { const w=new Map(); for(const r of byDay||[]){const d=new Date(r.day),dw=(d.getDay()+6)%7,ws=new Date(d);ws.setDate(d.getDate()-dw);const k=formatDateStr(ws);if(!w.has(k)){const we=new Date(ws);we.setDate(ws.getDate()+6);w.set(k,{key:k,label:`${ws.toLocaleDateString(locale,{month:"2-digit",day:"2-digit"})} - ${we.toLocaleDateString(locale,{month:"2-digit",day:"2-digit"})}`,orders:0,revenue:0});}const b=w.get(k);b.orders+=Number(r.orders||0);b.revenue+=Number(r.revenue||0);}return [...w.values()].sort((a,b)=>a.key.localeCompare(b.key));}
 function groupByWeekday(byDay, locale) { const b=weekdayLabels(locale).map((l,i)=>({dow:i,label:l,orders:0,revenue:0,days:0}));for(const r of byDay||[]){const d=new Date(r.day),dw=(d.getDay()+6)%7,bb=b[dw];bb.orders+=Number(r.orders||0);bb.revenue+=Number(r.revenue||0);bb.days+=1;}return b;}
@@ -224,10 +225,10 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
     await runReport(from, to, mode);
   }
 
-  function exportUrl() {
+  function exportUrl(format) {
     const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : "";
     const grant = typeof window !== "undefined" ? window.sessionStorage.getItem("qypos_admin_grant") : "";
-    return `${API_URL}/reports/sales.csv?from=${from}&to=${to}&token=${token}&admin_grant=${grant}`;
+    return `${API_URL}/reports/sales.${format}?from=${from}&to=${to}&token=${token}&admin_grant=${grant}`;
   }
 
   const hotItems = report?.hotItems || [];
@@ -321,7 +322,9 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
 
   const summaryFields = [
     [t(locale, "营业额", "Revenue"), "revenue", DollarSign, "money"],
+    [t(locale, "实收入账", "Recorded income"), "recorded_income", Banknote, "money"],
     [t(locale, "订单数", "Orders"), "orders", Hash, "number"],
+    [t(locale, "免单数", "Complimentary orders"), "complimentary_orders", Gift, "number"],
     [t(locale, "售出单品", "Items sold"), "items_sold", ShoppingBag, "number"],
     [t(locale, "客单价", "Average ticket"), "average_ticket", CreditCard, "money"],
     [t(locale, "净销售额", "Net sales"), "net_sales", Wallet, "money"],
@@ -355,7 +358,8 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
           <label>{t(locale, "开始日期", "From")}<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPreset("custom"); }} /></label>
           <label>{t(locale, "结束日期", "To")}<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPreset("custom"); }} /></label>
           <button className="primary" type="submit" disabled={loading}><RefreshCw size={16} /><span>{loading ? t(locale, "生成中…", "Generating…") : t(locale, "生成报表", "Generate report")}</span></button>
-          <a className="link-button" href={exportUrl()}><FileDown size={16} /><span>{t(locale, "导出 CSV", "Export CSV")}</span></a>
+          <a className="link-button" href={exportUrl("csv")}><FileDown size={16} /><span>{t(locale, "导出 CSV", "Export CSV")}</span></a>
+          <a className="link-button" href={exportUrl("xlsx")}><FileSpreadsheet size={16} /><span>{t(locale, "导出 Excel", "Export Excel")}</span></a>
         </form>
         {comparisonRange && (
           <small className="muted">{t(locale, "对比区间：", "Comparison range:")} {comparisonRange[0]} ~ {comparisonRange[1]}（{compareLabel}）</small>
@@ -1454,7 +1458,14 @@ function CanvasTimeChart({ data, locale, currency }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const tipRef = useRef(null);
-  const [visibleSeries, setVisibleSeries] = useState({ orders: true, revenue: true, avgTicket: true });
+  const guideRef = useRef(null);
+  const [visibleSeries, setVisibleSeries] = useState({
+    orders: true,
+    revenue: true,
+    avgTicket: true,
+    cumulativeOrders: false,
+    cumulativeRevenue: false
+  });
 
   function toggleSeries(key) {
     setVisibleSeries((current) => ({ ...current, [key]: !current[key] }));
@@ -1477,146 +1488,266 @@ function CanvasTimeChart({ data, locale, currency }) {
       const ctx = canvas.getContext("2d");
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, w, h);
+
       const pad = 36;
+      const topPad = 48;
+      const bottomPad = 36;
       const slots = (data || []).slice();
       if (!slots.length) return;
-      const hasVisibleSeries = visibleSeries.orders || visibleSeries.revenue || visibleSeries.avgTicket;
-      if (!hasVisibleSeries) {
+      if (!Object.values(visibleSeries).some(Boolean)) {
         ctx.fillStyle = "#94a3b8";
         ctx.font = "13px sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("请选择至少一个指标", w / 2, h / 2);
+        ctx.fillText(t(locale, "请选择至少一个指标", "Select at least one metric"), w / 2, h / 2);
         return;
       }
-      const ordersSeries = slots.map((s) => Number(s.orders || 0));
-      const revenueSeries = slots.map((s) => Number(s.revenue || 0));
-      const avgTicketSeries = slots.map((s) => {
-        const orders = Number(s.orders || 0);
-        const revenue = Number(s.revenue || 0);
-        return orders ? revenue / orders : 0;
-      });
-      const maxOrders = visibleSeries.orders ? Math.max(...ordersSeries, 1) : 1;
-      const maxRevenue = visibleSeries.revenue ? Math.max(...revenueSeries, 1) : 1;
-      const maxAvgTicket = visibleSeries.avgTicket ? Math.max(...avgTicketSeries, 1) : 1;
-      const plotW = w - pad * 2;
-      const plotH = h - pad * 2;
-      const step = plotW / Math.max(1, slots.length - 1);
-      const pointAt = (series, index, maxValue) => {
-        const value = Number(series[index] || 0);
-        return {
-          x: pad + index * step,
-          y: pad + (plotH - ((maxValue ? value / maxValue : 0) * plotH))
-        };
-      };
 
-      // bars for orders
+      const ordersSeries = slots.map((row) => Number(row.orders || 0));
+      const revenueSeries = slots.map((row) => Number(row.revenue || 0));
+      const avgTicketSeries = slots.map((row) => {
+        const orders = Number(row.orders || 0);
+        return orders ? Number(row.revenue || 0) / orders : 0;
+      });
+      const cumulativeRows = buildCumulativeTimeSeries(slots);
+      const cumulativeOrdersSeries = cumulativeRows.map((row) => row.orders);
+      const cumulativeRevenueSeries = cumulativeRows.map((row) => row.revenue);
+      const maxOrders = Math.max(...ordersSeries, 1);
+      const maxRevenue = Math.max(...revenueSeries, 1);
+      const maxAvgTicket = Math.max(...avgTicketSeries, 1);
+      const maxCumulativeOrders = Math.max(...cumulativeOrdersSeries, 1);
+      const maxCumulativeRevenue = Math.max(...cumulativeRevenueSeries, 1);
+      const plotW = w - pad * 2;
+      const plotH = h - topPad - bottomPad;
+      const step = plotW / Math.max(1, slots.length - 1);
+      const pointAt = (series, index, maxValue) => ({
+        x: pad + index * step,
+        y: topPad + plotH - (Number(series[index] || 0) / maxValue) * plotH
+      });
+
       if (visibleSeries.orders) {
         ctx.fillStyle = "#60a5fa";
-        slots.forEach((s, i) => {
-          const bw = Math.max(2, step * 0.6);
-          const barH = maxOrders ? (ordersSeries[i] / maxOrders) * plotH : 0;
-          const x = pad + i * step - bw / 2;
-          const y = pad + (plotH - barH);
-          ctx.fillRect(x, y, bw, barH);
+        slots.forEach((row, index) => {
+          const barWidth = Math.max(2, step * 0.6);
+          const barHeight = (ordersSeries[index] / maxOrders) * plotH;
+          ctx.fillRect(
+            pad + index * step - barWidth / 2,
+            topPad + plotH - barHeight,
+            barWidth,
+            barHeight
+          );
         });
       }
 
-      // revenue line
       if (visibleSeries.revenue) {
-        const revenuePoints = slots.map((s, i) => pointAt(revenueSeries, i, maxRevenue));
+        const points = slots.map((row, index) => pointAt(revenueSeries, index, maxRevenue));
         ctx.strokeStyle = "#10b981";
         ctx.lineWidth = 1.5;
-        drawSmoothLine(ctx, revenuePoints);
+        drawSmoothLine(ctx, points);
         ctx.fillStyle = "#10b981";
-        revenuePoints.forEach(({ x, y }) => {
+        points.forEach(({ x, y }) => {
           ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
         });
       }
 
-      // avg ticket line
       if (visibleSeries.avgTicket) {
-        const avgTicketPoints = slots.map((s, i) => pointAt(avgTicketSeries, i, maxAvgTicket));
+        const points = slots.map((row, index) => pointAt(avgTicketSeries, index, maxAvgTicket));
         ctx.setLineDash([6, 4]);
         ctx.strokeStyle = "#f59e0b";
         ctx.lineWidth = 1.8;
-        drawSmoothLine(ctx, avgTicketPoints);
+        drawSmoothLine(ctx, points);
         ctx.setLineDash([]);
         ctx.fillStyle = "#f59e0b";
-        avgTicketPoints.forEach(({ x, y }) => {
+        points.forEach(({ x, y }) => {
+          ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+
+      if (visibleSeries.cumulativeOrders) {
+        const points = slots.map((row, index) => pointAt(cumulativeOrdersSeries, index, maxCumulativeOrders));
+        ctx.strokeStyle = "#1d4ed8";
+        ctx.lineWidth = 2.4;
+        drawSmoothLine(ctx, points, 0.7);
+        ctx.fillStyle = "#1d4ed8";
+        points.forEach(({ x, y }) => {
+          ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+
+      if (visibleSeries.cumulativeRevenue) {
+        const points = slots.map((row, index) => pointAt(cumulativeRevenueSeries, index, maxCumulativeRevenue));
+        ctx.strokeStyle = "#047857";
+        ctx.lineWidth = 2.4;
+        drawSmoothLine(ctx, points, 0.7);
+        ctx.fillStyle = "#047857";
+        points.forEach(({ x, y }) => {
           ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
         });
       }
 
       const labelStep = Math.max(1, Math.ceil(slots.length / 12));
-
-      // x labels (limit roughly to about 12 visible labels to avoid overlap)
       ctx.fillStyle = "#334155";
       ctx.font = "10px sans-serif";
       ctx.textAlign = "center";
-      slots.forEach((s, i) => {
-        if (i % labelStep !== 0) return;
-        const label = s.slot || s.time || s.label || '';
-        const x = pad + i * step;
-        ctx.fillText(label, x, h - 16);
+      slots.forEach((row, index) => {
+        if (index % labelStep !== 0) return;
+        ctx.fillText(row.slot || row.time || row.label || "", pad + index * step, h - 16);
       });
     }
 
     draw();
-    const ro = new ResizeObserver(() => draw());
-    ro.observe(container);
+    const resizeObserver = new ResizeObserver(() => draw());
+    resizeObserver.observe(container);
     window.addEventListener("orientationchange", draw);
-    return () => { ro.disconnect(); window.removeEventListener("orientationchange", draw); };
-  }, [data, locale, visibleSeries.orders, visibleSeries.revenue, visibleSeries.avgTicket]);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("orientationchange", draw);
+    };
+  }, [data, locale, visibleSeries]);
 
   return (
-    <div ref={containerRef} style={{ width: "100%", height: 280, position: 'relative' }}
-      onMouseMove={(e) => {
+    <div
+      ref={containerRef}
+      style={{ width: "100%", height: 280, position: "relative" }}
+      onMouseMove={(event) => {
         const container = containerRef.current;
         const canvas = canvasRef.current;
         const tip = tipRef.current;
-        if (!container || !canvas || !tip) return;
+        const guide = guideRef.current;
+        if (!container || !canvas || !tip || !guide) return;
+
         const rect = container.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const x = event.clientX - rect.left;
         const pad = 36;
-        const w = Math.max(300, Math.floor(rect.width));
-        const h = 280;
+        const topPad = 48;
+        const bottomPad = 36;
+        const width = Math.max(300, Math.floor(rect.width));
+        const height = 280;
         const slots = (data || []).slice();
-        if (!slots.length) { tip.style.display = 'none'; return; }
-        const plotW = w - pad * 2;
-        const step = plotW / Math.max(1, slots.length - 1);
-        const idx = Math.round((x - pad) / step);
-        if (idx < 0 || idx >= slots.length) { tip.style.display = 'none'; return; }
-        const s = slots[idx];
-        const orders = Number(s.orders || 0);
-        const revenue = Number(s.revenue || 0);
-        const avgTicket = orders ? revenue / orders : 0;
-        tip.innerHTML = `<div style="font-weight:600">${s.slot || s.label || ''}</div><div>单量: ${orders}</div><div>营业额: ${money(revenue, currency, locale)}</div><div>客单价: ${money(avgTicket, currency, locale)}</div>`;
-        tip.style.display = 'block';
+        if (!slots.length || !Object.values(visibleSeries).some(Boolean)) {
+          tip.style.display = "none";
+          guide.style.display = "none";
+          return;
+        }
+
+        const plotWidth = width - pad * 2;
+        const plotHeight = height - topPad - bottomPad;
+        const step = plotWidth / Math.max(1, slots.length - 1);
+        const index = Math.min(slots.length - 1, Math.max(0, Math.round((x - pad) / step)));
+        const row = slots[index];
+        const ordersSeries = slots.map((entry) => Number(entry.orders || 0));
+        const revenueSeries = slots.map((entry) => Number(entry.revenue || 0));
+        const avgTicketSeries = slots.map((entry) => {
+          const entryOrders = Number(entry.orders || 0);
+          return entryOrders ? Number(entry.revenue || 0) / entryOrders : 0;
+        });
+        const cumulativeSeries = buildCumulativeTimeSeries(slots);
+        const orders = ordersSeries[index];
+        const revenue = revenueSeries[index];
+        const avgTicket = avgTicketSeries[index];
+        const cumulative = cumulativeSeries[index];
+        const values = [
+          visibleSeries.orders && {
+            key: "orders",
+            label: t(locale, "单量", "Orders"),
+            value: new Intl.NumberFormat(locale).format(orders),
+            rawValue: orders,
+            maxValue: Math.max(1, ...ordersSeries)
+          },
+          visibleSeries.revenue && {
+            key: "revenue",
+            label: t(locale, "营业额", "Revenue"),
+            value: money(revenue, currency, locale),
+            rawValue: revenue,
+            maxValue: Math.max(1, ...revenueSeries)
+          },
+          visibleSeries.avgTicket && {
+            key: "avg-ticket",
+            label: t(locale, "客单价", "Avg. ticket"),
+            value: money(avgTicket, currency, locale),
+            rawValue: avgTicket,
+            maxValue: Math.max(1, ...avgTicketSeries)
+          },
+          visibleSeries.cumulativeOrders && {
+            key: "cumulative-orders",
+            label: t(locale, "累计单量", "Cumulative orders"),
+            value: new Intl.NumberFormat(locale).format(cumulative.orders),
+            rawValue: cumulative.orders,
+            maxValue: Math.max(1, ...cumulativeSeries.map((entry) => entry.orders))
+          },
+          visibleSeries.cumulativeRevenue && {
+            key: "cumulative-revenue",
+            label: t(locale, "累计营业额", "Cumulative revenue"),
+            value: money(cumulative.revenue, currency, locale),
+            rawValue: cumulative.revenue,
+            maxValue: Math.max(1, ...cumulativeSeries.map((entry) => entry.revenue))
+          }
+        ].filter(Boolean);
+        const pointX = pad + index * step;
+        const pointY = Math.min(...values.map((item) => (
+          topPad + plotHeight - (item.rawValue / item.maxValue) * plotHeight
+        )));
+
+        tip.innerHTML = `
+          <div class="daily-trend-tooltip-date time-trend-tooltip-slot">${row.slot || row.label || ""}</div>
+          <div class="time-trend-tooltip-body">
+            ${values.map((item) => `
+              <div class="time-trend-tooltip-row">
+                <span><i class="report-time-dot ${item.key}"></i>${item.label}</span>
+                <strong>${item.value}</strong>
+              </div>
+            `).join("")}
+          </div>
+        `;
+        tip.style.display = "block";
+        guide.style.display = "block";
+        guide.style.left = `${pointX}px`;
+
         const tipRect = tip.getBoundingClientRect();
-        let left = x + 12;
-        if (left + tipRect.width > rect.width) left = x - tipRect.width - 12;
+        let left = pointX - tipRect.width / 2;
+        if (left + tipRect.width > rect.width) left = pointX - tipRect.width - 12;
         if (left < 6) left = 6;
-        let top = y - tipRect.height - 8;
-        if (top < 6) top = y + 8;
+        let top = pointY - tipRect.height - 14;
+        if (top < 6) top = pointY + 14;
         tip.style.left = `${left}px`;
         tip.style.top = `${top}px`;
       }}
-      onMouseLeave={() => { const tip = tipRef.current; if (tip) tip.style.display = 'none'; }}
+      onMouseLeave={() => {
+        const tip = tipRef.current;
+        const guide = guideRef.current;
+        if (tip) tip.style.display = "none";
+        if (guide) guide.style.display = "none";
+      }}
     >
       <div className="report-time-actions">
         <button type="button" className={`report-time-toggle orders ${visibleSeries.orders ? "active" : "inactive"}`} onClick={() => toggleSeries("orders")}>
-          <i className="report-time-dot orders" />单量
+          <i className="report-time-dot orders" />{t(locale, "单量", "Orders")}
         </button>
         <button type="button" className={`report-time-toggle revenue ${visibleSeries.revenue ? "active" : "inactive"}`} onClick={() => toggleSeries("revenue")}>
-          <i className="report-time-dot revenue" />营业额
+          <i className="report-time-dot revenue" />{t(locale, "营业额", "Revenue")}
         </button>
         <button type="button" className={`report-time-toggle avg-ticket ${visibleSeries.avgTicket ? "active" : "inactive"}`} onClick={() => toggleSeries("avgTicket")}>
-          <i className="report-time-dot avg-ticket" />客单价
+          <i className="report-time-dot avg-ticket" />{t(locale, "客单价", "Avg. ticket")}
+        </button>
+        <button
+          type="button"
+          className={`report-time-toggle cumulative-orders ${visibleSeries.cumulativeOrders ? "active" : "inactive"}`}
+          aria-pressed={visibleSeries.cumulativeOrders}
+          onClick={() => toggleSeries("cumulativeOrders")}
+        >
+          <i className="report-time-dot cumulative-orders" />{t(locale, "累计单量", "Cumulative orders")}
+        </button>
+        <button
+          type="button"
+          className={`report-time-toggle cumulative-revenue ${visibleSeries.cumulativeRevenue ? "active" : "inactive"}`}
+          aria-pressed={visibleSeries.cumulativeRevenue}
+          onClick={() => toggleSeries("cumulativeRevenue")}
+        >
+          <i className="report-time-dot cumulative-revenue" />{t(locale, "累计营业额", "Cumulative revenue")}
         </button>
       </div>
       <canvas ref={canvasRef} />
-      <div ref={tipRef} style={{ display: 'none', position: 'absolute', pointerEvents: 'none', background: 'rgba(0,0,0,0.85)', color: '#fff', padding: '6px 8px', borderRadius: 6, fontSize: 12, zIndex: 50 }} />
+      <div ref={guideRef} className="daily-trend-hover-guide time-trend-hover-guide" style={{ display: "none" }} />
+      <div ref={tipRef} className="daily-trend-tooltip time-trend-tooltip" style={{ display: "none" }} />
     </div>
   );
 }

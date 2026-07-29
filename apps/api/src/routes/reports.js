@@ -1,4 +1,6 @@
 // Auto-generated route module: reports
+import { buildAccountingCsv } from "../services/accounting-csv.js";
+import { buildAccountingXlsx } from "../services/accounting-xlsx.js";
 
 export default function register({
   app,
@@ -79,11 +81,20 @@ app.get("/dashboard/today", async (request, reply) => {
       COALESCE(SUM(tax), 0)::numeric AS tax,
       COALESCE(SUM(service_charge), 0)::numeric AS service_charge,
       COUNT(*)::integer AS orders,
+      COUNT(*) FILTER (
+        WHERE EXISTS (SELECT 1 FROM payments p WHERE p.order_id = orders.id AND p.method = 'complimentary')
+      )::integer AS complimentary_orders,
+      COALESCE((
+        SELECT SUM(p.amount - p.change_due)
+        FROM payments p
+        JOIN orders paid_order ON paid_order.id = p.order_id
+        WHERE paid_order.created_at::date = $1::date AND paid_order.status = 'paid'
+      ), 0)::numeric AS recorded_income,
       COALESCE(AVG(NULLIF(total, 0)), 0)::numeric AS average_ticket,
       COUNT(*) FILTER (WHERE service_type = 'dine_in')::integer AS dine_in_orders,
       COUNT(*) FILTER (WHERE service_type = 'takeaway')::integer AS takeaway_orders
      FROM orders
-     WHERE created_at::date = $1::date AND status IN ('submitted','preparing','ready','paid')`,
+     WHERE created_at::date = $1::date AND status = 'paid'`,
     [today]
   );
   const yesterdaySummary = await one(
@@ -94,16 +105,25 @@ app.get("/dashboard/today", async (request, reply) => {
       COALESCE(SUM(tax), 0)::numeric AS tax,
       COALESCE(SUM(service_charge), 0)::numeric AS service_charge,
       COUNT(*)::integer AS orders,
+      COUNT(*) FILTER (
+        WHERE EXISTS (SELECT 1 FROM payments p WHERE p.order_id = orders.id AND p.method = 'complimentary')
+      )::integer AS complimentary_orders,
+      COALESCE((
+        SELECT SUM(p.amount - p.change_due)
+        FROM payments p
+        JOIN orders paid_order ON paid_order.id = p.order_id
+        WHERE paid_order.created_at::date = $1::date AND paid_order.status = 'paid'
+      ), 0)::numeric AS recorded_income,
       COALESCE(AVG(NULLIF(total, 0)), 0)::numeric AS average_ticket
      FROM orders
-     WHERE created_at::date = $1::date AND status IN ('submitted','preparing','ready','paid')`,
+     WHERE created_at::date = $1::date AND status = 'paid'`,
     [yesterdayStr]
   );
   const hotItems = await query(
     `SELECT oi.item_id, oi.name_i18n, SUM(oi.quantity)::integer AS quantity, SUM((oi.unit_price * oi.quantity))::numeric AS sales
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at::date = $1::date AND o.status NOT IN ('cancelled', 'split')
+     WHERE o.created_at::date = $1::date AND o.status = 'paid'
      GROUP BY oi.item_id, oi.name_i18n
      ORDER BY quantity DESC
      LIMIT 8`,
@@ -125,25 +145,36 @@ async function buildSalesReport(from, to) {
       COALESCE(SUM(tax), 0)::numeric AS tax,
       COALESCE(SUM(service_charge), 0)::numeric AS service_charge,
       COUNT(*)::integer AS orders,
+      COUNT(*) FILTER (
+        WHERE EXISTS (SELECT 1 FROM payments p WHERE p.order_id = orders.id AND p.method = 'complimentary')
+      )::integer AS complimentary_orders,
+      COALESCE((
+        SELECT SUM(p.amount - p.change_due)
+        FROM payments p
+        JOIN orders paid_order ON paid_order.id = p.order_id
+        WHERE paid_order.created_at >= $1::date
+          AND paid_order.created_at < ($2::date + INTERVAL '1 day')
+          AND paid_order.status = 'paid'
+      ), 0)::numeric AS recorded_income,
       COALESCE(AVG(NULLIF(total, 0)), 0)::numeric AS average_ticket,
       COUNT(*) FILTER (WHERE service_type = 'dine_in')::integer AS dine_in_orders,
       COUNT(*) FILTER (WHERE service_type = 'takeaway')::integer AS takeaway_orders
      FROM orders
-     WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status IN ('submitted','preparing','ready','paid')`,
+     WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status = 'paid'`,
     params
   );
   const itemUnits = await one(
     `SELECT COALESCE(SUM(oi.quantity), 0)::integer AS items_sold
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status IN ('submitted','preparing','ready','paid')`,
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status = 'paid'`,
     params
   );
   summary.items_sold = Number(itemUnits?.items_sold || 0);
   const byDay = await query(
     `SELECT created_at::date AS day, COUNT(*)::integer AS orders, COALESCE(SUM(total), 0)::numeric AS revenue
      FROM orders
-     WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status IN ('submitted','preparing','ready','paid')
+     WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status = 'paid'
      GROUP BY created_at::date
      ORDER BY day`,
     params
@@ -159,7 +190,7 @@ async function buildSalesReport(from, to) {
          oi.unit_price
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
-       WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
+       WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status = 'paid'
      ), item_sales AS (
        SELECT
          item_key,
@@ -185,7 +216,7 @@ async function buildSalesReport(from, to) {
      JOIN orders o ON o.id = oi.order_id
      LEFT JOIN menu_items mi ON mi.id = oi.item_id
      LEFT JOIN menu_categories mc ON mc.id = mi.category_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status IN ('submitted','preparing','ready','paid')
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status = 'paid'
      GROUP BY COALESCE(mc.id::text, 'uncategorized'), COALESCE(mc.name_i18n, '{"zh-CN":"未分类","en-GB":"Uncategorized"}'::jsonb), mc.sort_order
      ORDER BY sales DESC, quantity DESC, mc.sort_order NULLS LAST`,
     params
@@ -195,7 +226,7 @@ async function buildSalesReport(from, to) {
      FROM order_item_modifiers oim
      JOIN order_items oi ON oi.id = oim.order_item_id
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status = 'paid'
      GROUP BY oim.name_i18n
      ORDER BY quantity DESC
      LIMIT 20`,
@@ -211,7 +242,7 @@ async function buildSalesReport(from, to) {
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-         AND o.status NOT IN ('cancelled', 'split')
+         AND o.status = 'paid'
          AND oi.notes IS NOT NULL AND oi.notes <> ''
      ) filtered ON filtered.notes ILIKE ('%' || np.label || '%')
      GROUP BY np.label
@@ -224,7 +255,7 @@ async function buildSalesReport(from, to) {
     `SELECT oi.notes AS label, COUNT(*)::integer AS count
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE oi.notes IS NOT NULL AND oi.notes <> '' AND o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status NOT IN ('cancelled', 'split')
+     WHERE oi.notes IS NOT NULL AND oi.notes <> '' AND o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status = 'paid'
      GROUP BY oi.notes
      ORDER BY count DESC
      LIMIT 20`,
@@ -236,7 +267,7 @@ async function buildSalesReport(from, to) {
     `SELECT floor(((EXTRACT(HOUR FROM o.created_at) * 60) + EXTRACT(MINUTE FROM o.created_at)) / 30)::int AS slot_index,
       COUNT(*)::int AS orders, COALESCE(SUM(o.total),0)::numeric AS revenue
      FROM orders o
-     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status IN ('submitted','preparing','ready','paid')
+     WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day') AND o.status = 'paid'
      GROUP BY slot_index
      ORDER BY slot_index`,
     params
@@ -324,7 +355,7 @@ async function buildItemSalesReport(from, to, itemRef) {
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-       AND o.status IN ('submitted','preparing','ready','paid')
+       AND o.status = 'paid'
        AND ${itemWhere}`,
     params
   );
@@ -333,7 +364,7 @@ async function buildItemSalesReport(from, to, itemRef) {
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-       AND o.status IN ('submitted','preparing','ready','paid')
+       AND o.status = 'paid'
        AND ${itemWhere}
      GROUP BY o.created_at::date
      ORDER BY day`,
@@ -347,7 +378,7 @@ async function buildItemSalesReport(from, to, itemRef) {
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      WHERE o.created_at >= $1::date AND o.created_at < ($2::date + INTERVAL '1 day')
-       AND o.status IN ('submitted','preparing','ready','paid')
+       AND o.status = 'paid'
        AND ${itemWhere}
      GROUP BY slot_index
      ORDER BY slot_index`,
@@ -381,32 +412,109 @@ app.get("/reports/sales/items/:itemId", async (request, reply) => {
   return buildItemSalesReport(request.query.from ?? today, request.query.to ?? today, request.params.itemId);
 });
 
+async function buildAccountingExport(from, to) {
+  const report = await buildSalesReport(from, to);
+  const settings = await getSettings();
+  const params = [report.from, report.to];
+  const orderRows = await query(
+    `SELECT
+       o.id,
+       o.order_no,
+       o.created_at::date::text AS business_day,
+       o.created_at,
+       o.paid_at,
+       o.service_type,
+       o.guests,
+       o.subtotal,
+       o.discount,
+       o.net_sales,
+       o.tax,
+       o.service_charge,
+       o.total,
+       o.discount_reason,
+       o.notes,
+       COALESCE(items.items_sold, 0)::integer AS items_sold,
+       COALESCE(payments.payment_methods, '') AS payment_methods,
+       COALESCE(payments.payment_providers, '') AS payment_providers,
+       COALESCE(payments.tendered_amount, 0)::numeric AS tendered_amount,
+       COALESCE(payments.change_due, 0)::numeric AS change_due,
+       COALESCE(payments.retained_amount, 0)::numeric AS retained_amount,
+       COALESCE(payments.is_complimentary, false) AS is_complimentary
+     FROM orders o
+     LEFT JOIN LATERAL (
+       SELECT COALESCE(SUM(oi.quantity), 0)::integer AS items_sold
+       FROM order_items oi
+       WHERE oi.order_id = o.id
+     ) items ON true
+     LEFT JOIN LATERAL (
+       SELECT
+         STRING_AGG(DISTINCT p.method, ' + ' ORDER BY p.method) AS payment_methods,
+         STRING_AGG(DISTINCT COALESCE(p.provider, 'manual'), ' + ' ORDER BY COALESCE(p.provider, 'manual')) AS payment_providers,
+         COALESCE(SUM(p.amount), 0)::numeric AS tendered_amount,
+         COALESCE(SUM(p.change_due), 0)::numeric AS change_due,
+         COALESCE(SUM(p.retained_amount), 0)::numeric AS retained_amount,
+         BOOL_OR(p.method = 'complimentary') AS is_complimentary
+       FROM payments p
+       WHERE p.order_id = o.id
+     ) payments ON true
+     WHERE o.created_at >= $1::date
+       AND o.created_at < ($2::date + INTERVAL '1 day')
+       AND o.status = 'paid'
+     ORDER BY o.created_at, o.order_no`,
+    params
+  );
+  const paymentRows = await query(
+    `SELECT
+       p.method,
+       COALESCE(p.provider, 'manual') AS provider,
+       COUNT(*)::integer AS transactions,
+       COALESCE(SUM(p.amount), 0)::numeric AS tendered_amount,
+       COALESCE(SUM(p.change_due), 0)::numeric AS change_due,
+       COALESCE(SUM(p.retained_amount), 0)::numeric AS retained_amount
+     FROM payments p
+     JOIN orders o ON o.id = p.order_id
+     WHERE o.created_at >= $1::date
+       AND o.created_at < ($2::date + INTERVAL '1 day')
+       AND o.status = 'paid'
+     GROUP BY p.method, COALESCE(p.provider, 'manual')
+     ORDER BY p.method, COALESCE(p.provider, 'manual')`,
+    params
+  );
+  return {
+    report,
+    orderRows,
+    paymentRows,
+    settings,
+    timeZone: process.env.TZ || "Europe/London"
+  };
+}
+
 app.get("/reports/sales.csv", async (request, reply) => {
   if (!await requirePermission(request, reply, "export_reports")) return;
   const today = localToday();
-  const report = await buildSalesReport(request.query.from ?? today, request.query.to ?? today);
-  const rows = [
-    ["from", "to", "orders", "items_sold", "revenue", "subtotal", "discount", "net_sales", "tax", "service_charge", "average_ticket"],
-    [
-      report.from,
-      report.to,
-      report.summary.orders,
-      report.summary.items_sold,
-      report.summary.revenue,
-      report.summary.subtotal,
-      report.summary.discount,
-      report.summary.net_sales,
-      report.summary.tax,
-      report.summary.service_charge,
-      report.summary.average_ticket
-    ],
-    [],
-    ["day", "orders", "revenue"],
-    ...report.byDay.map((row) => [row.day, row.orders, row.revenue])
-  ];
+  const accountingExport = await buildAccountingExport(
+    request.query.from ?? today,
+    request.query.to ?? today
+  );
+  const csv = buildAccountingCsv(accountingExport);
   reply.header("Content-Type", "text/csv; charset=utf-8");
-  reply.header("Content-Disposition", `attachment; filename="sales-${report.from}-${report.to}.csv"`);
-  return rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  reply.header("Content-Language", "zh-CN, en-GB");
+  reply.header("Content-Disposition", `attachment; filename="accounting-sales-${accountingExport.report.from}-${accountingExport.report.to}.csv"`);
+  return csv;
+});
+
+app.get("/reports/sales.xlsx", async (request, reply) => {
+  if (!await requirePermission(request, reply, "export_reports")) return;
+  const today = localToday();
+  const accountingExport = await buildAccountingExport(
+    request.query.from ?? today,
+    request.query.to ?? today
+  );
+  const workbook = await buildAccountingXlsx(accountingExport);
+  reply.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  reply.header("Content-Language", "zh-CN, en-GB");
+  reply.header("Content-Disposition", `attachment; filename="accounting-sales-${accountingExport.report.from}-${accountingExport.report.to}.xlsx"`);
+  return reply.send(workbook);
 });
 
 app.get("/audit-logs", async (request, reply) => {

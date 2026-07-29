@@ -70,6 +70,7 @@ CREATE TABLE staff_schedule_cells (
   end_time TIME,
   break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (break_minutes >= 0 AND break_minutes <= 1440),
   note TEXT NOT NULL DEFAULT '',
+  actual_is_off BOOLEAN NOT NULL DEFAULT false,
   actual_start_time TIME,
   actual_end_time TIME,
   actual_break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (actual_break_minutes >= 0 AND actual_break_minutes <= 1440),
@@ -248,6 +249,7 @@ CREATE TABLE payments (
   method TEXT NOT NULL,
   amount NUMERIC(10,2) NOT NULL,
   change_due NUMERIC(10,2) NOT NULL DEFAULT 0,
+  retained_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Bilingual Accounting CSV and Excel**: Sales exports now include Chinese/English definitions and formulas, accounting totals, payment reconciliation, daily summaries, and a paid-order ledger. Excel export provides four formatted worksheets with frozen headers, while CSV retains UTF-8 BOM and numeric amount cells.
+- **Optional Cumulative Time-Slot Trends**: The 30/60-minute chart now has separate default-off controls for cumulative orders and cumulative revenue, plus a Daily Trend-style hover guide and metric-aware tooltip.
+- **Actual Attendance OFF and 120-Minute Breaks**: Staff schedule actual-attendance records can now explicitly be marked `OFF`, with actual hours calculated as zero while preserving notes; scheduled and actual break presets now include 120 minutes.
+- **Complimentary Checkout**: The POS payment screen now supports admin-authorized zero-value checkout with a required reason and optional note; orders close as `paid` with a `complimentary` payment record, and reports expose a complimentary-order count.
+- **Retained Cash Income**: Cash payments can mark excess tender as not requiring change; order settlement, retained cash, and recorded income are tracked separately, with a new recorded-income report metric.
+- **Paid Order Amount Adjustment**: Admin order details now support permission-gated total reduction for paid orders, refund-due guidance, and appended adjustment notes; cashiers can use temporary admin account/PIN authorization.
 - **PBKDF2 PIN Hashing**: Staff PINs now stored as PBKDF2 hashes (SHA-512, 100k iterations, random salt) using Node.js built-in crypto. Legacy plaintext PINs auto-upgrade on first login — zero user impact.
 - **PIN Privacy**: `GET /users` API no longer returns the `pin` field; admin account page no longer displays PINs in plain text.
 - **Account Page Redesign**: Card-based layout, color-coded role badges (Owner🔴/Cashier🔵/Kitchen🟢), inline expand/edit, inline delete confirmation, PIN show/hide toggle, and PIN confirmation field.
@@ -43,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Order Pagination**: Admin order list paginates at 20 items per page.
 
 ### Fixed
+- **Schedule Metrics at Current Time**: Revenue-per-hour and labor-percentage metrics now use only elapsed shift time and prorated labor cost as of the current minute; weekly totals average the available daily rates so future scheduled shifts no longer distort current performance.
+- **Zero-Total Checkout**: Orders already reduced to a genuine zero total can now complete checkout with an explicit zero-value payment record, while zero payments against outstanding balances remain blocked.
+- **Schedule Auto-Hide State**: Fixed persistent per-employee expansion exceptions that made “Auto hide empty” appear broken after adding staff; re-enabling the option now restores consistent filtering.
+- **Unpaid Orders in Sales Metrics**: Schedule revenue, dashboard totals, and sales reports now count only `paid` orders, excluding cancelled and still-open orders.
 - **Order Detail Line Totals**: Admin order detail now receives per-item line totals from the API, so item amounts no longer display as zero.
 - **Split Parent Details**: Split parent orders now show child order numbers with their item details in the Admin order detail modal.
 - **Staff Schedule Revenue**: Staff schedule revenue totals now exclude split parent orders, preventing split orders from being counted twice.

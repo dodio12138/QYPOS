@@ -79,7 +79,7 @@ app.get("/staff-schedules", async (request, reply) => {
     `SELECT id, employee_id, work_date::text AS work_date, is_off,
             to_char(start_time, 'HH24:MI') AS start_time,
             to_char(end_time, 'HH24:MI') AS end_time,
-            break_minutes, note,
+            break_minutes, note, actual_is_off,
             to_char(actual_start_time, 'HH24:MI') AS actual_start_time,
             to_char(actual_end_time, 'HH24:MI') AS actual_end_time,
             actual_break_minutes, actual_note
@@ -92,7 +92,7 @@ app.get("/staff-schedules", async (request, reply) => {
     `SELECT d::date::text AS day, COALESCE(SUM(o.total), 0) AS revenue
      FROM generate_series($1::date, $1::date + INTERVAL '6 days', '1 day') d
      LEFT JOIN orders o ON o.created_at::date = d::date
-       AND o.status NOT IN ('cancelled', 'draft', 'split')
+       AND o.status = 'paid'
      GROUP BY d
      ORDER BY d`,
     [weekStart]
@@ -243,25 +243,27 @@ app.put("/staff-schedules/cells", async (request, reply) => {
   const endTime = isOff ? null : parseTimeOnly(body.end_time);
   const breakMinutes = Math.max(0, Math.round(Number(body.break_minutes ?? 0)));
   const note = String(body.note ?? "").trim();
-  const actualStartTime = body.actual_start_time ? parseTimeOnly(body.actual_start_time) : null;
-  const actualEndTime = body.actual_end_time ? parseTimeOnly(body.actual_end_time) : null;
-  const actualBreakMinutes = Math.max(0, Math.round(Number(body.actual_break_minutes ?? 0)));
+  const actualIsOff = Boolean(body.actual_is_off);
+  const actualStartTime = actualIsOff ? null : (body.actual_start_time ? parseTimeOnly(body.actual_start_time) : null);
+  const actualEndTime = actualIsOff ? null : (body.actual_end_time ? parseTimeOnly(body.actual_end_time) : null);
+  const actualBreakMinutes = actualIsOff ? 0 : Math.max(0, Math.round(Number(body.actual_break_minutes ?? 0)));
   const actualNote = String(body.actual_note ?? "").trim();
   if (!isOff && (!startTime || !endTime)) { reply.code(400); return { error: "Start and end time are required unless OFF is selected" }; }
   if (!Number.isFinite(breakMinutes) || breakMinutes > 1440) { reply.code(400); return { error: "Break minutes must be between 0 and 1440" }; }
-  if ((body.actual_start_time && !actualStartTime) || (body.actual_end_time && !actualEndTime)) { reply.code(400); return { error: "Actual start and end time must be valid times" }; }
+  if (!actualIsOff && ((body.actual_start_time && !actualStartTime) || (body.actual_end_time && !actualEndTime))) { reply.code(400); return { error: "Actual start and end time must be valid times" }; }
   if ((actualStartTime && !actualEndTime) || (!actualStartTime && actualEndTime)) { reply.code(400); return { error: "Actual start and end time must be entered together" }; }
   if (!Number.isFinite(actualBreakMinutes) || actualBreakMinutes > 1440) { reply.code(400); return { error: "Actual break minutes must be between 0 and 1440" }; }
 
   const cell = await one(
-    `INSERT INTO staff_schedule_cells (employee_id, work_date, is_off, start_time, end_time, break_minutes, note, actual_start_time, actual_end_time, actual_break_minutes, actual_note)
-     VALUES ($1, $2::date, $3, $4::time, $5::time, $6, $7, $8::time, $9::time, $10, $11)
+    `INSERT INTO staff_schedule_cells (employee_id, work_date, is_off, start_time, end_time, break_minutes, note, actual_is_off, actual_start_time, actual_end_time, actual_break_minutes, actual_note)
+     VALUES ($1, $2::date, $3, $4::time, $5::time, $6, $7, $8, $9::time, $10::time, $11, $12)
      ON CONFLICT (employee_id, work_date) DO UPDATE
      SET is_off = EXCLUDED.is_off,
          start_time = EXCLUDED.start_time,
          end_time = EXCLUDED.end_time,
          break_minutes = EXCLUDED.break_minutes,
          note = EXCLUDED.note,
+         actual_is_off = EXCLUDED.actual_is_off,
          actual_start_time = EXCLUDED.actual_start_time,
          actual_end_time = EXCLUDED.actual_end_time,
          actual_break_minutes = EXCLUDED.actual_break_minutes,
@@ -270,11 +272,11 @@ app.put("/staff-schedules/cells", async (request, reply) => {
      RETURNING id, employee_id, work_date::text AS work_date, is_off,
                to_char(start_time, 'HH24:MI') AS start_time,
                to_char(end_time, 'HH24:MI') AS end_time,
-               break_minutes, note,
+               break_minutes, note, actual_is_off,
                to_char(actual_start_time, 'HH24:MI') AS actual_start_time,
                to_char(actual_end_time, 'HH24:MI') AS actual_end_time,
                actual_break_minutes, actual_note`,
-    [employeeId, workDate, isOff, startTime, endTime, breakMinutes, note, actualStartTime, actualEndTime, actualBreakMinutes, actualNote]
+    [employeeId, workDate, isOff, startTime, endTime, breakMinutes, note, actualIsOff, actualStartTime, actualEndTime, actualBreakMinutes, actualNote]
   );
   await auditLog(request, "staff_schedule.cell.save", "staff_schedule_cell", cell.id, { actor_id: actor.id, employee_id: employeeId, work_date: workDate });
   return cell;

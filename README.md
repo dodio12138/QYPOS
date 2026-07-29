@@ -48,6 +48,7 @@
 
 - [Overview](#-overview)
 - [Features](#-features)
+- [Accounting Exports](#-accounting-exports)
 - [Tech Stack](#-tech-stack)
 - [Quick Start](#-quick-start)
 - [Architecture](#-architecture)
@@ -88,6 +89,7 @@ Core Principles:
 - Required/optional modifier groups with default selections
 - Order add-items, discount (capped to subtotal), service charge adjustment
 - Multiple payment methods: cash, card, QR, other, and **Dojo Go** terminal
+- Zero-value checkout, admin-authorized complimentary orders, and retained excess cash when no change is requested
 - Real-time table status via WebSocket
 
 ### 🖨️ Kitchen Printing
@@ -102,10 +104,12 @@ Core Principles:
 ### 📊 Back Office
 - **Menu Management**: Full CRUD plus synchronized variant presets and group-level modifier presets with ordering and automatic detachment after direct edits
 - **Table Layout**: Visual editor with zones, copy/delete tables, grid snapping, undo/redo
-- **Staff Management**: Employee CRUD, role-based permissions (owner vs cashier with fine-grained access control), schedules, attendance tracking, and hourly wage
+- **Staff Management**: Employee CRUD, role-based permissions, schedules, actual-attendance OFF, break durations, and hourly wages; schedule conversion/efficiency metrics use elapsed time only
 - **Settings**: Tax, service charge, currency, printer config; sensitive tax changes require current-account PIN confirmation
 - **Dashboard**: Today's revenue, order count, avg. ticket, top sellers with multi-select drilldown and merged trend charts
-- **Sales Reports**: Historical data with day-of-week filter, expanded date presets (yesterday / this week / last week / last month), visual charts, and CSV export
+- **Order Management**: Admin-authorized paid-order amount reductions with refund-due calculation and appended notes
+- **Sales Reports**: Historical data, weekday filters, date presets, category mix, 30/60-minute charts, and independently toggleable cumulative order/revenue curves
+- **Accounting Exports**: Bilingual CSV and Excel with data relationships, payment reconciliation, daily summaries, and a paid-order ledger
 - **Audit Log**: Full audit trail with combined user, action, and exact time-range filters
 - **i18n**: Full Chinese / English coverage across POS and Admin interfaces
 - **Code Quality**: ESLint flat config with `no-undef` rule, integrated into CI pipeline
@@ -115,6 +119,33 @@ Core Principles:
 - Service health check panel (DB, Redis, print queue, backup status)
 - Offline & disconnection banners with API health failure alerts
 - Dojo Go payment terminal integration (Pay at Counter)
+
+---
+
+## 📒 Accounting Exports
+
+The `/admin → Analytics` screen exports CSV or Excel for the selected report range. Both formats share the same scope: paid orders only; cancelled, draft, open, and split-parent orders are excluded.
+
+The Excel workbook contains four sheets:
+
+| Worksheet | Contents |
+|-----------|----------|
+| `说明与汇总 Summary` | Bilingual definitions, currency, tax mode, core totals, and relationships |
+| `支付对账 Payments` | Tendered amounts, change, retained cash, and settlement by payment method/provider |
+| `每日汇总 Daily` | Daily orders, sales, tax, recorded income, refunds, and average ticket |
+| `订单账簿 Orders` | Per-order timestamps, payments, tax, adjustments, reasons, and notes |
+
+Core relationships:
+
+```text
+Order total = Net sales + Tax + Service charge
+Recorded income = Tendered amount - Change due
+Settled amount = Recorded income - Retained cash
+Refund due = MAX(Settled amount - Current order total, 0)
+Reconciliation difference = Settled amount - Current order total - Refund due (expected 0)
+```
+
+CSV uses a UTF-8 BOM and numeric amount columns. Excel adds frozen headers, practical column widths, numeric money formats, and highlighting for non-zero refund or reconciliation values.
 
 ---
 
@@ -219,6 +250,8 @@ qypos/
 │   │       │   ├── reports.js        # Reports & audit
 │   │       │   └── ops.js            # Operations
 │   │       └── services/      # Business services
+│   │           ├── accounting-csv.js # Accounting CSV model and serializer
+│   │           ├── accounting-xlsx.js # Multi-sheet accounting Excel
 │   │           ├── dojo.js           # Dojo Go terminal integration
 │   │           ├── permissions.js    # Permission checks
 │   │           ├── printers.js       # Printer routing
@@ -289,6 +322,8 @@ Configure via `.env` file:
 | `/orders` | POST | Create order | `create_order` |
 | `/orders/:id/submit` | POST | Submit order & trigger print | `create_order` |
 | `/orders/:id/payments` | POST | Record payment | `take_payment` |
+| `/orders/:id/complimentary` | POST | Admin-authorized complimentary checkout | `adjust_discount` |
+| `/orders/:id/amount-adjustment` | POST | Reduce a paid-order amount with an audit reason | `adjust_discount` |
 | `/orders/:id/items` | POST | Add items to order | `create_order` |
 | `/menu/categories` | CRUD | Category management | `manage_menu` |
 | `/menu/items` | CRUD | Item management | `manage_menu` |
@@ -297,6 +332,8 @@ Configure via `.env` file:
 | `/settings` | GET/PUT | System settings | Read: public / Write: auth |
 | `/dashboard/today` | GET | Today's dashboard | `view_dashboard` |
 | `/reports/sales` | GET | Sales reports | `view_reports` |
+| `/reports/sales.csv` | GET | Bilingual accounting CSV | `export_reports` |
+| `/reports/sales.xlsx` | GET | Four-sheet accounting Excel workbook | `export_reports` |
 | `/print-jobs` | GET | Print job list | `view_kitchen` |
 | `/audit-logs` | GET | Audit log (filterable by time, user, and action in Admin) | `view_audit_logs` |
 | `/health` | GET | Health check | Public |
@@ -387,6 +424,8 @@ You can also trigger backups manually, set auto-backup schedules, or download ba
 - [x] Full i18n (zh/en)
 - [x] Option presets & modifier group binding
 - [x] Staff scheduling & attendance
+- [x] Bilingual accounting CSV / Excel exports
+- [x] Zero-value checkout, complimentary orders & retained cash
 
 ### 🔮 v0.3.0+ — Planned
 - [ ] Multi-store support

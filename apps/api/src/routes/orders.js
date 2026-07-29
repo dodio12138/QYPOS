@@ -349,6 +349,191 @@ app.post("/orders/:id/discount", async (request, reply) => {
   return order;
 });
 
+app.post("/orders/:id/amount-adjustment", async (request, reply) => {
+  if (!await requirePermission(request, reply, "adjust_discount")) return;
+  const body = request.body ?? {};
+  const targetTotal = Math.round(Number(body.total) * 100) / 100;
+  const reason = String(body.reason ?? "").trim();
+  const note = String(body.note ?? "").trim();
+  if (!Number.isFinite(targetTotal) || targetTotal < 0) {
+    reply.code(400);
+    return { error: "Adjusted total must be a non-negative amount" };
+  }
+  if (!reason) {
+    reply.code(400);
+    return { error: "Adjustment reason is required" };
+  }
+
+  const order = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
+  if (!order) {
+    reply.code(404);
+    return { error: "Order not found" };
+  }
+  if (order.status !== "paid") {
+    reply.code(409);
+    return { error: "Only paid orders can be adjusted with this action" };
+  }
+  if (targetTotal > Number(order.total)) {
+    reply.code(400);
+    return { error: "Adjusted total cannot be higher than the current paid total" };
+  }
+
+  const settings = await getSettings();
+  const items = await getOrderItems(order.id);
+  const baseOverrides = {
+    service_charge_rate: order.service_charge_rate,
+    service_charge_exempt: order.service_charge_exempt
+  };
+  const fullTotal = calculateTotals(items, settings, { ...baseOverrides, discount_fixed: 0, discount_rate: null }).total;
+  if (targetTotal > fullTotal) {
+    reply.code(400);
+    return { error: "Adjusted total cannot be higher than the order total before discount" };
+  }
+
+  const subtotal = Number(order.subtotal ?? 0);
+  let low = 0;
+  let high = subtotal;
+  let discountFixed = 0;
+  for (let i = 0; i < 24; i += 1) {
+    const mid = Math.round(((low + high) / 2) * 100) / 100;
+    const calculated = calculateTotals(items, settings, { ...baseOverrides, discount_fixed: mid, discount_rate: null }).total;
+    discountFixed = mid;
+    if (calculated > targetTotal) low = mid;
+    else high = mid;
+  }
+  const candidates = [low, high, discountFixed].map((value) => Math.min(subtotal, Math.max(0, Math.round(value * 100) / 100)));
+  discountFixed = candidates.reduce((best, candidate) => {
+    const bestGap = Math.abs(calculateTotals(items, settings, { ...baseOverrides, discount_fixed: best, discount_rate: null }).total - targetTotal);
+    const gap = Math.abs(calculateTotals(items, settings, { ...baseOverrides, discount_fixed: candidate, discount_rate: null }).total - targetTotal);
+    return gap < bestGap ? candidate : best;
+  }, candidates[0]);
+
+  const noteLine = note ? `Amount adjustment: ${note}` : "";
+  await query(
+    `UPDATE orders
+     SET discount_fixed = $2,
+         discount_rate = NULL,
+         discount_reason = $3,
+         notes = CASE
+           WHEN $4 = '' THEN notes
+           WHEN notes = '' THEN $4
+           ELSE notes || E'\n' || $4
+         END,
+         updated_at = now()
+     WHERE id = $1`,
+    [order.id, discountFixed, reason, noteLine]
+  );
+  const updated = await recalculateOrder(order.id);
+  await auditLog(request, "order.amount.adjust", "order", order.id, {
+    previous_total: Number(order.total),
+    adjusted_total: Number(updated.total),
+    requested_total: targetTotal,
+    discount_fixed: discountFixed,
+    reason,
+    note
+  });
+  return updated;
+});
+
+app.post("/orders/:id/complimentary", async (request, reply) => {
+  if (!await requirePermission(request, reply, "adjust_discount")) return;
+  const reason = String(request.body?.reason ?? "").trim();
+  const note = String(request.body?.note ?? "").trim();
+  if (!reason) {
+    reply.code(400);
+    return { error: "Complimentary reason is required" };
+  }
+
+  const client = await pool.connect();
+  let order;
+  let payment;
+  let tableStatus = null;
+  try {
+    await client.query("BEGIN");
+    const orderResult = await client.query("SELECT * FROM orders WHERE id = $1 FOR UPDATE", [request.params.id]);
+    order = orderResult.rows[0];
+    if (!order) throw httpError("Order not found", 404);
+    if (["paid", "cancelled", "split"].includes(order.status)) throw httpError("Order is already closed", 409);
+
+    const itemResult = await client.query(
+      "SELECT COUNT(*)::integer AS count FROM order_items WHERE order_id = $1 AND status <> 'cancelled'",
+      [order.id]
+    );
+    if (Number(itemResult.rows[0]?.count || 0) === 0) throw httpError("Cannot close an empty order as complimentary", 409);
+
+    const paymentResult = await client.query(
+      "SELECT COUNT(*)::integer AS count FROM payments WHERE order_id = $1",
+      [order.id]
+    );
+    if (Number(paymentResult.rows[0]?.count || 0) > 0) throw httpError("Cannot make a partially paid order complimentary", 409);
+
+    const noteLine = note ? `Complimentary: ${note}` : "";
+    const updatedResult = await client.query(
+      `UPDATE orders
+       SET discount_fixed = subtotal,
+           discount_rate = NULL,
+           discount = subtotal,
+           discount_reason = $2,
+           net_sales = 0,
+           tax = 0,
+           service_charge = 0,
+           total = 0,
+           status = 'paid',
+           paid_at = now(),
+           notes = CASE
+             WHEN $3 = '' THEN notes
+             WHEN notes = '' THEN $3
+             ELSE notes || E'\n' || $3
+           END,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [order.id, reason, noteLine]
+    );
+    order = updatedResult.rows[0];
+    const insertedPayment = await client.query(
+      `INSERT INTO payments (order_id, method, amount, change_due)
+       VALUES ($1, 'complimentary', 0, 0)
+       RETURNING *`,
+      [order.id]
+    );
+    payment = insertedPayment.rows[0];
+
+    if (order.table_id) {
+      const settingsResult = await client.query("SELECT auto_clear_tables_after_payment FROM settings ORDER BY updated_at DESC LIMIT 1");
+      if (settingsResult.rows[0]?.auto_clear_tables_after_payment) {
+        await client.query(
+          "UPDATE tables SET current_order_id = NULL, status = 'available', opened_at = NULL, updated_at = now() WHERE id = $1",
+          [order.table_id]
+        );
+        tableStatus = "available";
+      } else {
+        await client.query("UPDATE tables SET status = 'needs_cleaning', updated_at = now() WHERE id = $1", [order.table_id]);
+        tableStatus = "needs_cleaning";
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (error.statusCode) {
+      reply.code(error.statusCode);
+      return { error: error.message };
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  if (order.table_id) emit("table.status.updated", { table_id: order.table_id, status: tableStatus });
+  emit("order.paid", order);
+  await auditLog(request, "order.complimentary", "order", order.id, {
+    reason,
+    note,
+    original_total: Number(order.subtotal)
+  });
+  return { payment, order, paid: 0 };
+});
+
 // POST /orders/:id/split
 // body: { splits: [{ label, items: [{ id, quantity }] }] }
 app.post("/orders/:id/split", async (request, reply) => {
@@ -567,7 +752,7 @@ app.post("/orders/:id/payment-attempts/dojo", async (request, reply) => {
   }
 
   const order = await one(
-    `SELECT o.*, COALESCE(SUM(p.amount - p.change_due), 0)::numeric AS paid
+    `SELECT o.*, COALESCE(SUM(p.amount - p.change_due - p.retained_amount), 0)::numeric AS paid
      FROM orders o LEFT JOIN payments p ON p.order_id = o.id
      WHERE o.id = $1 GROUP BY o.id`,
     [request.params.id]
@@ -731,26 +916,42 @@ app.post("/payment-attempts/:id/signature", async (request, reply) => {
 app.post("/orders/:id/payments", async (request, reply) => {
   if (!await requirePermission(request, reply, "take_payment")) return;
   const body = request.body ?? {};
-  try {
-    assertPositivePayment(body);
-  } catch (error) {
-    reply.code(error.statusCode ?? 400);
-    return { error: error.message };
-  }
-  const currentOrder = await one("SELECT status FROM orders WHERE id = $1", [request.params.id]);
+  const currentOrder = await one("SELECT status, total FROM orders WHERE id = $1", [request.params.id]);
   if (!currentOrder) { reply.code(404); return { error: "Order not found" }; }
   if (currentOrder.status === "paid" || currentOrder.status === "cancelled") {
     reply.code(409);
     return { error: "Order is already closed" };
+  }
+  const allowZero = Number(currentOrder.total) === 0
+    && body.method === "zero"
+    && Number(body.amount) === 0
+    && Number(body.change_due ?? 0) === 0;
+  try {
+    assertPositivePayment(body, { allowZero });
+  } catch (error) {
+    reply.code(error.statusCode ?? 400);
+    return { error: error.message };
+  }
+  if (body.retain_excess === true && body.method !== "cash") {
+    reply.code(400);
+    return { error: "Only cash payments can retain excess received" };
   }
   try {
     const result = await recordPayment({
       orderId: request.params.id,
       method: body.method,
       amount: body.amount,
-      changeDue: body.change_due ?? 0
+      changeDue: body.change_due ?? 0,
+      retainExcess: body.retain_excess === true
     });
-    await auditLog(request, "payment.create", "payment", result.payment.id, { order_id: request.params.id, method: result.payment.method, amount: result.payment.amount });
+    await auditLog(request, "payment.create", "payment", result.payment.id, {
+      order_id: request.params.id,
+      method: result.payment.method,
+      amount: Number(result.payment.amount),
+      change_due: Number(result.payment.change_due),
+      retained_amount: Number(result.payment.retained_amount),
+      recorded_income: Number(result.payment.amount) - Number(result.payment.change_due)
+    });
     return { payment: result.payment, order: result.order, paid: result.paid };
   } catch (error) {
     if (error.statusCode) {

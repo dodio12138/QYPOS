@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, CreditCard, DollarSign, Percent, Receipt, Wallet } from "lucide-react";
+import { Banknote, Calculator, CreditCard, DollarSign, Percent, Receipt, Wallet } from "lucide-react";
 import { labelOf } from "../../../lib/api";
 import MetricCard from "./metric-card";
 
@@ -68,6 +68,7 @@ export default function Dashboard({ dashboard, auditLogs, locale, currency }) {
     <div className="dashboard">
       {[
         [t(locale,"营业额","Revenue"),"revenue", DollarSign],
+        [t(locale,"实收入账","Recorded income"),"recorded_income", Banknote],
         [t(locale,"折扣","Discount"),"discount", Percent],
         [t(locale,"净销售额","Net sales"),"net_sales", Wallet],
         ["Tax","tax", Calculator],

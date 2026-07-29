@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, Edit3, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { api, labelOf } from "../../../lib/api";
 
 function t(locale, zh, en) { return locale === "en-GB" ? en : zh; }
@@ -30,11 +30,55 @@ function OrderItemRows({ items, locale, currency }) {
   ));
 }
 
-function OrderDetailModal({ order, locale, currency, onClose }) {
+function OrderDetailModal({ order, locale, currency, canAdjustPaidOrder, onClose, onSaved, onNotify }) {
   const items = order.items || [];
   const payments = order.payments || [];
   const childOrders = order.child_orders || [];
-  const totalPayments = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const totalPayments = payments.reduce(
+    (sum, p) => sum + Number(p.amount || 0) - Number(p.change_due || 0) - Number(p.retained_amount || 0),
+    0
+  );
+  const [editingAmount, setEditingAmount] = useState(false);
+  const [targetTotal, setTargetTotal] = useState(Number(order.total || 0).toFixed(2));
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [adminPin, setAdminPin] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const adjustedTotal = Number(targetTotal || 0);
+  const refundDue = Math.max(0, Math.round((totalPayments - adjustedTotal) * 100) / 100);
+
+  async function submitAmountAdjustment(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (!canAdjustPaidOrder) {
+        const grant = await api("/auth/admin-grant", {
+          method: "POST",
+          body: JSON.stringify({ name: adminName.trim(), pin: adminPin, scope: "discount" })
+        });
+        window.sessionStorage.setItem("qypos_admin_grant", grant.token);
+      }
+      await api(`/orders/${order.id}/amount-adjustment`, {
+        method: "POST",
+        body: JSON.stringify({ total: adjustedTotal, reason: reason.trim(), note: note.trim() })
+      });
+      setEditingAmount(false);
+      setReason("");
+      setNote("");
+      setAdminName("");
+      setAdminPin("");
+      await onSaved(order.id);
+      onNotify(t(locale, "订单金额已调整", "Order amount adjusted"));
+    } catch (caught) {
+      setError(caught.message || t(locale, "调整失败", "Adjustment failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 520, maxHeight: "80vh", overflow: "auto" }}>
@@ -82,14 +126,51 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
             {Number(order.tax) > 0 && <><span>VAT</span><span>{money(order.tax, currency, locale)}</span></>}
             {Number(order.service_charge) > 0 && <><span>{t(locale,"服务费","Service charge")}</span><span>{money(order.service_charge, currency, locale)}</span></>}
             <strong style={{marginTop:4}}>{t(locale,"合计","Total")}</strong><strong style={{marginTop:4}}>{money(order.total, currency, locale)}</strong>
+            {totalPayments > 0 && <><span>{t(locale,"已收款","Paid")}</span><span>{money(totalPayments, currency, locale)}</span></>}
+            {totalPayments > Number(order.total || 0) && <><span>{t(locale,"需退款","Refund due")}</span><strong>{money(totalPayments - Number(order.total || 0), currency, locale)}</strong></>}
           </div>
+          {order.status === "paid" && (
+            <section style={{marginTop:14,padding:12,border:"1px solid var(--line)",borderRadius:8,display:"grid",gap:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center"}}>
+                <strong>{t(locale, "付款后调整", "Paid order adjustment")}</strong>
+                <button type="button" onClick={() => setEditingAmount((value) => !value)}>
+                  <Edit3 size={15} /><span>{editingAmount ? t(locale, "收起", "Close") : t(locale, "调整", "Adjust")}</span>
+                </button>
+              </div>
+              {order.notes && <small style={{whiteSpace:"pre-wrap",color:"var(--muted)"}}>{order.notes}</small>}
+              {editingAmount && (
+                <form onSubmit={submitAmountAdjustment} style={{display:"grid",gap:10}}>
+                  <label>{t(locale, "调整后合计", "Adjusted total")}<input type="number" min="0" step="0.01" value={targetTotal} onChange={(event) => setTargetTotal(event.target.value)} /></label>
+                  <label>{t(locale, "原因", "Reason")}<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder={t(locale, "例如：退款 / 投诉补偿", "Example: refund / goodwill")} /></label>
+                  <label>{t(locale, "追加备注", "Add note")}<textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+                  {!canAdjustPaidOrder && (
+                    <div style={{display:"grid",gap:8}}>
+                      <div style={{display:"flex",gap:6,alignItems:"center",fontSize:13,color:"var(--muted)"}}><ShieldCheck size={15} />{t(locale, "需要管理员验证", "Admin verification required")}</div>
+                      <label>{t(locale, "管理员账号", "Admin account")}<input value={adminName} onChange={(event) => setAdminName(event.target.value)} autoComplete="username" /></label>
+                      <label>PIN<input type="password" value={adminPin} onChange={(event) => setAdminPin(event.target.value)} autoComplete="current-password" /></label>
+                    </div>
+                  )}
+                  {refundDue > 0 && <small style={{color:"var(--danger)"}}>{t(locale, "应退款", "Refund due")}: {money(refundDue, currency, locale)}</small>}
+                  {error && <div className="inline-error">{error}</div>}
+                  <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+                    <button type="button" onClick={() => setEditingAmount(false)}>{t(locale, "取消", "Cancel")}</button>
+                    <button className="primary" type="submit" disabled={busy || !Number.isFinite(adjustedTotal) || adjustedTotal < 0 || !reason.trim() || (!canAdjustPaidOrder && (!adminName.trim() || !adminPin))}>{busy ? t(locale, "保存中…", "Saving…") : t(locale, "保存调整", "Save adjustment")}</button>
+                  </div>
+                </form>
+              )}
+            </section>
+          )}
           {payments.length > 0 && <>
             <div style={{margin:"12px 0",borderTop:"1px solid var(--line)"}} />
             <p style={{fontWeight:600,margin:"0 0 6px"}}>{t(locale,"支付记录","Payments")}</p>
             {payments.map((p) => (
-              <div key={p.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"2px 0"}}>
-                <span>{p.method}{p.provider ? ` (${p.provider})` : ""}{p.card_last4 ? ` ·•••${p.card_last4}` : ""}</span>
-                <strong>{money(p.amount, currency, locale)}</strong>
+              <div key={p.id} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:13,padding:"2px 0"}}>
+                <span>
+                  {p.method}{p.provider ? ` (${p.provider})` : ""}{p.card_last4 ? ` ·•••${p.card_last4}` : ""}
+                  {Number(p.change_due) > 0 ? ` · ${t(locale, "找零", "change")} ${money(p.change_due, currency, locale)}` : ""}
+                  {Number(p.retained_amount) > 0 ? ` · ${t(locale, "保留实收", "retained")} ${money(p.retained_amount, currency, locale)}` : ""}
+                </span>
+                <strong>{money(Number(p.amount) - Number(p.change_due || 0), currency, locale)}</strong>
               </div>
             ))}
           </>}
@@ -99,7 +180,7 @@ function OrderDetailModal({ order, locale, currency, onClose }) {
   );
 }
 
-export default function OrdersView({ orders, locale, currency }) {
+export default function OrdersView({ orders, locale, currency, user, onOrdersChange, onNotify }) {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [sortBy, setSortBy] = useState("time_desc");
@@ -113,6 +194,15 @@ export default function OrdersView({ orders, locale, currency }) {
     setLoadingId(order.id);
     try { const full = await api(`/orders/${order.id}`); setDetailOrder(full); }
     finally { setLoadingId(null); }
+  }
+
+  async function refreshDetail(orderId) {
+    const [nextOrders, full] = await Promise.all([
+      api("/orders"),
+      api(`/orders/${orderId}`)
+    ]);
+    onOrdersChange(nextOrders);
+    setDetailOrder(full);
   }
 
   const filtered = orders.filter((o) => {
@@ -135,7 +225,7 @@ export default function OrdersView({ orders, locale, currency }) {
 
   return (
     <>
-      {detailOrder && <OrderDetailModal order={detailOrder} locale={locale} currency={currency} onClose={() => setDetailOrder(null)} />}
+      {detailOrder && <OrderDetailModal order={detailOrder} locale={locale} currency={currency} canAdjustPaidOrder={user?.permissions?.includes("adjust_discount")} onClose={() => setDetailOrder(null)} onSaved={refreshDetail} onNotify={onNotify} />}
       <div className="orders-toolbar">
         <div className="orders-filters">
           <div className="filter-group"><label>{t(locale, "状态", "Status")}</label><select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>

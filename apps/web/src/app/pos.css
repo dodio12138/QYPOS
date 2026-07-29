@@ -864,6 +864,14 @@
   width: min(460px, 100%);
 }
 
+.payment-modal .modal-footer {
+  flex-wrap: wrap;
+}
+
+.payment-modal .modal-footer .primary {
+  margin-left: auto;
+}
+
 
 .action-modal {
   width: min(460px, 100%);

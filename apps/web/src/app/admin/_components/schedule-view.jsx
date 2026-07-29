@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Eraser, Eye, EyeOff, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { t, money, getLocalToday, formatDateStr, addDays, mondayOf, weekdayLabels } from "./helpers";
+import { averageMetric, elapsedShiftHours, hasScheduleDayStarted } from "./schedule-metrics";
 import { api } from "../../../lib/api";
 
 const SCHEDULE_COLORS = ["#f87171", "#22c55e", "#38bdf8", "#818cf8", "#f59e0b", "#14b8a6", "#ec4899", "#94a3b8"];
@@ -14,7 +15,7 @@ const DEFAULT_SCHEDULE_TIME_PRESETS = [
   { id: "default-1400-2230", label: "14:00-22:30", start_time: "14:00", end_time: "22:30" },
   { id: "default-2030-2230", label: "20:30-22:30", start_time: "20:30", end_time: "22:30" }
 ];
-const SCHEDULE_BREAK_PRESETS = [0, 15, 30, 45, 60];
+const SCHEDULE_BREAK_PRESETS = [0, 15, 30, 45, 60, 120];
 const STAFF_SCHEDULE_PREFS_KEY = "qypos_staff_schedule_preferences";
 function readStaffSchedulePreferences() {
   if (typeof window === "undefined") return {};
@@ -59,6 +60,7 @@ function staffSchedulePreferenceCopiedCell() {
       actual_start_time: null,
       actual_end_time: null,
       actual_break_minutes: 0,
+      actual_is_off: false,
       actual_note: ""
     };
   }
@@ -72,6 +74,7 @@ function staffSchedulePreferenceCopiedCell() {
     actual_start_time: null,
     actual_end_time: null,
     actual_break_minutes: 0,
+    actual_is_off: false,
     actual_note: ""
   };
 }
@@ -108,16 +111,22 @@ function shiftHours(startTime, endTime, breakMinutes = 0) {
 }
 
 function hasActualAttendance(cell) {
-  return Boolean(cell?.actual_start_time && cell?.actual_end_time);
+  return Boolean(cell?.actual_is_off || (cell?.actual_start_time && cell?.actual_end_time));
 }
 
 function actualHours(cell) {
-  if (!hasActualAttendance(cell)) return 0;
+  if (!hasActualAttendance(cell) || cell.actual_is_off) return 0;
   return shiftHours(cell.actual_start_time, cell.actual_end_time, cell.actual_break_minutes);
 }
 
 function effectiveScheduleHours(cell) {
   return hasActualAttendance(cell) ? actualHours(cell) : scheduleHours(cell);
+}
+
+function hasEffectiveWork(cell) {
+  if (!cell) return false;
+  if (hasActualAttendance(cell)) return !cell.actual_is_off && actualHours(cell) > 0;
+  return !cell.is_off;
 }
 
 function formatScheduleHours(value) {
@@ -134,6 +143,7 @@ function formatScheduleCell(cell) {
 
 function formatActualCell(cell) {
   if (!hasActualAttendance(cell)) return "";
+  if (cell.actual_is_off) return "OFF";
   const hours = formatScheduleHours(actualHours(cell));
   return `${cell.actual_start_time}-${cell.actual_end_time}(${hours})`;
 }
@@ -320,8 +330,9 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
   const [showConversion, setShowConversion] = useState(true);
   const [showLaborRatio, setShowLaborRatio] = useState(true);
   const [expandedDay, setExpandedDay] = useState(null); // date string of expanded day for Gantt view
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const days = useMemo(() => Array.from({ length: 7 }, (_, idx) => addDays(weekStart, idx)), [weekStart]);
-  const todayDateStr = useMemo(() => getLocalToday(), []);
+  const todayDateStr = useMemo(() => formatDateStr(currentTime), [currentTime]);
   const cellByKey = useMemo(() => {
     const map = new Map();
     for (const cell of data.cells ?? []) map.set(`${cell.employee_id}:${cell.work_date}`, cell);
@@ -332,7 +343,7 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
     for (const employee of data.employees ?? []) {
       const hasWork = days.some((day) => {
         const cell = cellByKey.get(`${employee.id}:${day}`);
-        return Boolean(cell && (!cell.is_off || hasActualAttendance(cell)));
+        return hasEffectiveWork(cell);
       });
       if (!hasWork) ids.add(employee.id);
     }
@@ -369,21 +380,31 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
   }), [cellByKey, countedEmployees, days]);
   const weekTotal = useMemo(() => totalsByDay.reduce((sum, item) => sum + item.total, 0), [totalsByDay]);
   const weekCost = useMemo(() => totalsByDay.reduce((sum, item) => sum + item.cost, 0), [totalsByDay]);
+  const elapsedTotalsByDay = useMemo(() => days.map((day) => {
+    const total = countedEmployees.reduce((sum, employee) => {
+      return sum + elapsedShiftHours(cellByKey.get(`${employee.id}:${day}`), day, currentTime);
+    }, 0);
+    const cost = countedEmployees.reduce((sum, employee) => {
+      const hours = elapsedShiftHours(cellByKey.get(`${employee.id}:${day}`), day, currentTime);
+      return sum + hours * Number(employee.hourly_wage || 0);
+    }, 0);
+    return { day, total, cost, started: hasScheduleDayStarted(day, currentTime) };
+  }), [cellByKey, countedEmployees, currentTime, days]);
 
   const revenueByDay = useMemo(() => {
     const map = new Map(dailyRevenue.map((r) => [r.day, Number(r.revenue || 0)]));
     return days.map((day) => map.get(day) || 0);
   }, [dailyRevenue, days]);
   const weekRevenue = useMemo(() => revenueByDay.reduce((sum, v) => sum + v, 0), [revenueByDay]);
-  const conversionByDay = useMemo(() => totalsByDay.map((item, i) => {
-    return (item.total > 0 && revenueByDay[i] > 0) ? revenueByDay[i] / item.total : null;
-  }), [totalsByDay, revenueByDay]);
-  const weekConversion = useMemo(() => (weekTotal > 0 && weekRevenue > 0) ? weekRevenue / weekTotal : null, [weekRevenue, weekTotal]);
+  const conversionByDay = useMemo(() => elapsedTotalsByDay.map((item, i) => {
+    return item.total > 0 ? revenueByDay[i] / item.total : null;
+  }), [elapsedTotalsByDay, revenueByDay]);
+  const weekConversion = useMemo(() => averageMetric(conversionByDay), [conversionByDay]);
 
-  const laborRatioByDay = useMemo(() => totalsByDay.map((item, i) => {
-    return revenueByDay[i] > 0 ? (item.cost / revenueByDay[i]) * 100 : null;
-  }), [totalsByDay, revenueByDay]);
-  const weekLaborRatio = useMemo(() => weekRevenue > 0 ? (weekCost / weekRevenue) * 100 : null, [weekCost, weekRevenue]);
+  const laborRatioByDay = useMemo(() => elapsedTotalsByDay.map((item, i) => {
+    return item.started && revenueByDay[i] > 0 ? (item.cost / revenueByDay[i]) * 100 : null;
+  }), [elapsedTotalsByDay, revenueByDay]);
+  const weekLaborRatio = useMemo(() => averageMetric(laborRatioByDay), [laborRatioByDay]);
 
   const loadSchedule = useCallback(async () => {
     setLoading(true);
@@ -483,6 +504,11 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
     showLaborRatio
   ]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   function toggleEmployeeInTotals(employeeId) {
     setExcludedTotalEmployeeIds((current) => {
       const next = new Set(current);
@@ -526,7 +552,13 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
 
   function showAllEmployeeRows() {
     setManuallyHiddenEmployeeIds(new Set());
-    setExpandedQuietEmployeeIds(new Set((data.employees ?? []).map((employee) => employee.id)));
+    setExpandedQuietEmployeeIds(new Set());
+    setAutoCollapseQuietEmployees(false);
+  }
+
+  function toggleAutoCollapseQuietEmployees(enabled) {
+    setAutoCollapseQuietEmployees(enabled);
+    if (enabled) setExpandedQuietEmployeeIds(new Set());
   }
 
   function openEmployeeEditor(employee) {
@@ -625,6 +657,7 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
       break_minutes: existing?.break_minutes ?? 0,
       note: existing?.note ?? "",
       actual_enabled: hasActualAttendance(existing),
+      actual_is_off: Boolean(existing?.actual_is_off),
       actual_start_time: existing?.actual_start_time ?? existing?.start_time ?? "14:00",
       actual_end_time: existing?.actual_end_time ?? existing?.end_time ?? "20:00",
       actual_break_minutes: existing?.actual_break_minutes ?? existing?.break_minutes ?? 0,
@@ -641,9 +674,10 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
       end_time: cell.is_off ? null : normalizeClockInput(cell.end_time),
       break_minutes: Number(cell.break_minutes || 0),
       note: cell.note ?? "",
-      actual_start_time: cell.actual_enabled ? normalizeClockInput(cell.actual_start_time) : null,
-      actual_end_time: cell.actual_enabled ? normalizeClockInput(cell.actual_end_time) : null,
-      actual_break_minutes: cell.actual_enabled ? Number(cell.actual_break_minutes || 0) : 0,
+      actual_is_off: Boolean(cell.actual_enabled && cell.actual_is_off),
+      actual_start_time: cell.actual_enabled && !cell.actual_is_off ? normalizeClockInput(cell.actual_start_time) : null,
+      actual_end_time: cell.actual_enabled && !cell.actual_is_off ? normalizeClockInput(cell.actual_end_time) : null,
+      actual_break_minutes: cell.actual_enabled && !cell.actual_is_off ? Number(cell.actual_break_minutes || 0) : 0,
       actual_note: cell.actual_enabled ? (cell.actual_note ?? "") : ""
     };
   }
@@ -711,6 +745,7 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
       actual_start_time: null,
       actual_end_time: null,
       actual_break_minutes: 0,
+      actual_is_off: false,
       actual_note: ""
     };
     if (!payload) return;
@@ -836,7 +871,7 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
             </div>
           )}
           <div className="schedule-summary-toggles">
-            <label className="schedule-visibility-toggle"><input type="checkbox" checked={autoCollapseQuietEmployees} onChange={(e) => setAutoCollapseQuietEmployees(e.target.checked)} /><span>{t(locale, "自动折叠空/OFF", "Auto hide empty")}</span></label>
+            <label className="schedule-visibility-toggle"><input type="checkbox" checked={autoCollapseQuietEmployees} onChange={(e) => toggleAutoCollapseQuietEmployees(e.target.checked)} /><span>{t(locale, "自动折叠空/OFF", "Auto hide empty")}</span></label>
             <label className="schedule-visibility-toggle"><input type="checkbox" checked={showDailyTotal} onChange={(e) => setShowDailyTotal(e.target.checked)} /><span>{t(locale, "每日合计", "Daily total")}</span></label>
             <label className="schedule-visibility-toggle"><input type="checkbox" checked={showRevenue} onChange={(e) => setShowRevenue(e.target.checked)} /><span>{t(locale, "营业额", "Revenue")}</span></label>
             <label className="schedule-visibility-toggle"><input type="checkbox" checked={showConversion} onChange={(e) => setShowConversion(e.target.checked)} /><span>{t(locale, "工时转化率", "Rev/Hour")}</span></label>
@@ -1031,6 +1066,7 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
                 <input type="checkbox" checked={Boolean(editingCell.actual_enabled)} onChange={(event) => setEditingCell({
                   ...editingCell,
                   actual_enabled: event.target.checked,
+                  actual_is_off: event.target.checked ? editingCell.actual_is_off : false,
                   actual_start_time: event.target.checked ? (editingCell.actual_start_time || editingCell.start_time || "14:00") : editingCell.actual_start_time,
                   actual_end_time: event.target.checked ? (editingCell.actual_end_time || editingCell.end_time || "20:00") : editingCell.actual_end_time
                 })} />
@@ -1038,21 +1074,29 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
               </label>
               {editingCell.actual_enabled && (
                 <>
-                  <div className="schedule-time-grid">
-                    <label>{t(locale, "实际开始", "Actual start")}<input type="time" step="900" value={normalizeClockInput(editingCell.actual_start_time)} onChange={(event) => setEditingCell({ ...editingCell, actual_start_time: event.target.value })} /></label>
-                    <label>{t(locale, "实际结束", "Actual end")}<input type="time" step="900" value={normalizeClockInput(editingCell.actual_end_time)} onChange={(event) => setEditingCell({ ...editingCell, actual_end_time: event.target.value })} /></label>
-                    <label>{t(locale, "实际休息分钟", "Actual break")}<input type="number" min="0" step="5" value={editingCell.actual_break_minutes} onChange={(event) => setEditingCell({ ...editingCell, actual_break_minutes: event.target.value })} /></label>
-                    <div className="schedule-break-presets">
-                      {SCHEDULE_BREAK_PRESETS.map((minutes) => (
-                        <button key={minutes} type="button" className={Number(editingCell.actual_break_minutes || 0) === minutes ? "selected" : ""} onClick={() => setEditingCell({ ...editingCell, actual_break_minutes: minutes })}>{minutes}m</button>
-                      ))}
+                  <label className="schedule-off-toggle">
+                    <input type="checkbox" checked={Boolean(editingCell.actual_is_off)} onChange={(event) => setEditingCell({ ...editingCell, actual_is_off: event.target.checked })} />
+                    <span>{t(locale, "实际为 OFF", "Actual OFF")}</span>
+                  </label>
+                  {editingCell.actual_is_off ? (
+                    <div className="schedule-preview schedule-actual-preview">{t(locale, "实际", "Actual")} OFF</div>
+                  ) : (
+                    <div className="schedule-time-grid">
+                      <label>{t(locale, "实际开始", "Actual start")}<input type="time" step="900" value={normalizeClockInput(editingCell.actual_start_time)} onChange={(event) => setEditingCell({ ...editingCell, actual_start_time: event.target.value })} /></label>
+                      <label>{t(locale, "实际结束", "Actual end")}<input type="time" step="900" value={normalizeClockInput(editingCell.actual_end_time)} onChange={(event) => setEditingCell({ ...editingCell, actual_end_time: event.target.value })} /></label>
+                      <label>{t(locale, "实际休息分钟", "Actual break")}<input type="number" min="0" step="5" value={editingCell.actual_break_minutes} onChange={(event) => setEditingCell({ ...editingCell, actual_break_minutes: event.target.value })} /></label>
+                      <div className="schedule-break-presets">
+                        {SCHEDULE_BREAK_PRESETS.map((minutes) => (
+                          <button key={minutes} type="button" className={Number(editingCell.actual_break_minutes || 0) === minutes ? "selected" : ""} onClick={() => setEditingCell({ ...editingCell, actual_break_minutes: minutes })}>{minutes}m</button>
+                        ))}
+                      </div>
+                      <div className="schedule-preview schedule-actual-preview">{t(locale, "实际", "Actual")} {formatActualCell({
+                        actual_start_time: normalizeClockInput(editingCell.actual_start_time),
+                        actual_end_time: normalizeClockInput(editingCell.actual_end_time),
+                        actual_break_minutes: editingCell.actual_break_minutes
+                      })}</div>
                     </div>
-                    <div className="schedule-preview schedule-actual-preview">{t(locale, "实际", "Actual")} {formatActualCell({
-                      actual_start_time: normalizeClockInput(editingCell.actual_start_time),
-                      actual_end_time: normalizeClockInput(editingCell.actual_end_time),
-                      actual_break_minutes: editingCell.actual_break_minutes
-                    })}</div>
-                  </div>
+                  )}
                   <label>{t(locale, "实际备注", "Actual note")}<input value={editingCell.actual_note} onChange={(event) => setEditingCell({ ...editingCell, actual_note: event.target.value })} /></label>
                 </>
               )}
@@ -1102,4 +1146,3 @@ export default function StaffScheduleView({ locale, currency, onNotify, canManag
     </div>
   );
 }
-

@@ -31,6 +31,7 @@ import ReceiptTitle from "./_components/receipt-title";
 import PosLogin from "./_components/pos-login";
 import TableActionModal from "./_components/table-action-modal";
 import DiscountAdminModal from "./_components/discount-admin-modal";
+import ComplimentaryAdminModal from "./_components/complimentary-admin-modal";
 import FloorMap from "./_components/floor-map";
 import VoidableOrderLine from "./_components/voidable-order-line";
 import CustomItemModal from "./_components/custom-item-modal";
@@ -139,6 +140,7 @@ export default function PosPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [pendingDiscount, setPendingDiscount] = useState(null);
+  const [pendingComplimentary, setPendingComplimentary] = useState(false);
   const [mobileStep, setMobileStep] = useState("tables");
   const [mobileStepHistory, setMobileStepHistory] = useState([]);
   const [tabletMode, setTabletMode] = useState(false);
@@ -517,6 +519,20 @@ export default function PosPage() {
     }, text(locale, "已收款", "Payment received"));
   }
 
+  async function settleComplimentaryOrder(payload) {
+    if (!selectedOrder) return;
+    await api(`/orders/${selectedOrder.id}/complimentary`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    setPendingComplimentary(false);
+    setPaying(false);
+    setSelectedOrder(null);
+    navigateMobileStep("tables");
+    await refresh(false);
+    setNotice(text(locale, "免单结账已完成", "Complimentary checkout completed"));
+  }
+
   async function payOrderPartial(payment) {
     if (!selectedOrder) return null;
     let result = null;
@@ -825,6 +841,17 @@ export default function PosPage() {
         />
       )}
 
+      {pendingComplimentary && selectedOrder && (
+        <ComplimentaryAdminModal
+          locale={locale}
+          onCancel={() => {
+            setPendingComplimentary(false);
+            setPaying(true);
+          }}
+          onApply={settleComplimentaryOrder}
+        />
+      )}
+
       {paying && selectedOrder && (
         <PaymentModal
           order={selectedOrder}
@@ -834,6 +861,10 @@ export default function PosPage() {
           onClose={() => setPaying(false)}
           onPay={payOrder}
           onDojoPaid={finishDojoPayment}
+          onComplimentary={() => {
+            setPaying(false);
+            setPendingComplimentary(true);
+          }}
         />
       )}
 

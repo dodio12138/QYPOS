@@ -253,6 +253,7 @@ function buildReceiptDoc({ order, items, payments, settings, table }) {
     for (const p of payments) {
       doc.push(T(`${p.method}: ${moneyShort(p.amount, currency)}`));
       if (Number(p.change_due)) doc.push(T(`找零 Change: ${moneyShort(p.change_due, currency)}`));
+      if (Number(p.retained_amount)) doc.push(T(`保留实收 Retained: ${moneyShort(p.retained_amount, currency)}`));
     }
   }
   if (order.notes) { doc.push(R()); doc.push(T(`备注 Notes: ${order.notes}`)); }
