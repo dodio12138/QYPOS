@@ -42,6 +42,8 @@ const orderRows = [
     tendered_amount: 20,
     change_due: 0,
     retained_amount: 2,
+    cash_recorded_income: 20,
+    card_recorded_income: 0,
     discount_reason: "=unsafe formula",
     notes: "Customer said \"thanks\""
   },
@@ -64,6 +66,8 @@ const orderRows = [
     tendered_amount: 0,
     change_due: 0,
     retained_amount: 0,
+    cash_recorded_income: 0,
+    card_recorded_income: 0,
     is_complimentary: true
   }
 ];
@@ -90,9 +94,12 @@ test("builds a bilingual accountant-friendly CSV with reconciliation sections", 
   assert.match(csv, /支付方式汇总 \/ Payment Method Summary/);
   assert.match(csv, /每日汇总 \/ Daily Summary/);
   assert.match(csv, /已结账订单账簿 \/ Paid Order Ledger/);
+  assert.match(csv, /现金实收入账 \/ Cash recorded income \(GBP\)/);
+  assert.match(csv, /银行卡实收入账 \/ Card recorded income \(GBP\)/);
   assert.match(csv, /"2026-07-01 13:00:00"/);
   assert.match(csv, /待退款 \/ Refund due/);
   assert.match(csv, /对账差异 \/ Reconciliation difference/);
+  assert.match(csv, /15,20,20,0,2,3,0,15/);
   assert.match(csv, /20,0,2,20,18,3,0/);
   assert.match(csv, /"'=unsafe formula"/);
   assert.match(csv, /"Customer said ""thanks"""/);

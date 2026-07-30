@@ -439,6 +439,8 @@ async function buildAccountingExport(from, to) {
        COALESCE(payments.tendered_amount, 0)::numeric AS tendered_amount,
        COALESCE(payments.change_due, 0)::numeric AS change_due,
        COALESCE(payments.retained_amount, 0)::numeric AS retained_amount,
+       COALESCE(payments.cash_recorded_income, 0)::numeric AS cash_recorded_income,
+       COALESCE(payments.card_recorded_income, 0)::numeric AS card_recorded_income,
        COALESCE(payments.is_complimentary, false) AS is_complimentary
      FROM orders o
      LEFT JOIN LATERAL (
@@ -453,6 +455,8 @@ async function buildAccountingExport(from, to) {
          COALESCE(SUM(p.amount), 0)::numeric AS tendered_amount,
          COALESCE(SUM(p.change_due), 0)::numeric AS change_due,
          COALESCE(SUM(p.retained_amount), 0)::numeric AS retained_amount,
+         COALESCE(SUM(p.amount - p.change_due) FILTER (WHERE p.method = 'cash'), 0)::numeric AS cash_recorded_income,
+         COALESCE(SUM(p.amount - p.change_due) FILTER (WHERE p.method = 'card'), 0)::numeric AS card_recorded_income,
          BOOL_OR(p.method = 'complimentary') AS is_complimentary
        FROM payments p
        WHERE p.order_id = o.id

@@ -43,7 +43,9 @@ const options = {
     total: 12,
     tendered_amount: 12,
     change_due: 0,
-    retained_amount: 0
+    retained_amount: 0,
+    cash_recorded_income: 0,
+    card_recorded_income: 12
   }],
   paymentRows: [{
     method: "card",
@@ -69,6 +71,9 @@ test("builds four accounting workbook sheets from the shared export model", () =
   ]);
   assert.equal(sheets[1].rows[0][0], "支付方式 / Payment method");
   assert.equal(sheets[2].rows[0][0], "日期 / Date");
+  assert.equal(sheets[2].rows[0][13], "现金实收入账 / Cash recorded income (GBP)");
+  assert.equal(sheets[2].rows[0][14], "银行卡实收入账 / Card recorded income (GBP)");
+  assert.equal(sheets[2].rows[1][14], 12);
   assert.equal(sheets[3].rows[0][0], "业务日期 / Business date");
   assert.equal(sheets[3].rows[1][1], "D260701-001");
 });

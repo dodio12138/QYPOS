@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Daily Accounting Payment Split**: Accounting Excel/CSV daily summaries now show separate cash and card recorded-income totals.
 - **Bilingual Accounting CSV and Excel**: Sales exports now include Chinese/English definitions and formulas, accounting totals, payment reconciliation, daily summaries, and a paid-order ledger. Excel export provides four formatted worksheets with frozen headers, while CSV retains UTF-8 BOM and numeric amount cells.
 - **Optional Cumulative Time-Slot Trends**: The 30/60-minute chart now has separate default-off controls for cumulative orders and cumulative revenue, plus a Daily Trend-style hover guide and metric-aware tooltip.
 - **Actual Attendance OFF and 120-Minute Breaks**: Staff schedule actual-attendance records can now explicitly be marked `OFF`, with actual hours calculated as zero while preserving notes; scheduled and actual break presets now include 120 minutes.
@@ -49,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Order Pagination**: Admin order list paginates at 20 items per page.
 
 ### Fixed
+- **Accounting Excel Amount Format**: Daily summary order totals now use two-decimal currency formatting instead of integer formatting.
 - **Schedule Metrics at Current Time**: Revenue-per-hour and labor-percentage metrics now use only elapsed shift time and prorated labor cost as of the current minute; weekly totals average the available daily rates so future scheduled shifts no longer distort current performance.
 - **Zero-Total Checkout**: Orders already reduced to a genuine zero total can now complete checkout with an explicit zero-value payment record, while zero payments against outstanding balances remain blocked.
 - **Schedule Auto-Hide State**: Fixed persistent per-employee expansion exceptions that made “Auto hide empty” appear broken after adding staff; re-enabling the option now restores consistent filtering.

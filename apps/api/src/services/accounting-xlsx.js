@@ -8,7 +8,7 @@ const SECTION_TITLES = {
   ledger: "已结账订单账簿 / Paid Order Ledger"
 };
 
-const MONEY_METRIC_PATTERN = /小计|优惠|净销售额|税额|服务费|营业额|收款金额|找零|保留现金|实收入账|订单结算额|待退款|对账差异|客单价|Subtotal|Discount|Net sales|Tax|Service charge|Revenue|Tendered|Change due|Retained cash|Recorded income|Settled amount|Refund due|Reconciliation difference|Average ticket/i;
+const MONEY_METRIC_PATTERN = /小计|优惠|净销售额|税额|服务费|营业额|订单总额|收款金额|找零|保留现金|实收入账|订单结算额|待退款|对账差异|客单价|Subtotal|Discount|Net sales|Tax|Service charge|Revenue|Order total|Tendered|Change due|Retained cash|Recorded income|Settled amount|Refund due|Reconciliation difference|Average ticket/i;
 
 function sectionIndex(rows, title) {
   return rows.findIndex((row) => row[0] === title);
@@ -143,7 +143,7 @@ function columnWidths(sheetIndex) {
   if (sheetIndex === 1) return [26, 20, 14, 18, 18, 18, 20, 20].map((width) => ({ width }));
   if (sheetIndex === 2) return [
     14, 15, 15, 14, 14, 16,
-    ...Array.from({ length: 11 }, () => 20)
+    ...Array.from({ length: 13 }, () => 20)
   ].map((width) => ({ width }));
   return [
     14, 22, 21, 21, 20, 12, 14, 26, 20,
