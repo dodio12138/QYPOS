@@ -86,6 +86,12 @@ function accountingValues(order) {
   const settledAmount = moneyNumber(recordedIncome - retained);
   const refundDue = moneyNumber(Math.max(0, settledAmount - total));
   const reconciliationDifference = moneyNumber(settledAmount - total - refundDue);
+  const methods = String(order.payment_methods || "")
+    .split("+")
+    .map((method) => method.trim())
+    .filter(Boolean);
+  const cashRecordedIncome = moneyNumber(order.cash_recorded_income ?? (methods.length === 1 && methods[0] === "cash" ? recordedIncome : 0));
+  const cardRecordedIncome = moneyNumber(order.card_recorded_income ?? (methods.length === 1 && methods[0] === "card" ? recordedIncome : 0));
   return {
     tendered,
     changeDue,
@@ -93,7 +99,9 @@ function accountingValues(order) {
     recordedIncome,
     settledAmount,
     refundDue,
-    reconciliationDifference
+    reconciliationDifference,
+    cashRecordedIncome,
+    cardRecordedIncome
   };
 }
 
@@ -116,6 +124,8 @@ function buildDailyRows(orderRows) {
       service_charge: 0,
       total: 0,
       recorded_income: 0,
+      cash_recorded_income: 0,
+      card_recorded_income: 0,
       retained_amount: 0,
       settled_amount: 0,
       refund_due: 0,
@@ -134,6 +144,8 @@ function buildDailyRows(orderRows) {
     current.service_charge += numberOf(order.service_charge);
     current.total += numberOf(order.total);
     current.recorded_income += payment.recordedIncome;
+    current.cash_recorded_income += payment.cashRecordedIncome;
+    current.card_recorded_income += payment.cardRecordedIncome;
     current.retained_amount += payment.retained;
     current.settled_amount += payment.settledAmount;
     current.refund_due += payment.refundDue;
@@ -262,6 +274,8 @@ export function buildAccountingRows({
       `服务费 / Service charge (${currency})`,
       `订单总额 / Order total (${currency})`,
       `实收入账 / Recorded income (${currency})`,
+      `现金实收入账 / Cash recorded income (${currency})`,
+      `银行卡实收入账 / Card recorded income (${currency})`,
       `保留现金 / Retained cash (${currency})`,
       `待退款 / Refund due (${currency})`,
       `对账差异 / Reconciliation difference (${currency})`,
@@ -281,6 +295,8 @@ export function buildAccountingRows({
       moneyNumber(day.service_charge),
       moneyNumber(day.total),
       moneyNumber(day.recorded_income),
+      moneyNumber(day.cash_recorded_income),
+      moneyNumber(day.card_recorded_income),
       moneyNumber(day.retained_amount),
       moneyNumber(day.refund_due),
       moneyNumber(day.reconciliation_difference),
