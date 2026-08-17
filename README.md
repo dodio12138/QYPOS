@@ -131,7 +131,7 @@ The Excel workbook contains four sheets:
 | Worksheet | Contents |
 |-----------|----------|
 | `说明与汇总 Summary` | Bilingual definitions, currency, tax mode, core totals, and relationships |
-| `支付对账 Payments` | Tendered amounts, change, retained cash, and settlement by payment method/provider |
+| `支付对账 Payments` | Tendered amounts, change, retained cash, and settlement by payment method/provider, including mixed-tender orders |
 | `每日汇总 Daily` | Daily orders, sales, tax, recorded income, refunds, and average ticket |
 | `订单账簿 Orders` | Per-order timestamps, payments, tax, adjustments, reasons, and notes |
 

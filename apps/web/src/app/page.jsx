@@ -503,8 +503,9 @@ export default function PosPage() {
 
   async function payOrder(payment) {
     if (!selectedOrder) return;
+    let result = null;
     await run(async () => {
-      await api(`/orders/${selectedOrder.id}/payments`, {
+      result = await api(`/orders/${selectedOrder.id}/payments`, {
         method: "POST",
         body: JSON.stringify(payment)
       });
@@ -512,11 +513,16 @@ export default function PosPage() {
       if (payment.method === "cash") {
         try { await api("/print-jobs/cash-drawer", { method: "POST" }); } catch { /* drawer is optional */ }
       }
-      setSelectedOrder(null);
-      setPaying(false);
-      navigateMobileStep("tables");
+      if (result.order.status === "paid") {
+        setSelectedOrder(null);
+        setPaying(false);
+        navigateMobileStep("tables");
+      } else {
+        setSelectedOrder(await api(`/orders/${result.order.id}`));
+      }
       await refresh(false);
-    }, text(locale, "已收款", "Payment received"));
+    }, text(locale, "付款已记录", "Payment recorded"));
+    return result;
   }
 
   async function settleComplimentaryOrder(payload) {
@@ -549,10 +555,16 @@ export default function PosPage() {
 
   async function finishDojoPayment(result) {
     setNotice(text(locale, "Dojo 刷卡成功", "Dojo payment succeeded"));
-    setPaying(false);
-    setSelectedOrder(null);
-    navigateMobileStep("tables");
+    const fullyPaid = result.order?.status === "paid";
+    if (fullyPaid) {
+      setPaying(false);
+      setSelectedOrder(null);
+      navigateMobileStep("tables");
+    } else if (result.order?.id) {
+      setSelectedOrder(await api(`/orders/${result.order.id}`));
+    }
     await refresh(false);
+    return fullyPaid;
   }
 
   async function splitOrderByItems(splits) {
@@ -858,6 +870,7 @@ export default function PosPage() {
           locale={locale}
           currency={currency}
           dojoAvailable={Boolean(paymentProviders.dojo?.configured)}
+          busy={busy}
           onClose={() => setPaying(false)}
           onPay={payOrder}
           onDojoPaid={finishDojoPayment}

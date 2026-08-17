@@ -522,6 +522,12 @@ export async function recordPayment({
     const retainedAmount = retainExcess && method === "cash"
       ? Math.max(0, Math.round((Number(amount) - Number(changeDue) - remainingBefore) * 100) / 100)
       : 0;
+    const appliedAmount = Number(amount) - Number(changeDue) - retainedAmount;
+    const appliedCents = Math.round(appliedAmount * 100);
+    const remainingCents = Math.round(remainingBefore * 100);
+    if (!provider && appliedCents > remainingCents) {
+      throw httpError("Payment cannot exceed the remaining order balance", 400);
+    }
     const paymentResult = await client.query(
       `INSERT INTO payments
        (order_id, method, amount, change_due, retained_amount, payment_attempt_id, provider, provider_payment_id, terminal_id, card_brand, card_last4, auth_code)

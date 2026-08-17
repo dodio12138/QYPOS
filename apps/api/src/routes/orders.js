@@ -936,6 +936,10 @@ app.post("/orders/:id/payments", async (request, reply) => {
     reply.code(400);
     return { error: "Only cash payments can retain excess received" };
   }
+  if (body.method !== "cash" && Number(body.change_due ?? 0) !== 0) {
+    reply.code(400);
+    return { error: "Only cash payments can include change due" };
+  }
   try {
     const result = await recordPayment({
       orderId: request.params.id,

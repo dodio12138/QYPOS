@@ -462,6 +462,71 @@ describe("order lifecycle", async () => {
     );
   });
 
+  test("an order can be settled with arbitrary cash and card tender amounts", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-MIX-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 2, modifier_ids: [] } }),
+    });
+    const fullOrder = await req(`/orders/${order.id}`);
+    const cashAmount = Math.min(3.21, Math.round((Number(fullOrder.total) - 0.01) * 100) / 100);
+    const cardAmount = Math.round((Number(fullOrder.total) - cashAmount) * 100) / 100;
+
+    const first = await req(`/orders/${order.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ method: "cash", amount: cashAmount, change_due: 0 }),
+    });
+    assert.notEqual(first.order.status, "paid");
+    assert.equal(Number(first.paid), cashAmount);
+
+    const second = await req(`/orders/${order.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ method: "card", amount: cardAmount, change_due: 0 }),
+    });
+    assert.equal(second.order.status, "paid");
+    assert.equal(Number(second.paid), Number(fullOrder.total));
+
+    const detail = await req(`/orders/${order.id}`);
+    assert.deepEqual(detail.payments.map((payment) => payment.method), ["cash", "card"]);
+    assert.deepEqual(detail.payments.map((payment) => Number(payment.amount)), [cashAmount, cardAmount]);
+  });
+
+  test("manual non-cash payment cannot exceed the remaining balance or include change", async () => {
+    const { req } = await setup();
+    const { variant } = await getFixture(req);
+
+    const order = await req("/orders", {
+      method: "POST",
+      body: JSON.stringify({ service_type: "takeaway", pickup_no: `IT-OVER-${Date.now().toString().slice(-3)}` }),
+    });
+    await req(`/orders/${order.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ add_item: { variant_id: variant.id, quantity: 1, modifier_ids: [] } }),
+    });
+    const fullOrder = await req(`/orders/${order.id}`);
+
+    await assert.rejects(
+      req(`/orders/${order.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ method: "card", amount: Number(fullOrder.total) + 1, change_due: 0 }),
+      }),
+      /Payment cannot exceed the remaining order balance/
+    );
+    await assert.rejects(
+      req(`/orders/${order.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ method: "card", amount: Number(fullOrder.total), change_due: 1 }),
+      }),
+      /Only cash payments can include change due/
+    );
+  });
+
   test("an order discounted to zero can complete a zero checkout", async () => {
     const { req } = await setup();
     const { variant } = await getFixture(req);

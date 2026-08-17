@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, CircleDollarSign, Gift, Loader2, X } from "lucide-react";
 import { text, money } from "./pos-helpers";
 import { api } from "../../lib/api";
-export default function PaymentModal({ order, locale, currency, dojoAvailable, onClose, onPay, onDojoPaid, onComplimentary }) {
+export default function PaymentModal({ order, locale, currency, dojoAvailable, busy, onClose, onPay, onDojoPaid, onComplimentary }) {
   const paidSoFar = (order.payments ?? []).reduce(
     (sum, payment) => sum + Number(payment.amount) - Number(payment.change_due ?? 0) - Number(payment.retained_amount ?? 0), 0
   );
@@ -21,10 +21,15 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
   const [keepFullCashAmount, setKeepFullCashAmount] = useState(false);
   const completedRef = useRef(false);
   const paid = Number(amount || 0);
-  const calculatedChange = Math.max(0, paid - remaining);
+  const calculatedChange = method === "cash" ? Math.max(0, paid - remaining) : 0;
   const change = method === "cash" && keepFullCashAmount ? 0 : calculatedChange;
   const recordedIncome = Math.max(0, paid - change);
   const attemptPending = attempt?.status === "pending" || attempt?.status === "created";
+  const exceedsRemaining = method !== "cash" && paid > remaining;
+
+  useEffect(() => {
+    setAmount(remaining.toFixed(2));
+  }, [remaining]);
 
   useEffect(() => {
     if (!dojoAvailable || isZeroCheckout) return;
@@ -51,7 +56,12 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
         setDojoError(latest.error_message || "");
         if (latest.status === "succeeded" && !completedRef.current) {
           completedRef.current = true;
-          await onDojoPaid(latest);
+          const fullyPaid = await onDojoPaid(latest);
+          if (!fullyPaid) {
+            setAttempt(null);
+            setMode("manual");
+            completedRef.current = false;
+          }
           return;
         }
         if (["declined", "cancelled", "unknown", "failed"].includes(latest.status)) return;
@@ -73,7 +83,7 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
     try {
       const created = await api(`/orders/${order.id}/payment-attempts/dojo`, {
         method: "POST",
-        body: JSON.stringify({ amount: remaining, terminal_id: terminalId || undefined })
+        body: JSON.stringify({ amount: paid, terminal_id: terminalId || undefined })
       });
       setAttempt(created);
     } catch (error) {
@@ -133,7 +143,11 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
           </div>
           <button onClick={onClose} title={text(locale, "关闭", "Close")} disabled={attemptPending}><X size={20} /></button>
         </header>
-        <div className="pay-total">{money(remaining, currency, locale)}</div>
+        <div className="split-summary payment-summary">
+          <div><span>{text(locale, "订单总额", "Order total")}</span><b>{money(total, currency, locale)}</b></div>
+          {paidSoFar > 0 && <div><span>{text(locale, "已收", "Paid")}</span><b className="split-paid-amt">{money(paidSoFar, currency, locale)}</b></div>}
+          <div className="split-remaining-row"><span>{text(locale, "待收", "Remaining")}</span><b>{money(remaining, currency, locale)}</b></div>
+        </div>
         <div className="payment-mode-tabs">
           {dojoAvailable && !isZeroCheckout && <button className={mode === "dojo" ? "selected" : ""} onClick={() => setMode("dojo")} disabled={attemptPending}>{text(locale, "Dojo 刷卡", "Dojo card")}</button>}
           <button className={mode === "manual" ? "selected" : ""} onClick={() => setMode("manual")} disabled={attemptPending}>{text(locale, "手工记账", "Manual payment")}</button>
@@ -150,6 +164,11 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
             <div className={`dojo-payment-state ${attempt?.status || "ready"}`}>
               {dojoBusy ? <><Loader2 className="spin" size={28} />{text(locale, "正在连接 Dojo…", "Connecting to Dojo…")}</> : attemptPending ? <><Loader2 className="spin" size={28} />{dojoPrompt}</> : attempt?.status === "declined" ? text(locale, "付款被拒绝，请重试或改用手工记账", "Payment declined. Try again or use manual payment.") : attempt?.status === "unknown" ? text(locale, "支付结果不确定，请核对刷卡机或终端小票", "Payment status is uncertain. Check the terminal or receipt.") : text(locale, "金额将自动发送到 Dojo 刷卡机", "The amount will be sent to the Dojo terminal automatically")}
             </div>
+            {!attemptPending && (
+              <label className="notes-box payment-amount-field">{text(locale, "本次刷卡金额", "Card amount this time")}
+                <input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+              </label>
+            )}
             {dojoError && <div className="inline-error">{dojoError}</div>}
             {signatureRequired && (
               <div className="dojo-signature-actions">
@@ -159,7 +178,7 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
             )}
             <footer className="modal-footer">
               {attemptPending ? <button onClick={cancelDojo} disabled={dojoBusy}>{text(locale, "取消终端交易", "Cancel terminal payment")}</button> : <button onClick={onClose}>{text(locale, "关闭", "Close")}</button>}
-              {!attemptPending && <button className="primary" onClick={startDojo} disabled={dojoBusy || terminals.length === 0 || remaining <= 0 || attempt?.status === "unknown"}><CircleDollarSign size={18} /><span>{text(locale, "发送到 Dojo", "Send to Dojo")}</span></button>}
+              {!attemptPending && <button className="primary" onClick={startDojo} disabled={dojoBusy || busy || terminals.length === 0 || remaining <= 0 || paid <= 0 || paid > remaining || attempt?.status === "unknown"}><CircleDollarSign size={18} /><span>{text(locale, "发送到 Dojo", "Send to Dojo")}</span></button>}
             </footer>
           </>
         ) : (
@@ -176,7 +195,7 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
                     }}>{item}</button>
                   ))}
                 </div>
-                <label className="notes-box">{text(locale, "手工输入实收金额", "Enter manual payment amount")}
+                <label className="notes-box payment-amount-field">{text(locale, "本次收款金额", "Payment amount this time")}
                   <input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
                 </label>
                 {method === "cash" && (
@@ -191,6 +210,8 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
                   <strong>{text(locale, "找零", "Change")} <b>{money(change, currency, locale)}</b></strong>
                   <strong>{text(locale, "计入收入", "Recorded income")} <b>{money(recordedIncome, currency, locale)}</b></strong>
                 </div>
+                {exceedsRemaining && <div className="inline-error">{text(locale, "非现金付款不能超过待收金额", "Non-cash payment cannot exceed the remaining balance")}</div>}
+                <small className="payment-provider-hint">{text(locale, "可输入任意金额先收现金，再用银行卡支付剩余金额。每笔付款会分别记录。", "Enter any cash amount, then pay the remainder by card. Each tender is recorded separately.")}</small>
                 {!dojoAvailable && <small className="payment-provider-hint">{text(locale, "Dojo 尚未配置，当前仍可使用手工收款。", "Dojo is not configured yet. Manual payment is still available.")}</small>}
               </>
             )}
@@ -202,8 +223,8 @@ export default function PaymentModal({ order, locale, currency, dojoAvailable, o
                 amount: isZeroCheckout ? 0 : paid,
                 change_due: isZeroCheckout ? 0 : change,
                 retain_excess: !isZeroCheckout && method === "cash" && keepFullCashAmount
-              })} disabled={!isZeroCheckout && paid < remaining}>
-                <CircleDollarSign size={18} /><span>{isZeroCheckout ? text(locale, "确认 0 元结账", "Confirm zero checkout") : text(locale, "确认手工收款", "Confirm manual payment")}</span>
+              })} disabled={busy || (!isZeroCheckout && (paid <= 0 || exceedsRemaining))}>
+                <CircleDollarSign size={18} /><span>{isZeroCheckout ? text(locale, "确认 0 元结账", "Confirm zero checkout") : paid < remaining ? text(locale, "收取本次金额", "Take partial payment") : text(locale, "确认手工收款", "Confirm manual payment")}</span>
               </button>
             </footer>
           </>

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Daily Accounting Payment Split**: Accounting Excel/CSV daily summaries now show separate cash and card recorded-income totals.
+- **Mixed Cash + Card Payments**: The standard checkout flow now accepts consecutive tenders of any amount; after the first tender it stays open with live paid/remaining totals, and the balance can be completed by manual card or Dojo.
 - **Bilingual Accounting CSV and Excel**: Sales exports now include Chinese/English definitions and formulas, accounting totals, payment reconciliation, daily summaries, and a paid-order ledger. Excel export provides four formatted worksheets with frozen headers, while CSV retains UTF-8 BOM and numeric amount cells.
 - **Optional Cumulative Time-Slot Trends**: The 30/60-minute chart now has separate default-off controls for cumulative orders and cumulative revenue, plus a Daily Trend-style hover guide and metric-aware tooltip.
 - **Actual Attendance OFF and 120-Minute Breaks**: Staff schedule actual-attendance records can now explicitly be marked `OFF`, with actual hours calculated as zero while preserving notes; scheduled and actual break presets now include 120 minutes.

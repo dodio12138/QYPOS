@@ -872,6 +872,20 @@
   margin-left: auto;
 }
 
+.payment-summary {
+  margin: 8px 0 16px;
+}
+
+.payment-amount-field > span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.payment-amount-field button {
+  min-width: 72px;
+}
+
 
 .action-modal {
   width: min(460px, 100%);
