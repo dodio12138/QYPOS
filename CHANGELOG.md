@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Order Pagination**: Admin order list paginates at 20 items per page.
 
 ### Fixed
+- **Cash Drawer Burst Protection**: Cash drawer requests now have a three-second per-user/terminal/printer cooldown, front-end button cooling, source audit metadata, and one delayed retry for transient network printer timeouts.
 - **Accounting Excel Amount Format**: Daily summary order totals now use two-decimal currency formatting instead of integer formatting.
 - **Schedule Metrics at Current Time**: Revenue-per-hour and labor-percentage metrics now use only elapsed shift time and prorated labor cost as of the current minute; weekly totals average the available daily rates so future scheduled shifts no longer distort current performance.
 - **Zero-Total Checkout**: Orders already reduced to a genuine zero total can now complete checkout with an explicit zero-value payment record, while zero payments against outstanding balances remain blocked.

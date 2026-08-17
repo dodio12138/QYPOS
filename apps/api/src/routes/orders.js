@@ -1000,20 +1000,56 @@ app.post("/print-jobs/test", async (request, reply) => {
 });
 
 app.post("/print-jobs/cash-drawer", async (request, reply) => {
-  if (!await requirePermission(request, reply, "take_payment")) return;
+  const actor = await requirePermission(request, reply, "take_payment");
+  if (!actor) return;
   const settings = await getSettings();
   const printer = selectPrinter(settings, "receipt");
   if (!printer || !isValidPrinter(printer)) {
     reply.code(409);
     return { error: "No enabled printer configured — cannot open cash drawer" };
   }
-  const job = await one(
-    "INSERT INTO print_jobs (type, payload) VALUES ('cash_drawer', $1) RETURNING *",
-    [{ settings, printer, created_at: new Date().toISOString() }]
-  );
+  const source = String(request.body?.source || "unknown").slice(0, 40);
+  const terminalId = String(request.headers["x-qypos-terminal-id"] || request.ip || "unknown").slice(0, 120);
+  const lockKey = `cash_drawer:${printer.id || printer.host}:${terminalId}:${actor.id}`;
+  const client = await pool.connect();
+  let job;
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+    const recent = await client.query(
+      `SELECT id FROM print_jobs
+       WHERE type = 'cash_drawer'
+         AND created_at > now() - interval '3 seconds'
+         AND COALESCE(payload->'printer'->>'id', payload->'printer'->>'host') = $1
+         AND payload->>'terminal_id' = $2
+         AND payload->>'actor_id' = $3
+       ORDER BY created_at DESC LIMIT 1`,
+      [printer.id || printer.host, terminalId, actor.id]
+    );
+    if (recent.rows[0]) {
+      await client.query("ROLLBACK");
+      reply.code(429);
+      return { error: "最近已发送钱箱信号，请勿重复点击", duplicate: true, job_id: recent.rows[0].id };
+    }
+    const inserted = await client.query(
+      "INSERT INTO print_jobs (type, payload) VALUES ('cash_drawer', $1) RETURNING *",
+      [{ settings, printer, source, terminal_id: terminalId, actor_id: actor.id, created_at: new Date().toISOString() }]
+    );
+    job = inserted.rows[0];
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
   await redis.lpush("print_jobs", job.id);
   emit("print.queued", job);
-  await auditLog(request, "cash_drawer.open", "print_job", job.id, { printer: printer.name ?? printer.host });
+  await auditLog(request, "cash_drawer.open", "print_job", job.id, {
+    printer: printer.name ?? printer.host,
+    source,
+    terminal_id: terminalId
+  });
   return job;
 });
 

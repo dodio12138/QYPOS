@@ -7,6 +7,7 @@ import { api, API_URL } from "../../../lib/api";
 
 export default function OpsView({ health, backups, settings, setSettings, locale, onRefresh, onSaved }) {
   const [busy, setBusy] = useState(false);
+  const [cashDrawerBusy, setCashDrawerBusy] = useState(false);
   const [profiles, setProfiles] = useState(settings.printer_profiles || []);
   const [showAllBackups, setShowAllBackups] = useState(false);
 
@@ -18,6 +19,19 @@ export default function OpsView({ health, backups, settings, setSettings, locale
       await action();
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function openCashDrawer() {
+    if (cashDrawerBusy) return;
+    setCashDrawerBusy(true);
+    try {
+      await api("/print-jobs/cash-drawer", { method: "POST", body: JSON.stringify({ source: "admin_ops_manual" }) });
+      alert(t(locale, "钱箱信号已发送，请等待 5 秒", "Cash drawer signal sent; wait 5 seconds"));
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      window.setTimeout(() => setCashDrawerBusy(false), 5000);
     }
   }
 
@@ -150,7 +164,7 @@ export default function OpsView({ health, backups, settings, setSettings, locale
             <label className="checkbox"><input type="checkbox" checked={settings.kitchen_qty_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_qty_bold: event.target.checked })} />{t(locale, "数量加粗 (1X)", "Bold quantity (1X)")}</label>
             <label className="checkbox"><input type="checkbox" checked={settings.kitchen_item_bold !== false} onChange={(event) => setSettings({ ...settings, kitchen_item_bold: event.target.checked })} />{t(locale, "菜品名加粗", "Bold item name")}</label>
             <button className="primary" type="submit"><Save size={16} /><span>{t(locale, "保存打印配置", "Save printer settings")}</span></button>
-            <button type="button" onClick={() => run(async () => { await api("/print-jobs/cash-drawer", { method: "POST" }); alert(t(locale, "钱箱信号已发送", "Cash drawer signal sent")); })}><span>💵 {t(locale, "弹出钱箱", "Open cash drawer")}</span></button>
+            <button type="button" disabled={busy || cashDrawerBusy} onClick={openCashDrawer}><span>💵 {cashDrawerBusy ? t(locale, "钱箱冷却中", "Cash drawer cooling down") : t(locale, "弹出钱箱", "Open cash drawer")}</span></button>
           </div>
           <div className="printer-profile-list">
             {profiles.map((profile) => (
@@ -206,4 +220,3 @@ echo HELLO > ${profile.device_path || "/dev/rfcomm0"}   # ${t(locale, "打印机
     </div>
   );
 }
-

@@ -441,7 +441,14 @@ async function processJob(id) {
   try {
     await pool.query("UPDATE print_jobs SET status = 'printing', updated_at = now() WHERE id = $1", [id]);
     const buffer = render(job);
-    await sendToPrinter(buffer, job.payload.printer ?? job.payload.settings);
+    try {
+      await sendToPrinter(buffer, job.payload.printer ?? job.payload.settings);
+    } catch (error) {
+      if (job.type !== "cash_drawer") throw error;
+      console.warn(`[print] cash drawer job ${id} timed out; retrying once in 1s`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await sendToPrinter(buffer, job.payload.printer ?? job.payload.settings);
+    }
     await updateJob(id, "succeeded");
     await redis.publish("print_events", JSON.stringify({ event: "print.succeeded", data: { id } }));
     console.log(`[print] job ${id} succeeded`);

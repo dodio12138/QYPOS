@@ -14,6 +14,7 @@ export default function OrderPanel({ order, orders, tables, locale, currency, us
   const [orderFilter, setOrderFilter] = useState("active");
   const [voidMode, setVoidMode] = useState(false);
   const [voidReason, setVoidReason] = useState("");
+  const [cashDrawerBusy, setCashDrawerBusy] = useState(false);
   const [orderPage, setOrderPage] = useState(1);
   const canVoid = Boolean(user?.permissions?.includes("manage_orders"));
   const orderPageSize = 20;
@@ -39,6 +40,15 @@ export default function OrderPanel({ order, orders, tables, locale, currency, us
   const totalOrderPages = Math.max(1, Math.ceil(filteredOrders.length / orderPageSize));
   const pagedOrders = filteredOrders.slice((orderPage - 1) * orderPageSize, orderPage * orderPageSize);
   const tableById = new Map(tables.map((table) => [table.id, table]));
+
+  async function openCashDrawer() {
+    if (cashDrawerBusy) return;
+    setCashDrawerBusy(true);
+    try {
+      await api("/print-jobs/cash-drawer", { method: "POST", body: JSON.stringify({ source: "order_panel_manual" }) });
+    } catch { /* drawer is optional */ }
+    window.setTimeout(() => setCashDrawerBusy(false), 5000);
+  }
 
   useEffect(() => {
     setOrderPage(1);
@@ -233,7 +243,7 @@ export default function OrderPanel({ order, orders, tables, locale, currency, us
                   <CircleDollarSign size={18} />
                   <span>{text(locale, "收款", "Take payment")}</span>
                 </button>
-                <button onClick={async () => { try { await api("/print-jobs/cash-drawer", { method: "POST" }); } catch { /* drawer optional */ } }} disabled={busy}>
+                <button onClick={openCashDrawer} disabled={busy || cashDrawerBusy} title={text(locale, "钱箱信号已发送，请等待 5 秒", "Cash drawer signal sent; wait 5 seconds")}>
                   <span>💵</span>
                 </button>
               </>
@@ -250,4 +260,3 @@ export default function OrderPanel({ order, orders, tables, locale, currency, us
 // ConfirmModal imported from ./_components/confirm-modal
 
 // VoidableOrderLine imported from ./_components/voidable-order-line
-

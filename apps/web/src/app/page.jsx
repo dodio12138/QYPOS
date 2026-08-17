@@ -511,7 +511,7 @@ export default function PosPage() {
       });
       // Auto-open cash drawer when paying with cash
       if (payment.method === "cash") {
-        try { await api("/print-jobs/cash-drawer", { method: "POST" }); } catch { /* drawer is optional */ }
+        try { await api("/print-jobs/cash-drawer", { method: "POST", body: JSON.stringify({ source: "cash_payment_auto" }) }); } catch { /* drawer is optional */ }
       }
       if (result.order.status === "paid") {
         setSelectedOrder(null);
