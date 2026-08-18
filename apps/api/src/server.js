@@ -103,6 +103,7 @@ export async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_empty_tables_after_idle BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_empty_tables_idle_minutes INTEGER NOT NULL DEFAULT 60");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS delivery_auto_sync_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
   await pool.query(`CREATE TABLE IF NOT EXISTS menu_option_presets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -148,6 +149,35 @@ export async function ensureSchema() {
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payment_attempts_provider_payment_idx ON payment_attempts(provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payments_attempt_idx ON payments(payment_attempt_id) WHERE payment_attempt_id IS NOT NULL");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS payments_provider_payment_idx ON payments(provider, provider_payment_id) WHERE provider IS NOT NULL AND provider_payment_id IS NOT NULL");
+  await pool.query(`CREATE TABLE IF NOT EXISTS delivery_sales_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform TEXT NOT NULL DEFAULT 'deliveroo',
+    restaurant_id TEXT NOT NULL,
+    org_id TEXT NOT NULL DEFAULT '',
+    business_date DATE NOT NULL,
+    period_start TIMESTAMPTZ NOT NULL,
+    period_end TIMESTAMPTZ NOT NULL,
+    order_count INTEGER NOT NULL DEFAULT 0,
+    delivered_order_count INTEGER NOT NULL DEFAULT 0,
+    gross_amount_pence BIGINT NOT NULL DEFAULT 0,
+    paid_in_cash_pence BIGINT NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'GBP',
+    orders JSONB NOT NULL DEFAULT '[]',
+    raw_payload JSONB NOT NULL DEFAULT '{}',
+    synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(platform, restaurant_id, period_start, period_end)
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS delivery_sales_snapshots_date_idx ON delivery_sales_snapshots(platform, business_date, synced_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS integration_credentials (
+    platform TEXT PRIMARY KEY,
+    restaurant_id TEXT NOT NULL DEFAULT '',
+    org_id TEXT NOT NULL DEFAULT '',
+    token_ciphertext TEXT NOT NULL,
+    token_iv TEXT NOT NULL,
+    token_tag TEXT NOT NULL,
+    token_expires_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
   await pool.query("UPDATE settings SET printer_profiles = $1 WHERE printer_profiles = '[]'::jsonb", [JSON.stringify(defaultPrinterProfiles)]);
   await pool.query(`CREATE TABLE IF NOT EXISTS note_presets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

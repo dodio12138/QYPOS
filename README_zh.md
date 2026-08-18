@@ -192,6 +192,12 @@ docker compose up --build
 | ⚙️ 后台管理 | http://localhost:3000/admin |
 | 💚 API 健康检查 | http://localhost:4000/health |
 
+### 外卖平台会话（只读对账）
+
+外卖对账不在服务器保存或自动填写平台账号密码。请从 Deliveroo 后台复制最新 Bearer token、从 Uber Eats 后台复制完整 Cookie，在后台“外卖对账”页面手动保存；会话会加密保存在 PostgreSQL，过期后再更新一次。
+
+后台还提供“每天两次自动同步”开关。开启后按英国时间 14:00、23:00 同步，关闭后只保留手动同步。
+
 ### Dojo 刷卡机（Pay at Counter）
 
 QYPOS 支持通过 Dojo Go 终端收款，同时保留现金、刷卡、扫码和其他方式的手工记账。请在 `.env` 中配置：

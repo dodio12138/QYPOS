@@ -32,6 +32,7 @@ CREATE TABLE settings (
   backup_enabled BOOLEAN NOT NULL DEFAULT false,
   backup_interval_hours INTEGER NOT NULL DEFAULT 24,
   auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false,
+  delivery_auto_sync_enabled BOOLEAN NOT NULL DEFAULT false,
   last_backup_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

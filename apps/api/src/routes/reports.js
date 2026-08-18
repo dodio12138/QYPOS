@@ -67,6 +67,62 @@ export default function register({
   nextOrderNo,
   datePrefix
 }) {
+  async function buildDeliverySalesSummary(from, to) {
+    const params = [from, to];
+    const deduped = `
+      WITH expanded AS (
+        SELECT s.platform, s.synced_at, item.value AS order_json
+        FROM delivery_sales_snapshots s
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(s.orders) = 'array' THEN s.orders ELSE '[]'::jsonb END) item(value)
+        WHERE (item.value->>'placed_at') ~ '^\\d{4}-\\d{2}-\\d{2}T'
+          AND (((item.value->>'placed_at')::timestamptz AT TIME ZONE 'Europe/London')::date >= $1::date)
+          AND (((item.value->>'placed_at')::timestamptz AT TIME ZONE 'Europe/London')::date <= $2::date)
+      ), latest AS (
+        SELECT DISTINCT ON (platform, order_json->>'order_id')
+          platform, synced_at, order_json
+        FROM expanded
+        WHERE order_json->>'order_id' IS NOT NULL
+        ORDER BY platform, order_json->>'order_id', synced_at DESC
+      )
+      SELECT platform,
+        COUNT(*)::integer AS total_orders,
+        COUNT(*) FILTER (WHERE order_json->>'status' = 'delivered')::integer AS delivered_orders,
+        COUNT(*) FILTER (WHERE order_json->>'status' IN ('cancelled', 'rejected'))::integer AS cancelled_orders,
+        COALESCE(SUM((order_json->>'amount_pence')::bigint) FILTER (WHERE order_json->>'status' = 'delivered'), 0)::bigint AS gross_amount_pence,
+        COALESCE(SUM((order_json->>'paid_in_cash_pence')::bigint) FILTER (WHERE order_json->>'status' = 'delivered'), 0)::bigint AS paid_in_cash_pence
+      FROM latest
+      GROUP BY platform
+      ORDER BY platform`;
+    const rows = await query(deduped, params);
+    const totals = rows.reduce((acc, row) => {
+      acc.total_orders += Number(row.total_orders || 0);
+      acc.delivered_orders += Number(row.delivered_orders || 0);
+      acc.cancelled_orders += Number(row.cancelled_orders || 0);
+      acc.gross_amount_pence += Number(row.gross_amount_pence || 0);
+      acc.paid_in_cash_pence += Number(row.paid_in_cash_pence || 0);
+      return acc;
+    }, { total_orders: 0, delivered_orders: 0, cancelled_orders: 0, gross_amount_pence: 0, paid_in_cash_pence: 0 });
+    return {
+      from,
+      to,
+      currency: "GBP",
+      total_orders: totals.total_orders,
+      delivered_orders: totals.delivered_orders,
+      cancelled_orders: totals.cancelled_orders,
+      gross_amount: totals.gross_amount_pence / 100,
+      paid_in_cash: totals.paid_in_cash_pence / 100,
+      platforms: rows.map((row) => ({
+        platform: row.platform,
+        total_orders: Number(row.total_orders || 0),
+        delivered_orders: Number(row.delivered_orders || 0),
+        cancelled_orders: Number(row.cancelled_orders || 0),
+        gross_amount: Number(row.gross_amount_pence || 0) / 100,
+        paid_in_cash: Number(row.paid_in_cash_pence || 0) / 100,
+        currency: "GBP"
+      }))
+    };
+  }
+
 app.get("/dashboard/today", async (request, reply) => {
   if (!await requirePermission(request, reply, "view_dashboard")) return;
   const today = localToday();
@@ -131,7 +187,9 @@ app.get("/dashboard/today", async (request, reply) => {
   );
   const openOrders = await query("SELECT * FROM orders WHERE status NOT IN ('paid','cancelled','split') ORDER BY created_at DESC LIMIT 20");
   const printer = await one("SELECT status, COUNT(*)::integer FROM print_jobs GROUP BY status ORDER BY status LIMIT 1");
-  return { summary, yesterdaySummary, hotItems, openOrders, printer };
+  const deliverySales = await buildDeliverySalesSummary(today, today);
+  const deliverySalesYesterday = await buildDeliverySalesSummary(yesterdayStr, yesterdayStr);
+  return { summary, yesterdaySummary, hotItems, openOrders, printer, deliverySales, deliverySalesYesterday };
 });
 
 async function buildSalesReport(from, to) {
@@ -171,7 +229,7 @@ async function buildSalesReport(from, to) {
     params
   );
   summary.items_sold = Number(itemUnits?.items_sold || 0);
-  const byDay = await query(
+  const byDayRows = await query(
     `SELECT created_at::date AS day, COUNT(*)::integer AS orders, COALESCE(SUM(total), 0)::numeric AS revenue
      FROM orders
      WHERE created_at >= $1::date AND created_at < ($2::date + INTERVAL '1 day') AND status = 'paid'
@@ -179,6 +237,7 @@ async function buildSalesReport(from, to) {
      ORDER BY day`,
     params
   );
+  const byDay = buildDateSeries(from, to, byDayRows);
   const hotItems = await query(
     `WITH item_rows AS (
        SELECT
@@ -285,7 +344,8 @@ async function buildSalesReport(from, to) {
       byTime[i].revenue = Number(r.revenue || 0);
     }
   }
-  return { from, to, summary, byDay, hotItems, categoryMix, hotModifiers, notePresets, common_notes: commonNotes, byTime };
+  const deliverySales = await buildDeliverySalesSummary(from, to);
+  return { from, to, summary, byDay, hotItems, categoryMix, hotModifiers, notePresets, common_notes: commonNotes, byTime, deliverySales };
 }
 
 function buildDateSeries(from, to, rows) {

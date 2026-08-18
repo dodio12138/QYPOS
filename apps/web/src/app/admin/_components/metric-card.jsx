@@ -2,7 +2,7 @@
 
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 
-export default function MetricCard({ title, value, deltaPercent = null, changeText = "", compareText = "", icon: Icon }) {
+export default function MetricCard({ title, value, deltaPercent = null, changeText = "", compareText = "", icon: Icon, showTrend = true }) {
   const trendClass = deltaPercent == null ? "flat" : deltaPercent >= 0 ? "up" : "down";
   const TrendIcon = deltaPercent == null ? Minus : deltaPercent >= 0 ? TrendingUp : TrendingDown;
   const percentText = deltaPercent == null ? "0%" : `${deltaPercent >= 0 ? "+" : ""}${deltaPercent}%`;
@@ -14,10 +14,10 @@ export default function MetricCard({ title, value, deltaPercent = null, changeTe
           {Icon && <Icon size={18} />}
           <span>{title}</span>
         </span>
-        <span className={`metric-card-trend ${trendClass}`}>
+        {showTrend && <span className={`metric-card-trend ${trendClass}`}>
           <TrendIcon size={15} />
           <span>{percentText}</span>
-        </span>
+        </span>}
       </div>
       <div className="metric-card-body">
         <strong>{value}</strong>

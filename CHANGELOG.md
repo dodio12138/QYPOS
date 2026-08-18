@@ -14,7 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: reorganize delivery reconciliation into a single-column workflow with isolated Deliveroo/Uber Eats states; expired sessions are explicit and can be cleared without blocking the other platform
+- fix: merge Deliveroo and Uber Eats sync controls into one shared Sales sync section with one date/time range instead of a separate Uber Eats sync card
+- fix: fix historical report rendering by filling the full date range, correcting full-month MoM ranges, and ignoring stale report responses
+- fix: attribute delivery sales to each order's placed_at in UK local time instead of the business_date of a cross-month sync batch
+- refactor: remove server-side provider credential login and the headless browser service; delivery tokens/Cookies are now entered manually in admin
+- feat: add a twice-daily 14:00/23:00 automatic-sync switch for delivery reconciliation, disabled by default
+
+- feat: add read-only Uber Eats historic-order sync with encrypted browser-cookie storage, cursor pagination, manual and optional 14:00/23:00 automatic sync, order deduplication, and cancelled-order exclusion from sales
+
 ### Added
+- **Deliveroo sales reconciliation**: Admin-only read-only Deliveroo browser-session sync stores deduplicated time-window snapshots and gross delivered-order totals without importing external orders into the POS payment flow.
+- **Deliveroo analytics integration**: The dashboard and sales reports now show delivery gross sales, delivered orders, and delivery cash; overlapping automatic/manual windows are deduplicated by delivery order ID.
+- **Sync to current time**: Today’s manual sync now pulls from 00:00 through the moment the button is clicked, while historical dates retain custom time windows.
+- **Deliveroo token expiry validation**: Session storage now respects the JWT’s real expiry time instead of showing a misleading fixed 12-hour connection window.
+- **Deliveroo token persistence**: Tokens are now AES-GCM encrypted in PostgreSQL, with Redis used only as a cache; API restarts can restore the session without re-entry.
+- **Delivery sync time ranges**: Manual sync now supports independent start/end dates and times, while retaining a one-click “Sync to now” action.
+- **Deliveroo pagination compatibility**: Sync now requests a larger first page and recognizes additional cursor fields, avoiding false “no pagination cursor” failures above 20 orders.
+- **Cross-day pagination fix**: Deliveroo requests are now split by calendar day and filtered by the exact selected time range, bypassing the upstream 20-order cap when no cursor is returned.
+- **Delivery cancellations and trends**: Cancelled orders remain in synced detail but are excluded from sales; reports now show cancellation counts and real MoM/YoY delivery trends.
+- **Delivery analytics panel alignment**: Removed the delivery-specific background and forced white styling, restoring the original analytics card structure and visual hierarchy.
+- **Dashboard delivery metric cards**: Dashboard delivery metrics now reuse the native metric cards and support real day-over-day comparisons.
 - **Daily Accounting Payment Split**: Accounting Excel/CSV daily summaries now show separate cash and card recorded-income totals.
 - **Mixed Cash + Card Payments**: The standard checkout flow now accepts consecutive tenders of any amount; after the first tender it stays open with live paid/remaining totals, and the balance can be completed by manual card or Dojo.
 - **Bilingual Accounting CSV and Excel**: Sales exports now include Chinese/English definitions and formulas, accounting totals, payment reconciliation, daily summaries, and a paid-order ledger. Excel export provides four formatted worksheets with frozen headers, while CSV retains UTF-8 BOM and numeric amount cells.

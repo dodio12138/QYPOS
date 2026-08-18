@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Banknote, Calculator, ChevronDown, ChevronUp, CreditCard, DollarSign, Download, FileDown, FileSpreadsheet, Gift, Hash, Percent, Receipt, RefreshCw, Search, ShoppingBag, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Banknote, Calculator, ChevronDown, ChevronUp, CloudDownload, CreditCard, DollarSign, Download, FileDown, FileSpreadsheet, Gift, Hash, Percent, Receipt, RefreshCw, Search, ShoppingBag, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { t, money, API_URL, getLocalToday, formatDateStr, addDays, addYears, pctDelta, weekdayLabels, formatClockMinute, daySpan, mondayOf } from "./helpers";
 import { api, labelOf } from "../../../lib/api";
 import MetricCard from "./metric-card";
@@ -155,10 +155,21 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
   const [comparisonReport, setComparisonReport] = useState(null);
   const [comparisonRange, setComparisonRange] = useState(null);
   const [loading, setLoading] = useState(false);
+  const reportRequestRef = useRef(0);
 
   function comparisonRangeFor(rangeFrom, rangeTo, mode) {
     if (mode === "yoy") {
       return [addYears(rangeFrom, -1), addYears(rangeTo, -1)];
+    }
+    const rangeStart = new Date(`${rangeFrom}T00:00:00`);
+    const rangeEnd = new Date(`${rangeTo}T00:00:00`);
+    const isFullMonth = rangeStart.getDate() === 1
+      && rangeEnd.getMonth() === rangeStart.getMonth()
+      && rangeEnd.getFullYear() === rangeStart.getFullYear()
+      && addDays(rangeTo, 1).slice(0, 7) !== rangeTo.slice(0, 7);
+    if (isFullMonth) {
+      const previousMonthEnd = addDays(rangeFrom, -1);
+      return [`${previousMonthEnd.slice(0, 7)}-01`, previousMonthEnd];
     }
     const span = daySpan(rangeFrom, rangeTo);
     const prevTo = addDays(rangeFrom, -1);
@@ -167,9 +178,14 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
   }
 
   async function runReport(rangeFrom, rangeTo, mode) {
+    const requestId = reportRequestRef.current + 1;
+    reportRequestRef.current = requestId;
     setLoading(true);
+    setComparisonReport(null);
+    setComparisonRange(null);
     try {
       const data = await api(`/reports/sales?from=${rangeFrom}&to=${rangeTo}`);
+      if (requestId !== reportRequestRef.current) return;
       setReport(data);
       if (mode === "none") {
         setComparisonReport(null);
@@ -178,10 +194,11 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
         const [pf, pt] = comparisonRangeFor(rangeFrom, rangeTo, mode);
         setComparisonRange([pf, pt]);
         const compareData = await api(`/reports/sales?from=${pf}&to=${pt}`);
+        if (requestId !== reportRequestRef.current) return;
         setComparisonReport(compareData);
       }
     } finally {
-      setLoading(false);
+      if (requestId === reportRequestRef.current) setLoading(false);
     }
   }
 
@@ -309,6 +326,24 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
   const serviceMixTotal = Math.max(1, dineInOrders + takeawayOrders);
   const peakDay = (report?.byDay || []).reduce((best, row) => Number(row.orders || 0) > Number(best?.orders || -1) ? row : best, null);
   const peakSlot = (report?.byTime || []).reduce((best, row) => Number(row.revenue || 0) > Number(best?.revenue || -1) ? row : best, null);
+  const deliveryPlatforms = [
+    ["deliveroo", t(locale, "Deliveroo", "Deliveroo")],
+    ["ubereats", t(locale, "Uber Eats", "Uber Eats")]
+  ];
+  const deliveryMetric = (platform, key, valueKind = "money") => {
+    const currentPlatform = (report?.deliverySales?.platforms || []).find((item) => item.platform === platform) || {};
+    const previousPlatform = (comparisonReport?.deliverySales?.platforms || []).find((item) => item.platform === platform) || {};
+    const current = Number(currentPlatform[key] || 0);
+    const previous = comparisonReport ? Number(previousPlatform[key] || 0) : 0;
+    const delta = comparisonReport ? pctDelta(current, previous) : null;
+    const change = current - previous;
+    return {
+      value: valueKind === "number" ? new Intl.NumberFormat(locale).format(current) : money(current, "GBP", locale),
+      deltaPercent: delta ?? (comparisonReport && previous === 0 && current > 0 ? 100 : null),
+      changeText: comparisonReport ? (valueKind === "number" ? signedNumber(change, locale) : signedMoney(change, "GBP", locale)) : "",
+      compareText: comparisonReport ? t(locale, `较${compareLabel}`, `vs ${compareLabel}`) : ""
+    };
+  };
   const dailyAverageOrders = totalOrders && (report?.byDay || []).length
     ? totalOrders / (report.byDay.length || 1)
     : 0;
@@ -398,6 +433,22 @@ export default function ReportsAnalytics({ report, setReport, locale, currency }
                   compareText={comparisonReport ? t(locale, `较${compareLabel}`, `vs ${compareLabel}`) : ""}
                 />
               );
+            })}
+          </section>
+
+          <section className="wide-list dashboard-list reports-summary-cards">
+            <div className="panel-title split delivery-sales-heading" style={{ gridColumn: "1 / -1" }}>
+              <h3>{t(locale, "外卖平台营业额", "Delivery platform sales")}</h3>
+              <small className="muted">{t(locale, "独立于店内 POS 订单统计，按订单号去重", "Separate from in-store POS orders; deduplicated by order ID")}</small>
+            </div>
+            {deliveryPlatforms.flatMap(([platform, platformLabel]) => [
+              [platform, `${platformLabel} ${t(locale, "营业额", "gross sales")}`, "gross_amount", CloudDownload, "money"],
+              [platform, `${platformLabel} ${t(locale, "已送达订单", "delivered orders")}`, "delivered_orders", Hash, "number"],
+              [platform, `${platformLabel} ${t(locale, "取消单（不计营业额）", "cancelled orders (excluded from sales)")}`, "cancelled_orders", Gift, "number"],
+              [platform, `${platformLabel} ${t(locale, "外卖现金", "delivery cash")}`, "paid_in_cash", Banknote, "money"]
+            ]).map(([platform, title, key, Icon, kind]) => {
+              const metric = deliveryMetric(platform, key, kind);
+              return <MetricCard key={`${platform}-${key}`} showTrend={Boolean(comparisonReport)} title={title} icon={Icon} value={metric.value} deltaPercent={metric.deltaPercent} changeText={metric.changeText} compareText={metric.compareText} />;
             })}
           </section>
 

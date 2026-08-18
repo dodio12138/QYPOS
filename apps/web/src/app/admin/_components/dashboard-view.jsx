@@ -23,6 +23,12 @@ function signedMoney(value, currency, locale) {
 export default function Dashboard({ dashboard, auditLogs, locale, currency }) {
   const summary = dashboard?.summary || {};
   const yesterdaySummary = dashboard?.yesterdaySummary || null;
+  const deliverySales = dashboard?.deliverySales || null;
+  const deliverySalesYesterday = dashboard?.deliverySalesYesterday || null;
+  const deliveryPlatforms = [
+    ["deliveroo", t(locale, "Deliveroo", "Deliveroo")],
+    ["ubereats", t(locale, "Uber Eats", "Uber Eats")]
+  ];
   const [auditCollapsed, setAuditCollapsed] = useState(true);
   const [auditTimeFilter, setAuditTimeFilter] = useState("all");
   const [auditUserFilter, setAuditUserFilter] = useState("all");
@@ -93,6 +99,26 @@ export default function Dashboard({ dashboard, auditLogs, locale, currency }) {
           />
         );
       })}
+      <section className="wide-list dashboard-list" style={{ marginTop: 0 }}>
+        <div className="panel-title split delivery-sales-heading">
+          <h2>{t(locale, "今日外卖平台", "Today’s delivery platforms")}</h2>
+          <small className="muted">{t(locale, "单独统计，不混入店内 POS 营业额", "Tracked separately from in-store POS revenue")}</small>
+        </div>
+        <div className="dashboard delivery-dashboard-cards" style={{ marginTop: 10 }}>
+          {deliveryPlatforms.flatMap(([platform, platformLabel]) => [
+            [platform, `${platformLabel} ${t(locale, "营业额", "gross sales")}`, "gross_amount", DollarSign, "money"],
+            [platform, `${platformLabel} ${t(locale, "已送达订单", "delivered orders")}`, "delivered_orders", Receipt, "number"],
+            [platform, `${platformLabel} ${t(locale, "取消单（不计营业额）", "cancelled orders (excluded)")}`, "cancelled_orders", Receipt, "number"],
+            [platform, `${platformLabel} ${t(locale, "外卖现金", "delivery cash")}`, "paid_in_cash", Banknote, "money"]
+          ]).map(([platform, label, key, Icon, kind]) => {
+            const current = Number((deliverySales?.platforms || []).find((item) => item.platform === platform)?.[key] || 0);
+            const previous = Number((deliverySalesYesterday?.platforms || []).find((item) => item.platform === platform)?.[key] || 0);
+            const delta = deliverySalesYesterday ? pctDelta(current, previous) : null;
+            const normalizedDelta = delta ?? (deliverySalesYesterday && previous === 0 && current > 0 ? 100 : null);
+            return <MetricCard key={`${platform}-${key}`} title={label} icon={Icon} value={kind === "money" ? money(current, "GBP", locale) : new Intl.NumberFormat(locale).format(current)} deltaPercent={normalizedDelta} changeText={deliverySalesYesterday ? (kind === "money" ? signedMoney(current - previous, "GBP", locale) : `${current - previous >= 0 ? "+" : ""}${current - previous}`) : ""} compareText={deliverySalesYesterday ? t(locale, "较昨日", "vs yesterday") : ""} />;
+          })}
+        </div>
+      </section>
       <section className="wide-list dashboard-list report-hot-items">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>{t(locale, "热销菜品", "Top items")}</h2>

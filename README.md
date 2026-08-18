@@ -192,6 +192,12 @@ docker compose up --build
 | ⚙️ Admin | http://localhost:3000/admin |
 | 💚 Health Check | http://localhost:4000/health |
 
+### Delivery sessions (read-only reconciliation)
+
+QYPOS does not save or automatically fill provider account passwords. Copy a fresh Deliveroo Bearer token or the complete Uber Eats Cookie from the provider console and save it in Delivery reconciliation. Sessions are encrypted in PostgreSQL and can be replaced when they expire.
+
+Delivery reconciliation also includes a twice-daily automatic sync switch. When enabled, it runs at 14:00 and 23:00 UK time; when disabled, only manual sync runs.
+
 ### Dojo terminal payments (Pay at Counter)
 
 QYPOS supports Dojo Go terminal payments while keeping manual cash, card, QR, and other payment records. Configure these server-only values in `.env`:

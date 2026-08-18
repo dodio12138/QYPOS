@@ -7,6 +7,7 @@ import {
   BarChart3,
   CalendarDays,
   ChefHat,
+  CloudDownload,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -61,6 +62,7 @@ import OpsView from "./_components/ops-view";
 import ReportsAnalytics from "./_components/reports-view";
 import StaffScheduleView from "./_components/schedule-view";
 import MenuAdmin, { MenuAvailabilityAdmin } from "./_components/menu-admin";
+import DeliverySalesView from "./_components/delivery-sales-view";
 
 const tabs = [
   ["orders", ClipboardList, { "zh-CN": "订单", "en-GB": "Orders" }, ["manage_orders"]],
@@ -73,9 +75,10 @@ const tabs = [
   ["settings", Settings, { "zh-CN": "设置", "en-GB": "Settings" }, ["manage_settings"]],
   ["users", Users, { "zh-CN": "账户", "en-GB": "Users" }, ["manage_users"]],
   ["ops", Wrench, { "zh-CN": "运维", "en-GB": "Ops" }, ["manage_ops"]],
+  ["delivery", CloudDownload, { "zh-CN": "外卖对账", "en-GB": "Delivery sales" }, ["manage_ops"]],
   ["layout", Armchair, { "zh-CN": "布局", "en-GB": "Layout" }, ["manage_tables"]]
 ];
-const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "layout"]);
+const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "delivery", "layout"]);
 
 const ROLE_LABELS = {
   owner: { "zh-CN": "管理员", "en-GB": "Owner" },
@@ -628,6 +631,7 @@ export default function AdminPage() {
         {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
         {activeTab === "users" && <UsersView usersList={usersList} rolesList={rolesList} onSaved={async () => { await refresh(); await refreshUsers(); }} />}
         {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} />}
+        {activeTab === "delivery" && <DeliverySalesView locale={locale} currency={currency} onNotify={showNotice} />}
       </section>
       {adminGateTarget && <AdminGateModal tab={adminGateTarget} locale={locale} tabs={tabs} onCancel={() => setAdminGateTarget(null)} onGranted={enterAdminTab} />}
     </main>
