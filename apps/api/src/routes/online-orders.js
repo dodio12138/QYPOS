@@ -51,7 +51,105 @@ function publicInboxOrder(row) {
   };
 }
 
-export default function register({ app, pool, redis, requirePermission, query, emit }) {
+function publicInboxItems(items) {
+  return items.map((item) => ({
+    ...item,
+    quantity: Number(item.quantity),
+    unit_price_minor: Number(item.unit_price_minor),
+    line_total_minor: Number(item.line_total_minor)
+  }));
+}
+
+async function loadInboxOrder(pool, id) {
+  const order = await pool.query("SELECT * FROM online_order_inbox WHERE id = $1", [id]);
+  if (!order.rows[0]) return null;
+  const items = await pool.query(
+    `SELECT id, source_item_id, name_en, name_zh, option_label_en, option_label_zh, quantity, unit_price_minor, line_total_minor
+     FROM online_order_inbox_items WHERE inbox_order_id = $1 ORDER BY id`,
+    [id]
+  );
+  return { ...publicInboxOrder(order.rows[0]), raw_payload: order.rows[0].raw_payload, items: publicInboxItems(items.rows) };
+}
+
+function eventOrderSummary(result) {
+  return {
+    id: result.inbox.id,
+    external_order_id: result.inbox.external_order_id,
+    external_reference: result.inbox.external_reference,
+    payment_status: result.inbox.payment_status,
+    currency: result.inbox.currency,
+    total_minor: Number(result.inbox.total_minor),
+    received_at: result.inbox.received_at,
+    test: false
+  };
+}
+
+function testAlertOrder() {
+  return {
+    id: `test-online-order-${Date.now()}`,
+    external_order_id: "test-online-order",
+    external_reference: "TEST-GN-ALERT",
+    payment_status: "Captured",
+    currency: "GBP",
+    total_minor: 1480,
+    customer: { name: "测试顾客 / Test customer", phone: "+44 7000 000000", note: "这是弹窗测试，不是真实订单" },
+    items: [{
+      source_item_id: "test-item",
+      name_en: "Test Noodles",
+      name_zh: "测试面",
+      option_label_en: "Large",
+      option_label_zh: "大份",
+      quantity: 1,
+      unit_price_minor: 1480,
+      line_total_minor: 1480
+    }],
+    received_at: new Date().toISOString(),
+    test: true
+  };
+}
+
+async function queueOnlineOrderKitchenPrint({ pool, redis, emit, auditLog, request, settings, printer, onlineOrder, audit = true }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`online-order-kitchen:${onlineOrder.id}`]);
+    const existing = await client.query(
+      `SELECT * FROM print_jobs
+       WHERE type = 'online_order_kitchen'
+         AND payload->>'online_order_id' = $1
+         AND status IN ('queued', 'printing', 'succeeded')
+       ORDER BY created_at DESC LIMIT 1`,
+      [onlineOrder.id]
+    );
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return { ...existing.rows[0], duplicate: true };
+    }
+    const result = await client.query(
+      "INSERT INTO print_jobs (order_id, type, payload) VALUES (NULL, 'online_order_kitchen', $1) RETURNING *",
+      [{
+        online_order_id: onlineOrder.id,
+        online_order: onlineOrder,
+        settings,
+        printer,
+        created_at: new Date().toISOString()
+      }]
+    );
+    const job = result.rows[0];
+    await client.query("COMMIT");
+    await redis.lpush("print_jobs", job.id);
+    emit("print.queued", job);
+    if (audit) await auditLog(request, "online_order.print_kitchen", "online_order_inbox", onlineOrder.id, { print_job_id: job.id });
+    return job;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export default function register({ app, pool, redis, requirePermission, query, emit, getSettings, selectPrinter, isValidPrinter, auditLog }) {
   app.get("/ops/online-orders", async (request, reply) => {
     if (!await requirePermission(request, reply, "manage_ops")) return;
     const { limit, offset } = limitOffset(request);
@@ -69,22 +167,53 @@ export default function register({ app, pool, redis, requirePermission, query, e
 
   app.get("/ops/online-orders/:id", async (request, reply) => {
     if (!await requirePermission(request, reply, "manage_ops")) return;
-    const order = await pool.query("SELECT * FROM online_order_inbox WHERE id = $1", [request.params.id]);
-    if (!order.rows[0]) {
+    const order = await loadInboxOrder(pool, request.params.id);
+    if (!order) {
       reply.code(404);
       return { error: "Online order not found" };
     }
-    const items = await pool.query(
-      `SELECT id, source_item_id, name_en, name_zh, option_label_en, option_label_zh, quantity, unit_price_minor, line_total_minor
-       FROM online_order_inbox_items WHERE inbox_order_id = $1 ORDER BY id`,
-      [request.params.id]
-    );
-    return { ...publicInboxOrder(order.rows[0]), raw_payload: order.rows[0].raw_payload, items: items.rows.map((item) => ({
-      ...item,
-      quantity: Number(item.quantity),
-      unit_price_minor: Number(item.unit_price_minor),
-      line_total_minor: Number(item.line_total_minor)
-    })) };
+    return order;
+  });
+
+  app.get("/online-orders/:id", async (request, reply) => {
+    if (!await requirePermission(request, reply, "print_receipt")) return;
+    const order = await loadInboxOrder(pool, request.params.id);
+    if (!order) {
+      reply.code(404);
+      return { error: "Online order not found" };
+    }
+    return order;
+  });
+
+  app.post("/online-orders/:id/print-kitchen", async (request, reply) => {
+    if (!await requirePermission(request, reply, "print_receipt")) return;
+    const onlineOrder = await loadInboxOrder(pool, request.params.id);
+    if (!onlineOrder) {
+      reply.code(404);
+      return { error: "Online order not found" };
+    }
+    const settings = await getSettings();
+    const printer = selectPrinter(settings, "kitchen");
+    if (!printer || !isValidPrinter(printer)) {
+      reply.code(409);
+      return { error: "Kitchen printer is not configured or enabled" };
+    }
+    return queueOnlineOrderKitchenPrint({ pool, redis, emit, auditLog, request, settings, printer, onlineOrder });
+  });
+
+  app.post("/online-orders/test-print-kitchen", async (request, reply) => {
+    if (!await requirePermission(request, reply, "print_receipt")) return;
+    const settings = await getSettings();
+    const printer = selectPrinter(settings, "kitchen");
+    if (!printer || !isValidPrinter(printer)) {
+      reply.code(409);
+      return { error: "Kitchen printer is not configured or enabled" };
+    }
+    return queueOnlineOrderKitchenPrint({
+      pool, redis, emit, auditLog, request, settings, printer,
+      onlineOrder: testAlertOrder(),
+      audit: false
+    });
   });
 
   app.get("/internal/online-orders/sync-state", async (request, reply) => {
@@ -116,17 +245,7 @@ export default function register({ app, pool, redis, requirePermission, query, e
         await client.query("BEGIN");
         const result = await saveOnlineOrderInbox({ client, payload: order, connectorId, cursor });
         await client.query("COMMIT");
-        if (result.inbox.inserted) {
-          emit("online_order.received", {
-            id: result.inbox.id,
-            external_order_id: result.inbox.external_order_id,
-            external_reference: result.inbox.external_reference,
-            currency: result.inbox.currency,
-            total_minor: Number(result.inbox.total_minor),
-            received_at: result.inbox.received_at,
-            test: false
-          });
-        }
+        if (result.inbox.inserted) emit("online_order.received", eventOrderSummary(result));
         return { ok: true, id: result.inbox.id, external_order_id: result.inbox.external_order_id, item_count: result.itemCount };
       } catch (error) {
         await client.query("ROLLBACK");
@@ -143,27 +262,7 @@ export default function register({ app, pool, redis, requirePermission, query, e
 
   app.post("/ops/online-orders/test-alert", async (request, reply) => {
     if (!await requirePermission(request, reply, "manage_ops")) return;
-    emit("online_order.received", {
-      id: `test-online-order-${Date.now()}`,
-      external_order_id: "test-online-order",
-      external_reference: "TEST-GN-ALERT",
-      payment_status: "Captured",
-      currency: "GBP",
-      total_minor: 1480,
-      customer: { name: "测试顾客 / Test customer", phone: "+44 7000 000000", note: "这是弹窗测试，不是真实订单" },
-      items: [{
-        source_item_id: "test-item",
-        name_en: "Test Noodles",
-        name_zh: "测试面",
-        option_label_en: "Large",
-        option_label_zh: "大份",
-        quantity: 1,
-        unit_price_minor: 1480,
-        line_total_minor: 1480
-      }],
-      received_at: new Date().toISOString(),
-      test: true
-    });
+    emit("online_order.received", testAlertOrder());
     return { ok: true };
   });
 }

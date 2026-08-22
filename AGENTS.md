@@ -133,7 +133,7 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 | `apps/web/src/app/admin/_components/ops-view.jsx` | 运维面板（健康检查/备份/打印机配置） |
 | `apps/web/src/app/admin/_components/delivery-sales-view.jsx` | Deliveroo 只读营业额同步与时段对账 |
 | `apps/web/src/app/admin/_components/online-orders-view.jsx` | 在线订单收件箱只读页面 |
-| `apps/web/src/app/admin/_components/online-order-alert-modal.jsx` | 网站在线订单到达提示弹窗与 M1 接单占位按钮 |
+| `apps/web/src/app/admin/_components/online-order-alert-modal.jsx` | 网站在线订单到达提示、提示音与简易后厨单确认按钮 |
 | `apps/web/src/app/admin/_components/settings-view.jsx` | 系统设置（税务/小票/桌台行为） |
 | `apps/web/src/app/admin/_components/dashboard-view.jsx` | 数据看板 + 审计日志 |
 | `apps/web/src/app/admin/_components/admin-login.jsx` | 后台登录表单 |

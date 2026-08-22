@@ -2741,6 +2741,12 @@ body[data-qypos-sidebar-collapsed="1"] .sidebar nav button span {
   font-weight: 800;
 }
 
+.online-order-alert-actions button:disabled,
+.online-order-alert-close:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
 .online-order-alert-later {
   border: 1px solid #cbd5e1;
   background: #fff;

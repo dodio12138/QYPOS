@@ -369,6 +369,7 @@ export default function AdminPage() {
   const [rolesList, setRolesList] = useState([]);
   const [notice, setNotice] = useState("");
   const [onlineOrderAlerts, setOnlineOrderAlerts] = useState([]);
+  const [onlineOrderPrintBusy, setOnlineOrderPrintBusy] = useState(false);
   const noticeTimerRef = useRef(null);
 
   const locale = settings?.locale || "zh-CN";
@@ -474,11 +475,12 @@ export default function AdminPage() {
   function enqueueOnlineOrderAlert(summary) {
     if (!summary?.id) return;
     const alertKey = String(summary.id);
+    window.dispatchEvent(new Event("qypos:online-order-received"));
     setOnlineOrderAlerts((current) => current.some((item) => item.alertKey === alertKey)
       ? current
       : [...current, { ...summary, alertKey }]);
     if (!summary.test) {
-      api(`/ops/online-orders/${encodeURIComponent(summary.id)}`)
+      api(`/online-orders/${encodeURIComponent(summary.id)}`)
         .then((detail) => setOnlineOrderAlerts((current) => current.map((item) => item.alertKey === alertKey ? { ...item, ...detail, alertKey } : item)))
         .catch(() => {});
     }
@@ -487,6 +489,20 @@ export default function AdminPage() {
   function closeOnlineOrderAlert(message) {
     setOnlineOrderAlerts((current) => current.slice(1));
     if (message) showNotice(message);
+  }
+
+  async function acceptOnlineOrderAlert() {
+    const order = onlineOrderAlerts[0];
+    if (!order) return;
+    setOnlineOrderPrintBusy(true);
+    try {
+      await api(order.test ? "/online-orders/test-print-kitchen" : `/online-orders/${encodeURIComponent(order.id)}/print-kitchen`, { method: "POST" });
+      closeOnlineOrderAlert(t(locale, "已确认，简易后厨单已入队", "Confirmed; simple kitchen ticket queued"));
+    } catch (error) {
+      showNotice(error.message || t(locale, "后厨单打印失败", "Kitchen ticket print failed"));
+    } finally {
+      setOnlineOrderPrintBusy(false);
+    }
   }
 
   async function testOnlineOrderAlert() {
@@ -565,7 +581,7 @@ export default function AdminPage() {
           return;
         }
         if (type === "online_order.received") {
-          if (hasAnyPermission(user, ["manage_ops"])) enqueueOnlineOrderAlert(msg.data);
+          if (hasAnyPermission(user, ["print_receipt"])) enqueueOnlineOrderAlert(msg.data);
           return;
         }
       } catch {
@@ -673,8 +689,9 @@ export default function AdminPage() {
         order={onlineOrderAlerts[0]}
         locale={locale}
         currency={currency}
+        busy={onlineOrderPrintBusy}
         onDismiss={() => closeOnlineOrderAlert(t(locale, "已关闭在线订单提示", "Online-order alert dismissed"))}
-        onAccept={() => closeOnlineOrderAlert(t(locale, "已确认提示；M1 暂不创建正式订单", "Alert acknowledged; M1 does not create a POS order yet"))}
+        onAccept={acceptOnlineOrderAlert}
       />
       {adminGateTarget && <AdminGateModal tab={adminGateTarget} locale={locale} tabs={tabs} onCancel={() => setAdminGateTarget(null)} onGranted={enterAdminTab} />}
     </main>
