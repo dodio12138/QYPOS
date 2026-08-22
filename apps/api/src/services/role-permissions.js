@@ -46,6 +46,7 @@ export const ADMIN_GRANT_SCOPES = {
   ops: ["manage_ops", "manage_settings", "manage_prints"],
   layout: ["manage_tables"],
   schedule: ["view_staff_schedules", "manage_staff_schedules"],
+  "online-orders": ["manage_ops"],
 };
 
 export function canPatchMenuItem(user, body) {

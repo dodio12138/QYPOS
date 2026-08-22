@@ -49,6 +49,7 @@ export default [
     files: [
       "apps/api/src/**/*.js",
       "apps/printer-service/src/**/*.js",
+      "apps/online-order-connector/src/**/*.js",
       "packages/shared/src/**/*.js",
       "tests/**/*.mjs"
     ],

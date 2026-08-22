@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Download, HardDrive, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Activity, BellRing, Download, HardDrive, Plus, Printer, RefreshCw, Save, Trash2 } from "lucide-react";
 import { t, money } from "./helpers";
 import { api, API_URL } from "../../../lib/api";
 
-export default function OpsView({ health, backups, settings, setSettings, locale, onRefresh, onSaved }) {
+export default function OpsView({ health, backups, settings, setSettings, locale, onRefresh, onSaved, onTestOnlineOrderAlert }) {
   const [busy, setBusy] = useState(false);
   const [cashDrawerBusy, setCashDrawerBusy] = useState(false);
   const [profiles, setProfiles] = useState(settings.printer_profiles || []);
@@ -103,7 +103,10 @@ export default function OpsView({ health, backups, settings, setSettings, locale
               </div>
             ))}
           </div>
-          <button type="button" onClick={onRefresh}><RefreshCw size={16} /><span>{t(locale, "刷新运维状态", "Refresh ops status")}</span></button>
+          <div className="ops-actions">
+            <button type="button" onClick={onRefresh}><RefreshCw size={16} /><span>{t(locale, "刷新运维状态", "Refresh ops status")}</span></button>
+            <button type="button" onClick={onTestOnlineOrderAlert}><BellRing size={16} /><span>{t(locale, "测试在线订单弹窗", "Test online-order alert")}</span></button>
+          </div>
         </article>
 
         <article className="panel ops-card">

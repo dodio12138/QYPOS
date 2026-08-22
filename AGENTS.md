@@ -132,12 +132,17 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 | `apps/web/src/app/admin/_components/layout-view.jsx` | 餐桌布局编辑器 |
 | `apps/web/src/app/admin/_components/ops-view.jsx` | 运维面板（健康检查/备份/打印机配置） |
 | `apps/web/src/app/admin/_components/delivery-sales-view.jsx` | Deliveroo 只读营业额同步与时段对账 |
+| `apps/web/src/app/admin/_components/online-orders-view.jsx` | 在线订单收件箱只读页面 |
+| `apps/web/src/app/admin/_components/online-order-alert-modal.jsx` | 网站在线订单到达提示弹窗与 M1 接单占位按钮 |
 | `apps/web/src/app/admin/_components/settings-view.jsx` | 系统设置（税务/小票/桌台行为） |
 | `apps/web/src/app/admin/_components/dashboard-view.jsx` | 数据看板 + 审计日志 |
 | `apps/web/src/app/admin/_components/admin-login.jsx` | 后台登录表单 |
 | `apps/web/src/app/admin/_components/admin-gate-modal.jsx` | 管理员提权验证弹窗 |
 | `apps/web/src/app/api-proxy/[...path]/route.js` | BFF 反向代理（含客户端 IP 转发） |
 | `apps/printer-service/src/worker.js` | 打印 worker（含指数退避重连） |
+| `apps/online-order-connector/src/worker.js` | 网站在线订单 SSE Connector（游标恢复、详情拉取、幂等导入、ACK） |
+| `apps/api/src/routes/online-orders.js` | 在线订单收件箱管理接口与 Connector 内部导入接口 |
+| `apps/api/src/services/online-order-inbox.js` | 在线订单 payload 校验与事务性幂等保存 |
 | `packages/shared/src/index.js` | 共享工具函数 |
 | `db/init.sql` | 数据库 schema + 种子数据 |
 | `db/migrations/` | 增量迁移脚本 |
