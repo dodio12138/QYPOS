@@ -123,7 +123,7 @@ export async function saveOnlineOrderInbox({ client, payload, connectorId, curso
       );
     }
     if (ownTransaction) await client.query("COMMIT");
-    return { inbox, itemCount: order.items.length };
+    return { inbox, itemCount: order.items.length, order };
   } catch (error) {
     if (ownTransaction) await client.query("ROLLBACK");
     throw error;

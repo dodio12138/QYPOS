@@ -177,6 +177,51 @@ function buildKitchenDoc({ order, items, table, settings }) {
   return doc;
 }
 
+function onlineOrderItemName(item, locale) {
+  const zh = item.name_zh ?? item.nameZh ?? "";
+  const en = item.name_en ?? item.nameEn ?? "";
+  return locale === "en-GB" ? (en || zh) : (zh || en);
+}
+
+function onlineOrderItemOption(item, locale) {
+  const zh = item.option_label_zh ?? item.optionLabelZh ?? "";
+  const en = item.option_label_en ?? item.optionLabelEn ?? "";
+  return locale === "en-GB" ? (en || zh) : (zh || en);
+}
+
+function buildOnlineOrderKitchenDoc({ online_order: onlineOrder, settings }) {
+  const order = onlineOrder ?? {};
+  const locale = settings.locale ?? "zh-CN";
+  const itemFontSize = kitchenFontPx(settings);
+  const nameBold = settings.kitchen_item_bold !== false;
+  const qtyBold = settings.kitchen_qty_bold !== false;
+  const customer = order.customer ?? {};
+  const doc = [
+    C("网站订单 / ONLINE ORDER", { bold: true, large: true }),
+    R(),
+    T(`订单号 Reference: ${order.external_reference ?? order.externalReference ?? ""}`, { bold: true }),
+    T(`网站 ID ID: ${order.external_order_id ?? order.externalOrderId ?? ""}`),
+    T(`时间 Time: ${new Date(order.received_at ?? order.receivedAt ?? Date.now()).toLocaleString(locale)}`),
+  ];
+  if (customer.name) doc.push(T(`顾客 Customer: ${customer.name}`, { bold: true }));
+  if (customer.phone) doc.push(T(`电话 Phone: ${customer.phone}`));
+  doc.push(R());
+  for (const item of order.items ?? []) {
+    const name = onlineOrderItemName(item, locale);
+    const option = onlineOrderItemOption(item, locale);
+    doc.push(KITEM(`${item.quantity ?? 0}X`, name, { fontSize: itemFontSize, qtyBold, nameBold }));
+    if (option) doc.push(T(`  选项 Option: ${option}`, { fontSize: itemFontSize, bold: nameBold }));
+  }
+  if (customer.note) {
+    doc.push(R());
+    doc.push(T(`备注 Notes: ${customer.note}`, { bold: true }));
+  }
+  doc.push(R());
+  doc.push(T("已付款 / Captured · 暂未创建正式 POS 订单", { bold: true }));
+  doc.push(F());
+  return doc;
+}
+
 // 80mm 576px raster; columns are anchored by pixel via ROW(), not space-padding.
 function moneyShort(value, currency) {
   // Compact: "£9.50" instead of "£9.50 GBP". Locale "en-GB" keeps it predictable for the receipt column.
@@ -361,6 +406,7 @@ function docToBuffer(doc) {
 function render(job) {
   let doc;
   if      (job.type === "kitchen")     doc = buildKitchenDoc(job.payload);
+  else if (job.type === "online_order_kitchen") doc = buildOnlineOrderKitchenDoc(job.payload);
   else if (job.type === "test")        doc = buildTestDoc(job.payload);
   else if (job.type === "cash_drawer") return buildCashDrawerBuffer();
   else                                 doc = buildReceiptDoc(job.payload);
@@ -459,7 +505,7 @@ async function processJob(id) {
   }
 }
 
-export { buildKitchenDoc, buildReceiptDoc, buildTestDoc, docToBuffer, render };
+export { buildKitchenDoc, buildOnlineOrderKitchenDoc, buildReceiptDoc, buildTestDoc, docToBuffer, render };
 
 async function startWorker() {
   pool = new Pool({ connectionString: process.env.DATABASE_URL });

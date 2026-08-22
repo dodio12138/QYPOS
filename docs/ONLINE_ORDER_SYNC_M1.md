@@ -2,7 +2,7 @@
 
 状态：QYPOS 接收端已实现；QYLTPWeb 网站端接口按本文件契约待在网站仓库部署
 
-目标：让本地 QYPOS 能够稳定、低负载地获取 Granny Noodles 网站已付款订单及完整订单内容，并保存到 QYPOS 的“在线订单收件箱”。本阶段不把网站菜品转换成 QYPOS 菜品，不创建正式厨房订单，不打印，不处理退款。
+目标：让本地 QYPOS 能够稳定、低负载地获取 Granny Noodles 网站已付款订单及完整订单内容，并保存到 QYPOS 的“在线订单收件箱”。本阶段不把网站菜品转换成 QYPOS 菜品，不创建正式 POS 订单或付款记录；收银员确认后可按 JSON 快照打印简易后厨单，不处理退款。
 
 ## 1. 本阶段范围
 
@@ -21,8 +21,8 @@
 - 不调用 AI，不用模型判断订单、付款或菜品。
 - 不按名称猜测菜品映射。
 - 不创建 QYPOS `orders` 正式订单。
-- 不写入 QYPOS `order_items`、`payments` 或 `print_jobs`。
-- 不自动打印厨房单。
+- 不写入 QYPOS `order_items` 或 `payments`，也不创建正式订单的厨房打印任务。
+- 只允许收银员确认弹窗后创建独立的 `online_order_kitchen` 简易后厨打印任务。
 - 不处理退款和顾客状态回传。
 - 不让网站调用需要员工登录的 `/orders` 接口。
 
@@ -246,7 +246,7 @@ M1 只需要一个只读页面或接口：
 - 每一行的 `sourceItemId`、中英文名称、选项、数量、价格
 - 同步状态和最后错误
 
-暂时不要显示“已打印”或“已进入厨房”，因为 M1 还没有创建 QYPOS 正式订单。
+弹窗确认后显示“简易后厨单已入队”；这不代表已创建 QYPOS 正式订单或已完成打印。
 
 ## 9. 测试验收标准
 
@@ -256,7 +256,7 @@ M1 只需要一个只读页面或接口：
 - Connector 断线后重新连接，断线期间的订单可以补回。
 - 未 `Captured` 的订单不会进入收件箱。
 - 关闭网站连接时，QYPOS 不会每秒查询数据库。
-- M1 不创建 `orders`、`order_items`、`payments` 或 `print_jobs`。
+- M1 不创建 `orders`、`order_items` 或 `payments`；确认后允许创建 `online_order_kitchen` 简易打印任务。
 
 ## 10. 后续 M2：菜品映射
 
@@ -267,7 +267,7 @@ M2 再增加：
 - 根据收件箱内容创建 QYPOS `takeaway` 订单。
 - 写入 `dojo_online` 付款记录。
 - 设置已付款状态。
-- 创建一次厨房打印任务。
+- 将已映射的菜品创建为正式 QYPOS 订单后，再走正式订单厨房打印任务。
 
 ## 11. 本地验证命令
 
@@ -287,7 +287,7 @@ curl -I http://127.0.0.1:4000/health
 - `apps/api/src/services/online-order-inbox.js` 对 `Captured` 订单做结构校验，并在同一事务内按 `external_order_id` UPSERT、替换订单行、保存原始 JSON 和游标。
 - `apps/api/src/routes/online-orders.js` 提供 `manage_ops` 只读管理接口，以及带时间戳 HMAC、防重放的内部导入/游标接口。
 - `apps/online-order-connector/` 是独立 Docker worker：SSE 长连接、`Last-Event-ID`/cursor、断线指数退避、详情拉取、本地导入和 ACK。
-- 后台新增“在线收件箱”只读页面，显示顾客字段、订单行快照和原始 JSON；不会触碰正式订单、付款或打印表。
+- 后台新增“在线收件箱”只读页面，显示顾客字段、订单行快照和原始 JSON；不会创建正式订单或付款记录，确认弹窗后可创建独立简易后厨打印任务。
 - Connector 未配置 `ONLINE_ORDER_BASE_URL` 或密钥时保持禁用，不会发起轮询；配置后远端 URL 默认强制 HTTPS，开发测试可显式设置 `ONLINE_ORDER_ALLOW_INSECURE=true`。
 - Connector 默认只在 `Europe/London` 的 `11:00`（含）至 `22:05`（不含）营业时段建立 SSE 连接；非营业时间不轮询、不重连，营业时间结束时会主动中断当前连接。可通过 `ONLINE_ORDER_OPEN_TIME`、`ONLINE_ORDER_CLOSE_TIME`、`ONLINE_ORDER_TIME_ZONE` 配置。
 

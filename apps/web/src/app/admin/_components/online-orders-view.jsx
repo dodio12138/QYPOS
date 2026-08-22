@@ -28,6 +28,16 @@ export default function OnlineOrdersView({ locale, currency, onNotify }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  useEffect(() => {
+    const onOrderReceived = () => refresh();
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("qypos:online-order-received", onOrderReceived);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("qypos:online-order-received", onOrderReceived);
+    };
+  }, [refresh]);
+
   async function showOrder(order) {
     try {
       setSelected(await api(`/ops/online-orders/${order.id}`));
@@ -42,7 +52,7 @@ export default function OnlineOrdersView({ locale, currency, onNotify }) {
         <div>
           <span className="delivery-page-kicker">{t(locale, "网站在线订单", "Website online orders")}</span>
           <h2>{t(locale, "在线订单收件箱", "Online order inbox")}</h2>
-          <p className="muted">{t(locale, "这里只读保存网站已付款订单的原始快照，不会创建 QYPOS 正式订单、付款记录或打印任务。", "Read-only snapshots of captured website orders. No QYPOS order, payment, or print job is created in M1.")}</p>
+          <p className="muted">{t(locale, "这里只读保存网站已付款订单的原始快照，不会创建 QYPOS 正式订单或付款记录；确认弹窗后可单独打印简易后厨单。", "Read-only snapshots of captured website orders. No QYPOS order or payment record is created; confirmation can print a simple kitchen ticket.")}</p>
         </div>
         <button type="button" className="link-button" onClick={refresh} disabled={busy}><RefreshCw size={16} />{t(locale, "刷新", "Refresh")}</button>
       </section>

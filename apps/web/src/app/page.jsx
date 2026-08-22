@@ -42,6 +42,7 @@ import PaymentModal from "./_components/payment-modal";
 import MobileWorkflow from "./_components/mobile-workflow";
 import MenuPicker from "./_components/menu-picker";
 import OrderPanel from "./_components/order-panel";
+import OnlineOrderAlertModal from "./admin/_components/online-order-alert-modal";
 
 const statusText = {
   "zh-CN": {
@@ -131,6 +132,8 @@ export default function PosPage() {
   const [tableAction, setTableAction] = useState(null);
   const [confirmTakeaway, setConfirmTakeaway] = useState(false);
   const [notice, setNotice] = useState("");
+  const [onlineOrderAlerts, setOnlineOrderAlerts] = useState([]);
+  const [onlineOrderPrintBusy, setOnlineOrderPrintBusy] = useState(false);
   const [online, setOnline] = useState(true);
   const [apiOnline, setApiOnline] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -145,10 +148,15 @@ export default function PosPage() {
   const [mobileStepHistory, setMobileStepHistory] = useState([]);
   const [tabletMode, setTabletMode] = useState(false);
   const kitchenPrintRef = useRef(true);
+  const userRef = useRef(null);
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
   const copy = UI_COPY[locale] || UI_COPY["zh-CN"];
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -219,6 +227,38 @@ export default function PosPage() {
     }
   }
 
+  function enqueueOnlineOrderAlert(summary) {
+    if (!summary?.id) return;
+    const alertKey = String(summary.id);
+    setOnlineOrderAlerts((current) => current.some((item) => item.alertKey === alertKey)
+      ? current
+      : [...current, { ...summary, alertKey }]);
+    if (!summary.test) {
+      api(`/online-orders/${encodeURIComponent(summary.id)}`)
+        .then((detail) => setOnlineOrderAlerts((current) => current.map((item) => item.alertKey === alertKey ? { ...item, ...detail, alertKey } : item)))
+        .catch(() => {});
+    }
+  }
+
+  function closeOnlineOrderAlert(message) {
+    setOnlineOrderAlerts((current) => current.slice(1));
+    if (message) setNotice(message);
+  }
+
+  async function acceptOnlineOrderAlert() {
+    const order = onlineOrderAlerts[0];
+    if (!order) return;
+    setOnlineOrderPrintBusy(true);
+    try {
+      await api(order.test ? "/online-orders/test-print-kitchen" : `/online-orders/${encodeURIComponent(order.id)}/print-kitchen`, { method: "POST" });
+      closeOnlineOrderAlert(text(locale, "已确认，简易后厨单已入队", "Confirmed; simple kitchen ticket queued"));
+    } catch (error) {
+      setNotice(error.message || text(locale, "后厨单打印失败", "Kitchen ticket print failed"));
+    } finally {
+      setOnlineOrderPrintBusy(false);
+    }
+  }
+
   useEffect(() => {
     window.sessionStorage.removeItem("qypos_admin_grant");
     setTabletMode(window.localStorage.getItem("qypos_tablet_mode") === "1");
@@ -245,6 +285,10 @@ export default function PosPage() {
     socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (msg.event === "online_order.received") {
+          if (userRef.current?.permissions?.includes("print_receipt")) enqueueOnlineOrderAlert(msg.data);
+          return;
+        }
         if ((msg.event ?? "").startsWith("kitchen.")) return;
       } catch {
         // ignore parse errors
@@ -701,6 +745,14 @@ export default function PosPage() {
       {!online && <div className="offline-banner pos-offline"><WifiOff size={16} />{text(locale, "当前离线，点单、打印和收款可能无法同步。", "You're offline. Ordering, printing, and payment may not sync.")}</div>}
       {online && !apiOnline && <div className="offline-banner pos-offline"><WifiOff size={16} />{text(locale, "本地 API 暂不可用，请检查 Docker 服务。", "The local API is unavailable. Check the Docker service.")}</div>}
       {notice && <button className="notice toast" onClick={() => setNotice("")}>{notice}</button>}
+      <OnlineOrderAlertModal
+        order={onlineOrderAlerts[0]}
+        locale={locale}
+        currency={currency}
+        busy={onlineOrderPrintBusy}
+        onDismiss={() => closeOnlineOrderAlert(text(locale, "已关闭在线订单提示", "Online-order alert dismissed"))}
+        onAccept={acceptOnlineOrderAlert}
+      />
 
       <MobileWorkflow
         step={mobileStep}
