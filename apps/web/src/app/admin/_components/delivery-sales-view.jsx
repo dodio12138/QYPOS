@@ -168,7 +168,7 @@ export default function DeliverySalesView({ locale, currency, onNotify }) {
       <section className="delivery-page-intro">
         <div>
           <span className="delivery-page-kicker">{t(locale, "平台对账中心", "Platform reconciliation")}</span>
-          <h2>{t(locale, "外卖对账", "Delivery reconciliation")}</h2>
+          <h2>{t(locale, "外卖", "Delivery")}</h2>
           <p className="muted">{t(locale, "请从平台后台复制最新 token 或 Cookie 保存连接，再选择时间范围按平台同步。两个平台的连接和同步状态互不影响。", "Save a fresh token or Cookie copied from each provider, choose a period, then sync each platform independently. Connection and sync states are isolated.")}</p>
         </div>
         <button type="button" className="link-button" onClick={() => refresh()} disabled={busy}><RefreshCw size={16} />{t(locale, "刷新状态", "Refresh status")}</button>

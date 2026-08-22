@@ -194,7 +194,7 @@ docker compose up --build
 
 ### 外卖平台会话（只读对账）
 
-外卖对账不在服务器保存或自动填写平台账号密码。请从 Deliveroo 后台复制最新 Bearer token、从 Uber Eats 后台复制完整 Cookie，在后台“外卖对账”页面手动保存；会话会加密保存在 PostgreSQL，过期后再更新一次。
+外卖不在服务器保存或自动填写平台账号密码。请从 Deliveroo 后台复制最新 Bearer token、从 Uber Eats 后台复制完整 Cookie，在后台“外卖”页面手动保存；会话会加密保存在 PostgreSQL，过期后再更新一次。
 
 后台还提供“每天两次自动同步”开关。开启后按英国时间 14:00、23:00 同步，关闭后只保留手动同步。
 
@@ -309,6 +309,7 @@ graph TD
 | `API_PORT` | `4000` | API 服务端口 |
 | `TZ` | `Europe/London` | 日期计算的时区 |
 | `NEXT_PUBLIC_API_URL` | `/api-proxy` | 前端 → API 代理路径 |
+| `NEXT_PUBLIC_WS_URL` | （跟随 `NEXT_PUBLIC_API_URL`） | 前端 WebSocket 地址或代理路径 |
 | `API_INTERNAL_URL` | `http://api:4000` | 服务端内部 API 地址 |
 | `PRINTER_DEFAULT_HOST` | `192.168.1.100` | 默认打印机 IP |
 | `PRINTER_DEFAULT_PORT` | `9100` | 默认打印机端口 |

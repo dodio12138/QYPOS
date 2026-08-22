@@ -122,6 +122,16 @@
   border-color: rgba(255, 255, 255, 0.15);
 }
 
+.pos-header .realtime-status {
+  border-color: rgba(255, 255, 255, .28);
+  color: rgba(255, 255, 255, .92);
+}
+
+.pos-header .realtime-status.connected { color: #bbf7d0; }
+.pos-header .realtime-status.connecting { color: #fde68a; }
+.pos-header .realtime-status.error,
+.pos-header .realtime-status.disconnected { color: #fecaca; }
+
 
 .pos-header .top-actions button:hover,
 .pos-header .link-button:hover {

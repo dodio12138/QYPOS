@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: add a captured online-order inbox with idempotent import, cursor-based SSE reconnecting connector, and read-only admin inspection; M1 creates no POS orders or payment records
 - feat: add prominent POS/admin alerts, alert sound, inbox auto-refresh, an Ops test button, and JSON-snapshot simple kitchen printing after confirmation
 - feat: limit the online-order Connector to the Europe/London 11:00–22:05 opening window, with no SSE or reconnect activity outside business hours
+- fix: make frontend WebSocket URLs follow `/api-proxy` or `NEXT_PUBLIC_WS_URL`, add API connection/broadcast logs and frontend realtime status, and rename the Admin tabs to Website and Delivery
 
 - fix: reorganize delivery reconciliation into a single-column workflow with isolated Deliveroo/Uber Eats states; expired sessions are explicit and can be cleared without blocking the other platform
 - fix: merge Deliveroo and Uber Eats sync controls into one shared Sales sync section with one date/time range instead of a separate Uber Eats sync card

@@ -314,6 +314,30 @@ h1 {
   color: var(--ink);
 }
 
+.realtime-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid rgba(148, 163, 184, .45);
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.realtime-status::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.realtime-status.connected { color: #16a34a; }
+.realtime-status.connecting { color: #d97706; }
+.realtime-status.error,
+.realtime-status.disconnected { color: #dc2626; }
+
 
 .offline-banner {
   display: flex;

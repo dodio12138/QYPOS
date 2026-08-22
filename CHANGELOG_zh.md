@@ -17,6 +17,7 @@
 - feat: 新增网站已付款在线订单收件箱、幂等导入、SSE 断线重连/游标恢复 Connector，以及后台只读原始订单查看；M1 不创建正式订单或付款记录
 - feat: 网站订单到达时新增 POS/后台醒目弹窗、提示音、收件箱自动刷新和运维测试按钮；确认后可按 JSON 快照打印简易后厨单
 - feat: 在线订单 Connector 默认仅在 Europe/London 11:00–22:05 营业时段检测，非营业时间停止 SSE 与重连
+- fix: 前台 WebSocket 跟随 `/api-proxy` 或 `NEXT_PUBLIC_WS_URL` 配置，API 增加连接与在线订单广播日志，页面显示实时连接状态；后台菜单名称更新为“网站”和“外卖”
 
 - fix: 外卖对账页面改为单列流程布局，独立处理 Deliveroo/Uber Eats 状态；过期连接会明确提示并允许清理，不再因一个平台状态异常阻塞另一个平台
 - fix: 将 Deliveroo 与 Uber Eats 同步按钮合并到统一的“营业额同步”区域，共用日期时间范围，不再单独创建 Uber Eats 同步卡片

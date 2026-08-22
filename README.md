@@ -309,6 +309,7 @@ Configure via `.env` file:
 | `API_PORT` | `4000` | API server port |
 | `TZ` | `Europe/London` | Timezone for date calculations |
 | `NEXT_PUBLIC_API_URL` | `/api-proxy` | Web → API proxy path |
+| `NEXT_PUBLIC_WS_URL` | (follows `NEXT_PUBLIC_API_URL`) | WebSocket endpoint or proxy path for the frontend |
 | `API_INTERNAL_URL` | `http://api:4000` | Internal API URL for server-side requests |
 | `PRINTER_DEFAULT_HOST` | `192.168.1.100` | Default printer IP |
 | `PRINTER_DEFAULT_PORT` | `9100` | Default printer port |

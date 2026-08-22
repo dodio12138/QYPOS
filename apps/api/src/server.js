@@ -387,8 +387,25 @@ redisSub.on("message", (_channel, message) => {
 
 export function emit(event, data) {
   const message = JSON.stringify({ event, data });
+  let sentSocketCount = 0;
+  let openSocketCount = 0;
   for (const socket of sockets) {
-    if (socket?.readyState === 1) socket.send(message);
+    if (socket?.readyState !== 1) continue;
+    openSocketCount += 1;
+    try {
+      socket.send(message);
+      sentSocketCount += 1;
+    } catch (error) {
+      app.log.warn({ err: error, event }, "WebSocket broadcast failed");
+    }
+  }
+  if (event === "online_order.received") {
+    app.log.info({
+      event,
+      socketCount: sockets.size,
+      openSocketCount,
+      sentSocketCount
+    }, "Broadcasted online_order.received");
   }
 }
 
