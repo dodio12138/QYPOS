@@ -6,6 +6,10 @@ COPY apps/web/package.json ./apps/web/package.json
 RUN npm install --workspace @qypos/web --include-workspace-root
 COPY apps/web ./apps/web
 WORKDIR /app/apps/web
+ARG NEXT_PUBLIC_API_URL=/api-proxy
+ARG NEXT_PUBLIC_WS_URL=
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN npm run build
 EXPOSE 3000
 CMD ["npm", "start"]

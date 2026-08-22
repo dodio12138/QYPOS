@@ -51,7 +51,7 @@ export default function OnlineOrderAlertModal({ order, locale, currency, onAccep
           <div>
             <p className="online-order-alert-kicker">{t(locale, "请立即查看", "Please review now")}</p>
             <h2 id="online-order-alert-title">{t(locale, "收到网站在线订单", "Website order received")}</h2>
-            <p id="online-order-alert-description">{t(locale, "订单已保存到在线收件箱，请确认后继续处理。", "The order is saved in the online inbox. Confirm it before continuing.")}</p>
+            <p id="online-order-alert-description">{t(locale, "订单已保存到网站订单，请确认后继续处理。", "The order is saved in Website orders. Confirm it before continuing.")}</p>
           </div>
         </div>
 

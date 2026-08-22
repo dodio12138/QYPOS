@@ -1,5 +1,18 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
+export function websocketUrl(path = "/ws") {
+  if (typeof window === "undefined") return "";
+  const configuredUrl = process.env.NEXT_PUBLIC_WS_URL || API_URL || "/api-proxy";
+  const url = new URL(configuredUrl, window.location.origin);
+  const websocketPath = path.startsWith("/") ? path : `/${path}`;
+  const basePath = url.pathname.replace(/\/+$/, "");
+  if (!url.pathname.endsWith(websocketPath)) url.pathname = `${basePath}${websocketPath}`;
+  url.protocol = url.protocol === "https:" || window.location.protocol === "https:" ? "wss:" : "ws:";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 export async function api(path, options = {}) {
   const token = typeof window !== "undefined" ? window.localStorage.getItem("qypos_token") : null;
   const adminGrant = typeof window !== "undefined" ? window.sessionStorage.getItem("qypos_admin_grant") : null;

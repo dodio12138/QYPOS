@@ -88,7 +88,14 @@ app.setErrorHandler((error, request, reply) => {
 app.get("/ws", { websocket: true }, (connection) => {
   const socket = connection.socket ?? connection;
   sockets.add(socket);
-  socket.on("close", () => sockets.delete(socket));
+  app.log.info({ socketCount: sockets.size }, "WebSocket frontend connected");
+  socket.on("close", () => {
+    sockets.delete(socket);
+    app.log.info({ socketCount: sockets.size }, "WebSocket frontend disconnected");
+  });
+  socket.on("error", (error) => {
+    app.log.warn({ err: error, socketCount: sockets.size }, "WebSocket frontend error");
+  });
 });
 
 app.post("/auth/login", async (request, reply) => {

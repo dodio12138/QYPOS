@@ -24,7 +24,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, API_URL, labelOf } from "../lib/api";
+import { api, labelOf, websocketUrl } from "../lib/api";
 import qyposLogo from "../pic/logo.png";
 import ConfirmModal from "./_components/confirm-modal";
 import ReceiptTitle from "./_components/receipt-title";
@@ -136,6 +136,7 @@ export default function PosPage() {
   const [onlineOrderPrintBusy, setOnlineOrderPrintBusy] = useState(false);
   const [online, setOnline] = useState(true);
   const [apiOnline, setApiOnline] = useState(true);
+  const [wsStatus, setWsStatus] = useState("connecting");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [busyTableId, setBusyTableId] = useState(null);
@@ -279,13 +280,32 @@ export default function PosPage() {
       .finally(() => setAuthChecked(true));
     checkApiHealth();
     const healthTimer = window.setInterval(checkApiHealth, 15000);
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const apiPort = process.env.NEXT_PUBLIC_API_PORT || "4000";
-    const socket = new WebSocket(`${wsProtocol}//${window.location.hostname}:${apiPort}/ws`);
-    socket.onmessage = (event) => {
+    setWsStatus("connecting");
+    let socket;
+    try {
+      const url = websocketUrl("/ws");
+      socket = new WebSocket(url);
+      socket.onopen = () => {
+        setWsStatus("connected");
+        console.info("[QYPOS] POS WebSocket connected");
+      };
+      socket.onerror = (error) => {
+        setWsStatus("error");
+        console.error("[QYPOS] POS WebSocket error", error);
+      };
+      socket.onclose = () => {
+        setWsStatus("disconnected");
+        console.warn("[QYPOS] POS WebSocket disconnected");
+      };
+    } catch (error) {
+      setWsStatus("error");
+      console.error("[QYPOS] POS WebSocket setup failed", error);
+    }
+    if (socket) socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.event === "online_order.received") {
+          console.info("[QYPOS] POS received online_order.received", msg.data?.id || "unknown");
           if (userRef.current?.permissions?.includes("print_receipt")) enqueueOnlineOrderAlert(msg.data);
           return;
         }
@@ -299,7 +319,7 @@ export default function PosPage() {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       window.clearInterval(healthTimer);
-      socket.close();
+      socket?.close();
     };
   }, []);
 
@@ -716,6 +736,9 @@ export default function PosPage() {
         </div>
         <div className="top-actions">
           <span className="user-chip"><UserRound size={16} />{user.name}</span>
+          <span className={`realtime-status ${wsStatus}`} title={text(locale, "网站订单实时连接状态", "Website order realtime connection status")}>
+            {text(locale, "实时", "Live")}: {wsStatus === "connected" ? text(locale, "已连接", "Connected") : wsStatus === "connecting" ? text(locale, "连接中", "Connecting") : wsStatus === "error" ? text(locale, "异常", "Error") : text(locale, "已断开", "Disconnected")}
+          </span>
           <a className="link-button" href="/admin">{copy.adminLink}</a>
           <button className={refreshing ? "is-refreshing" : ""} onClick={manualRefresh} disabled={busy || refreshing} title={copy.refresh}>
             <RefreshCw className={refreshing ? "spin" : ""} size={18} />

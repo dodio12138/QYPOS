@@ -48,7 +48,7 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, API_URL, labelOf } from "../../lib/api";
+import { api, labelOf, websocketUrl } from "../../lib/api";
 import qyposLogo from "../../pic/logo.png";
 import AdminLogin from "./_components/admin-login";
 import AdminGateModal from "./_components/admin-gate-modal";
@@ -77,8 +77,8 @@ const tabs = [
   ["settings", Settings, { "zh-CN": "设置", "en-GB": "Settings" }, ["manage_settings"]],
   ["users", Users, { "zh-CN": "账户", "en-GB": "Users" }, ["manage_users"]],
   ["ops", Wrench, { "zh-CN": "运维", "en-GB": "Ops" }, ["manage_ops"]],
-  ["delivery", CloudDownload, { "zh-CN": "外卖对账", "en-GB": "Delivery sales" }, ["manage_ops"]],
-  ["online-orders", ClipboardList, { "zh-CN": "在线收件箱", "en-GB": "Online inbox" }, ["manage_ops"]],
+  ["delivery", CloudDownload, { "zh-CN": "外卖", "en-GB": "Delivery" }, ["manage_ops"]],
+  ["online-orders", ClipboardList, { "zh-CN": "网站", "en-GB": "Website" }, ["manage_ops"]],
   ["layout", Armchair, { "zh-CN": "布局", "en-GB": "Layout" }, ["manage_tables"]]
 ];
 const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "delivery", "online-orders", "layout"]);
@@ -353,6 +353,7 @@ export default function AdminPage() {
   const [adminGateTarget, setAdminGateTarget] = useState(null);
   const [adminGrantTab, setAdminGrantTab] = useState(null);
   const [online, setOnline] = useState(true);
+  const [wsStatus, setWsStatus] = useState("connecting");
   const [user, setUser] = useState(null);
   const [settings, setSettings] = useState(null);
   const [menu, setMenu] = useState({ categories: [], items: [] });
@@ -561,10 +562,28 @@ export default function AdminPage() {
     verifyAuth().then((me) => {
       if (me) refresh(me).catch((err) => showNotice(err.message || t(locale, "数据加载失败", "Failed to load data")));
     }).catch(() => setUser(null));
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const apiPort = process.env.NEXT_PUBLIC_API_PORT || "4000";
-    const socket = new WebSocket(`${wsProtocol}//${window.location.hostname}:${apiPort}/ws`);
-    socket.onmessage = (event) => {
+    setWsStatus("connecting");
+    let socket;
+    try {
+      const url = websocketUrl("/ws");
+      socket = new WebSocket(url);
+      socket.onopen = () => {
+        setWsStatus("connected");
+        console.info("[QYPOS] Admin WebSocket connected");
+      };
+      socket.onerror = (error) => {
+        setWsStatus("error");
+        console.error("[QYPOS] Admin WebSocket error", error);
+      };
+      socket.onclose = () => {
+        setWsStatus("disconnected");
+        console.warn("[QYPOS] Admin WebSocket disconnected");
+      };
+    } catch (error) {
+      setWsStatus("error");
+      console.error("[QYPOS] Admin WebSocket setup failed", error);
+    }
+    if (socket) socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         const type = msg.event ?? "";
@@ -581,6 +600,7 @@ export default function AdminPage() {
           return;
         }
         if (type === "online_order.received") {
+          console.info("[QYPOS] Admin received online_order.received", msg.data?.id || "unknown");
           if (hasAnyPermission(user, ["print_receipt"])) enqueueOnlineOrderAlert(msg.data);
           return;
         }
@@ -593,7 +613,7 @@ export default function AdminPage() {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
-      socket.close();
+      socket?.close();
     };
   }, [user?.id]);
 
@@ -644,6 +664,9 @@ export default function AdminPage() {
           </div>
           <div className="top-actions">
             <span className="user-chip"><User size={16} />{user.name} · {roleLabel(user.role, locale)}</span>
+            <span className={`realtime-status ${wsStatus}`} title={t(locale, "网站订单实时连接状态", "Website order realtime connection status")}>
+              {t(locale, "实时", "Live")}: {wsStatus === "connected" ? t(locale, "已连接", "Connected") : wsStatus === "connecting" ? t(locale, "连接中", "Connecting") : wsStatus === "error" ? t(locale, "异常", "Error") : t(locale, "已断开", "Disconnected")}
+            </span>
             <a className="link-button" href="/">{locale === "en-GB" ? "POS" : "点餐前台"}</a>
             <button onClick={refresh} title={locale === "en-GB" ? "Refresh" : "刷新"}>
               <Save size={18} />
