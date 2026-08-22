@@ -63,6 +63,8 @@ import ReportsAnalytics from "./_components/reports-view";
 import StaffScheduleView from "./_components/schedule-view";
 import MenuAdmin, { MenuAvailabilityAdmin } from "./_components/menu-admin";
 import DeliverySalesView from "./_components/delivery-sales-view";
+import OnlineOrdersView from "./_components/online-orders-view";
+import OnlineOrderAlertModal from "./_components/online-order-alert-modal";
 
 const tabs = [
   ["orders", ClipboardList, { "zh-CN": "订单", "en-GB": "Orders" }, ["manage_orders"]],
@@ -76,9 +78,10 @@ const tabs = [
   ["users", Users, { "zh-CN": "账户", "en-GB": "Users" }, ["manage_users"]],
   ["ops", Wrench, { "zh-CN": "运维", "en-GB": "Ops" }, ["manage_ops"]],
   ["delivery", CloudDownload, { "zh-CN": "外卖对账", "en-GB": "Delivery sales" }, ["manage_ops"]],
+  ["online-orders", ClipboardList, { "zh-CN": "在线收件箱", "en-GB": "Online inbox" }, ["manage_ops"]],
   ["layout", Armchair, { "zh-CN": "布局", "en-GB": "Layout" }, ["manage_tables"]]
 ];
-const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "delivery", "layout"]);
+const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "delivery", "online-orders", "layout"]);
 
 const ROLE_LABELS = {
   owner: { "zh-CN": "管理员", "en-GB": "Owner" },
@@ -365,6 +368,7 @@ export default function AdminPage() {
   const [usersList, setUsersList] = useState([]);
   const [rolesList, setRolesList] = useState([]);
   const [notice, setNotice] = useState("");
+  const [onlineOrderAlerts, setOnlineOrderAlerts] = useState([]);
   const noticeTimerRef = useRef(null);
 
   const locale = settings?.locale || "zh-CN";
@@ -467,6 +471,33 @@ export default function AdminPage() {
     noticeTimerRef.current = window.setTimeout(() => setNotice(""), 3000);
   }
 
+  function enqueueOnlineOrderAlert(summary) {
+    if (!summary?.id) return;
+    const alertKey = String(summary.id);
+    setOnlineOrderAlerts((current) => current.some((item) => item.alertKey === alertKey)
+      ? current
+      : [...current, { ...summary, alertKey }]);
+    if (!summary.test) {
+      api(`/ops/online-orders/${encodeURIComponent(summary.id)}`)
+        .then((detail) => setOnlineOrderAlerts((current) => current.map((item) => item.alertKey === alertKey ? { ...item, ...detail, alertKey } : item)))
+        .catch(() => {});
+    }
+  }
+
+  function closeOnlineOrderAlert(message) {
+    setOnlineOrderAlerts((current) => current.slice(1));
+    if (message) showNotice(message);
+  }
+
+  async function testOnlineOrderAlert() {
+    try {
+      await api("/ops/online-orders/test-alert", { method: "POST" });
+      showNotice(t(locale, "测试弹窗已发送到当前后台窗口", "Test alert sent to the current admin window"));
+    } catch (error) {
+      showNotice(error.message || t(locale, "测试弹窗发送失败", "Failed to send test alert"));
+    }
+  }
+
   async function revokeAdminGrant() {
     const token = window.sessionStorage.getItem("qypos_admin_grant");
     if (token) {
@@ -531,6 +562,10 @@ export default function AdminPage() {
         }
         if (type === "table.status.updated") {
           Promise.all([api("/floor-layouts"), api("/orders")]).then(([l, o]) => { setLayout(l); setOrders(o); }).catch(() => {});
+          return;
+        }
+        if (type === "online_order.received") {
+          if (hasAnyPermission(user, ["manage_ops"])) enqueueOnlineOrderAlert(msg.data);
           return;
         }
       } catch {
@@ -630,9 +665,17 @@ export default function AdminPage() {
         {activeTab === "settings" && settings && <SettingsView settings={settings} setSettings={setSettings} locale={locale} onSaved={refresh} adminAuthorized={adminGrantTab === "settings"} />}
         {activeTab === "layout" && <LayoutView layout={layout} onSaved={refresh} />}
         {activeTab === "users" && <UsersView usersList={usersList} rolesList={rolesList} onSaved={async () => { await refresh(); await refreshUsers(); }} />}
-        {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} />}
+        {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} onTestOnlineOrderAlert={testOnlineOrderAlert} />}
         {activeTab === "delivery" && <DeliverySalesView locale={locale} currency={currency} onNotify={showNotice} />}
+        {activeTab === "online-orders" && <OnlineOrdersView locale={locale} currency={currency} onNotify={showNotice} />}
       </section>
+      <OnlineOrderAlertModal
+        order={onlineOrderAlerts[0]}
+        locale={locale}
+        currency={currency}
+        onDismiss={() => closeOnlineOrderAlert(t(locale, "已关闭在线订单提示", "Online-order alert dismissed"))}
+        onAccept={() => closeOnlineOrderAlert(t(locale, "已确认提示；M1 暂不创建正式订单", "Alert acknowledged; M1 does not create a POS order yet"))}
+      />
       {adminGateTarget && <AdminGateModal tab={adminGateTarget} locale={locale} tabs={tabs} onCancel={() => setAdminGateTarget(null)} onGranted={enterAdminTab} />}
     </main>
   );

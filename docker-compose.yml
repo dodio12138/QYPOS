@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Please set POSTGRES_PASSWORD in .env}
       TZ: ${TZ:-Europe/London}
     ports:
-      - "5433:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     # Log rotation prevents disk fill from long-running containers
     logging:
       driver: "json-file"
@@ -72,6 +72,8 @@ services:
       DOJO_API_VERSION: ${DOJO_API_VERSION:-2026-02-27}
       DOJO_SOFTWARE_HOUSE_ID: ${DOJO_SOFTWARE_HOUSE_ID:-}
       DOJO_RESELLER_ID: ${DOJO_RESELLER_ID:-}
+      ONLINE_ORDER_IMPORT_SECRET: ${ONLINE_ORDER_IMPORT_SECRET:-}
+      ONLINE_ORDER_SYNC_SECRET: ${ONLINE_ORDER_SYNC_SECRET:-}
     ports:
       - "4000:4000"
     logging:
@@ -109,6 +111,27 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  online-order-connector:
+    build:
+      context: .
+      dockerfile: apps/online-order-connector/Dockerfile
+    restart: unless-stopped
+    environment:
+      ONLINE_ORDER_BASE_URL: ${ONLINE_ORDER_BASE_URL:-}
+      ONLINE_ORDER_SYNC_SECRET: ${ONLINE_ORDER_SYNC_SECRET:-}
+      ONLINE_ORDER_IMPORT_SECRET: ${ONLINE_ORDER_IMPORT_SECRET:-}
+      ONLINE_ORDER_CONNECTOR_ID: ${ONLINE_ORDER_CONNECTOR_ID:-restaurant-pos-1}
+      ONLINE_ORDER_CURSOR: ${ONLINE_ORDER_CURSOR:-0}
+      ONLINE_ORDER_ALLOW_INSECURE: ${ONLINE_ORDER_ALLOW_INSECURE:-false}
+      ONLINE_ORDER_OPEN_TIME: ${ONLINE_ORDER_OPEN_TIME:-11:00}
+      ONLINE_ORDER_CLOSE_TIME: ${ONLINE_ORDER_CLOSE_TIME:-22:05}
+      ONLINE_ORDER_TIME_ZONE: ${ONLINE_ORDER_TIME_ZONE:-Europe/London}
+      ONLINE_ORDER_CLOSED_CHECK_MS: ${ONLINE_ORDER_CLOSED_CHECK_MS:-30000}
+      QYPOS_API_URL: ${QYPOS_API_URL:-http://api:4000}
+    depends_on:
+      api:
         condition: service_healthy
 
   web:
