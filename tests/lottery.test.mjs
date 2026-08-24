@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const { assertNoOverlappingLotteryCampaign, deleteLotteryCampaign, issueAdditionalLotteryTicket, lotteryClaimCodeRequired, selectLotteryOutcome, testLotteryCampaign } = await import("../apps/api/src/services/lottery.js");
+const { validatePrizes } = await import("../apps/api/src/routes/lottery.js");
 const { lotteryProbabilities, normalizedLotteryWeights } = await import("../apps/web/src/app/admin/_components/lottery-form-helpers.js");
 
 function prizes() {
@@ -39,6 +40,37 @@ test("lottery test selection uses the same weighted server-side outcome", () => 
   assert.equal(winning.winning_segment_index, 0);
   assert.equal(noPrize.prize.id, "thanks");
   assert.equal(noPrize.winning_segment_index, 1);
+});
+
+test("published campaigns do not require a no-prize entry", () => {
+  const prizeOnly = [
+    { id: "drink", kind: "prize", weight_bps: 2500, stock_total: 20, stock_awarded: 0, enabled: true },
+    { id: "discount", kind: "prize", weight_bps: 7500, stock_total: null, stock_awarded: 0, enabled: true }
+  ];
+
+  assert.doesNotThrow(() => validatePrizes(prizeOnly, { publish: true }));
+  const outcome = selectLotteryOutcome(prizeOnly, () => 8000);
+  assert.equal(outcome.prize.id, "discount");
+});
+
+test("an exhausted prize-only slice resolves to another available prize", () => {
+  const prizeOnly = [
+    { id: "drink", kind: "prize", weight_bps: 5000, stock_total: 1, stock_awarded: 1, name_i18n: {}, background_color: "#f97316", text_color: "#fff" },
+    { id: "discount", kind: "prize", weight_bps: 5000, stock_total: null, stock_awarded: 0, name_i18n: {}, background_color: "#2563eb", text_color: "#fff" }
+  ];
+
+  const outcome = selectLotteryOutcome(prizeOnly, () => 100);
+  assert.equal(outcome.prize.id, "discount");
+  assert.equal(outcome.wheel.segments[0].effective_prize_id, "discount");
+});
+
+test("a campaign with all finite prize stock exhausted cannot draw", () => {
+  const exhausted = [
+    { id: "drink", kind: "prize", weight_bps: 5000, stock_total: 1, stock_awarded: 1 },
+    { id: "dessert", kind: "prize", weight_bps: 5000, stock_total: 2, stock_awarded: 2 }
+  ];
+
+  assert.throws(() => selectLotteryOutcome(exhausted, () => 100), /no remaining prize stock/);
 });
 
 test("only next-use prizes generate redemption codes", () => {

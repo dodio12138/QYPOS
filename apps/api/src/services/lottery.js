@@ -212,8 +212,10 @@ export function makeWheelSnapshot(prizes, fallbackId) {
 }
 
 export function selectLotteryOutcome(prizes, randomInt = crypto.randomInt) {
-  const fallback = prizes.find((prize) => prize.kind === "no_prize" && prize.stock_total == null);
-  if (!fallback || prizes.length < 2) throw Object.assign(new Error("Lottery campaign is not publishable"), { statusCode: 409 });
+  if (prizes.length < 2) throw Object.assign(new Error("Lottery campaign is not publishable"), { statusCode: 409 });
+  const available = prizes.filter((prize) => prize.stock_total == null || Number(prize.stock_awarded) < Number(prize.stock_total));
+  const fallback = available.find((prize) => prize.kind === "no_prize" && prize.stock_total == null) || available[0];
+  if (!fallback) throw Object.assign(new Error("Lottery campaign has no remaining prize stock"), { statusCode: 409 });
   const wheel = makeWheelSnapshot(prizes, fallback.id);
   if (wheel.total_weight_bps !== 10000) throw Object.assign(new Error("Lottery probability total must equal 10000"), { statusCode: 409 });
   const bucket = randomInt(0, wheel.total_weight_bps);
@@ -313,14 +315,14 @@ export async function drawLottery({ pool, ticketId, idempotencyKey, now = new Da
     )).rows;
     const outcome = selectLotteryOutcome(prizes);
     const wheel = outcome.wheel;
-    const fallback = outcome.fallback;
     let prize = outcome.prize;
     if (prize.stock_total != null) {
       const updated = await client.query(
         "UPDATE lottery_prizes SET stock_awarded = stock_awarded + 1, updated_at = now() WHERE id = $1 AND stock_awarded < stock_total RETURNING *",
         [prize.id]
       );
-      if (!updated.rows[0]) prize = fallback;
+      if (!updated.rows[0]) throw Object.assign(new Error("Lottery campaign has no remaining prize stock"), { statusCode: 409 });
+      prize = updated.rows[0];
     }
     const fulfillmentType = prize.kind === "prize" ? prize.fulfillment_type || "voucher" : null;
     const claimCode = lotteryClaimCodeRequired(prize) ? code(8) : null;

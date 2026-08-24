@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: remove the requirement for every published lottery campaign to contain an unlimited no-prize fallback; new campaigns now start with prize-only entries, no-prize remains optional, and exhausted finite-stock slices safely resolve to another available prize
 - fix: enforce a single running lottery campaign across overlapping schedules when publishing or resuming using a transactional lock and database exclusion constraint; flag schedule conflicts in Admin and disable conflicting publish/resume actions
 - feat: allow staff to issue multiple numbered lottery entries for the same eligible paid order by reopening it and using the POS Lottery screen button; keep every draw linked to that order, make the wheel note optional/editable, and highlight the currently running campaign in Admin
 - feat: distinguish instant lottery prizes from next-use voucher prizes; instant prizes are handed out on site without a redemption code, while voucher prizes generate a claim code and retain the confirmed redemption workflow

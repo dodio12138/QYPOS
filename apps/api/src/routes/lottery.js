@@ -45,13 +45,11 @@ function normalizePrizes(prizes) {
   });
 }
 
-function validatePrizes(prizes, { publish = false } = {}) {
+export function validatePrizes(prizes, { publish = false } = {}) {
   if (prizes.length < 2 || prizes.length > 12) throw fail("Lottery needs between 2 and 12 prizes");
   const enabled = prizes.filter((prize) => prize.enabled);
   if (enabled.some((prize) => !Number.isInteger(prize.weight_bps) || prize.weight_bps <= 0)) throw fail("Enabled prize weights must be positive integers");
   if (publish && enabled.reduce((sum, prize) => sum + prize.weight_bps, 0) !== 10000) throw fail("Prize weights must total 10000 basis points");
-  const fallbacks = enabled.filter((prize) => prize.kind === "no_prize" && prize.stock_total == null);
-  if (publish && fallbacks.length !== 1) throw fail("A published campaign needs exactly one unlimited no-prize fallback");
   if (enabled.some((prize) => prize.stock_total != null && (!Number.isInteger(prize.stock_total) || prize.stock_total < 0))) throw fail("Prize stock must be a non-negative integer");
   if (enabled.some((prize) => prize.stock_total != null && prize.stock_total < Number(prize.stock_awarded || 0))) throw fail("Prize stock cannot be lower than stock already awarded");
 }

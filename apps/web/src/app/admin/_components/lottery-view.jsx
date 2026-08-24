@@ -47,9 +47,8 @@ function initialForm() {
     ticket_valid_minutes: 1440,
     claim_valid_minutes: 1440,
     prizes: [
-      { kind: "prize", fulfillment_type: "instant", name_i18n: { "zh-CN": "免费饮料", "en-GB": "Free drink" }, weight_value: 5, stock_total: 20, background_color: "#f97316", text_color: "#fff" },
-      { kind: "prize", fulfillment_type: "voucher", name_i18n: { "zh-CN": "下次九折", "en-GB": "10% off next time" }, weight_value: 15, stock_total: null, background_color: "#2563eb", text_color: "#fff" },
-      { kind: "no_prize", fulfillment_type: null, name_i18n: { "zh-CN": "谢谢参与", "en-GB": "Thank you" }, weight_value: 80, stock_total: null, background_color: "#64748b", text_color: "#fff" }
+      { kind: "prize", fulfillment_type: "instant", name_i18n: { "zh-CN": "免费饮料", "en-GB": "Free drink" }, weight_value: 25, stock_total: 20, background_color: "#f97316", text_color: "#fff" },
+      { kind: "prize", fulfillment_type: "voucher", name_i18n: { "zh-CN": "下次九折", "en-GB": "10% off next time" }, weight_value: 75, stock_total: null, background_color: "#2563eb", text_color: "#fff" }
     ]
   };
 }
@@ -258,7 +257,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
             <label>{t(locale, "转盘下方提示（英文，可留空）", "Wheel note (English, optional)")}<input value={form.subtitle_i18n["en-GB"] || ""} onChange={(e) => updateI18n("subtitle_i18n", "en-GB", e.target.value)} /></label>
           </div>
           <div className="lottery-prize-editor">
-            <div className="panel-title"><Gift size={18} /><h3>{t(locale, "奖项与概率", "Prizes & probabilities")}</h3><span>{t(locale, "自动归一 100%", "Normalized to 100%")}</span></div>
+            <div className="panel-title"><Gift size={18} /><h3>{t(locale, "奖项与概率", "Prizes & probabilities")}</h3><span>{t(locale, "自动归一 100% · 谢谢参与可选", "Normalized to 100% · No-prize optional")}</span></div>
             {form.prizes.map((prize, index) => <div className="lottery-prize-row" key={prize.id || index}>
               <select value={prize.kind} onChange={(e) => updatePrize(index, { kind: e.target.value, fulfillment_type: e.target.value === "no_prize" ? null : prize.fulfillment_type || "instant" })}><option value="prize">{t(locale, "奖品", "Prize")}</option><option value="no_prize">{t(locale, "谢谢参与", "No prize")}</option></select>
               <select value={prize.fulfillment_type || ""} disabled={prize.kind === "no_prize"} onChange={(e) => updatePrize(index, { fulfillment_type: e.target.value })} aria-label={t(locale, "发放方式", "Fulfilment type")}>
