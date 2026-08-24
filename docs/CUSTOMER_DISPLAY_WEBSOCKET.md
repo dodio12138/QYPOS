@@ -26,7 +26,7 @@ Customer WebSocket: ws://192.168.1.20:4000/ws/customer-display
 Recommended `.env` values:
 
 ```dotenv
-NEXT_PUBLIC_WS_URL=
+# Keep the existing NEXT_PUBLIC_WS_URL; do not change it for the customer display
 NEXT_PUBLIC_CUSTOMER_DISPLAY_WS_URL=
 NEXT_PUBLIC_CUSTOMER_DISPLAY_WS_PORT=4000
 ```
