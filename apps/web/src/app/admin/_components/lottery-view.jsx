@@ -1,6 +1,6 @@
 "use client";
 
-import { Gift, Pause, Pencil, Play, Plus, Save, Settings, Sparkles, Trash2, Trophy, X } from "lucide-react";
+import { Ban, ChevronLeft, ChevronRight, Gift, Pause, Pencil, Play, Plus, Save, Settings, Sparkles, Trash2, Trophy, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, labelOf } from "../../../lib/api";
 import { formatLotteryProbability, lotteryProbabilities, normalizedLotteryWeights } from "./lottery-form-helpers";
@@ -96,14 +96,19 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
   const [editingCampaignId, setEditingCampaignId] = useState(null);
+  const [campaignFormOpen, setCampaignFormOpen] = useState(false);
   const [testCampaignId, setTestCampaignId] = useState("");
   const [testing, setTesting] = useState(false);
-  const [confirmRedeemId, setConfirmRedeemId] = useState(null);
+  const [confirmDrawAction, setConfirmDrawAction] = useState(null);
+  const [drawPage, setDrawPage] = useState(1);
   const campaignFormRef = useRef(null);
   const canManage = Boolean(user?.permissions?.includes("manage_lottery"));
   const canRedeem = Boolean(user?.permissions?.includes("redeem_lottery"));
   const canSettings = Boolean(user?.permissions?.includes("manage_settings"));
   const probabilities = useMemo(() => lotteryProbabilities(form.prizes), [form.prizes]);
+  const drawPageSize = 10;
+  const drawPageCount = Math.max(1, Math.ceil(draws.length / drawPageSize));
+  const visibleDraws = draws.slice((drawPage - 1) * drawPageSize, drawPage * drawPageSize);
 
   const load = useCallback(async () => {
     const requests = [];
@@ -116,6 +121,9 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
   useEffect(() => {
     if (!testCampaignId && campaigns[0]?.id) setTestCampaignId(campaigns[0].id);
   }, [campaigns, testCampaignId]);
+  useEffect(() => {
+    setDrawPage((page) => Math.min(page, drawPageCount));
+  }, [drawPageCount]);
 
   function updatePrize(index, patch) {
     setForm((current) => ({ ...current, prizes: current.prizes.map((prize, i) => i === index ? { ...prize, ...patch } : prize) }));
@@ -142,6 +150,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       });
       setForm(initialForm());
       setEditingCampaignId(null);
+      setCampaignFormOpen(false);
       await load();
       onNotify?.(editingCampaignId
         ? t(locale, "抽奖活动已更新。", "Lottery campaign updated.")
@@ -154,12 +163,20 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       const campaign = await api(`/lottery/campaigns/${id}`);
       setForm(formFromCampaign(campaign));
       setEditingCampaignId(id);
+      setCampaignFormOpen(true);
       window.requestAnimationFrame(() => campaignFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (error) { onNotify?.(error.message); }
   }
   function cancelEdit() {
     setEditingCampaignId(null);
     setForm(initialForm());
+    setCampaignFormOpen(false);
+  }
+  function startNewCampaign() {
+    setEditingCampaignId(null);
+    setForm(initialForm());
+    setCampaignFormOpen(true);
+    window.requestAnimationFrame(() => campaignFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
   async function campaignAction(id, action) {
     try { await api(`/lottery/campaigns/${id}/${action}`, { method: "POST" }); await load(); onNotify?.(t(locale, "活动状态已更新。", "Campaign status updated.")); }
@@ -230,15 +247,23 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
   async function redeemDraw(draw) {
     try {
       await api(`/lottery/draws/${draw.id}/redeem`, { method: "POST" });
-      setConfirmRedeemId(null);
+      setConfirmDrawAction(null);
       await load();
       onNotify?.(t(locale, "已标记兑奖。", "Prize redeemed."));
+    } catch (error) { onNotify?.(error.message); }
+  }
+  async function voidDraw(draw) {
+    try {
+      await api(`/lottery/draws/${draw.id}/void`, { method: "POST" });
+      setConfirmDrawAction(null);
+      await load();
+      onNotify?.(t(locale, "中奖记录已作废。", "Lottery record voided."));
     } catch (error) { onNotify?.(error.message); }
   }
 
   return (
     <div className="admin-content-grid lottery-admin-view">
-      {canManage && <section className="panel" ref={campaignFormRef}>
+      {canManage && (campaignFormOpen || editingCampaignId) && <section className="panel" ref={campaignFormRef}>
         <div className="panel-title split">
           <div className="inline-title"><Sparkles size={18} /><h2>{editingCampaignId ? t(locale, "编辑抽奖活动", "Edit lottery campaign") : t(locale, "新建抽奖活动", "New lottery campaign")}</h2></div>
           {editingCampaignId ? <button type="button" className="lottery-cancel-edit" onClick={cancelEdit}><X size={15} />{t(locale, "取消编辑", "Cancel edit")}</button> : null}
@@ -281,7 +306,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       </section>}
 
       {canManage && <section className="panel">
-        <div className="panel-title"><Trophy size={18} /><h2>{t(locale, "活动列表", "Campaigns")}</h2></div>
+        <div className="panel-title split"><div className="inline-title"><Trophy size={18} /><h2>{t(locale, "活动列表", "Campaigns")}</h2></div><button type="button" className="lottery-new-campaign primary" onClick={startNewCampaign}><Plus size={15} />{t(locale, "新建活动", "New campaign")}</button></div>
         <div className="lottery-campaign-list">
           {campaigns.map((campaign) => {
             const status = campaignStatus(campaign, locale);
@@ -358,22 +383,33 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       {canManage && <section className="panel">
         <div className="panel-title"><Gift size={18} /><h2>{t(locale, "抽奖记录", "Draw history")}</h2></div>
         <div className="lottery-draw-list">
-          {draws.slice(0, 30).map((draw) => {
+          {visibleDraws.map((draw) => {
             const prizeName = labelOf(draw.prize_snapshot?.name_i18n, locale) || labelOf(draw.prize_name_i18n, locale);
             const noPrize = (draw.prize_snapshot?.kind || draw.prize_kind) === "no_prize";
             const instantPrize = !noPrize && draw.prize_snapshot?.fulfillment_type === "instant";
+            const voided = Boolean(draw.voided_at);
+            const action = confirmDrawAction?.id === draw.id ? confirmDrawAction.action : null;
             return <div className="lottery-draw-row" key={draw.id}>
               <button type="button" className="lottery-order-link" onClick={() => onOpenOrder?.(draw.source_order_id)} title={t(locale, "打开原订单", "Open original order")}>
                 {t(locale, "订单", "Order")} {draw.source_order_no}
               </button>
               <div className="lottery-draw-result"><strong>{prizeName}</strong><span>{labelOf(draw.campaign_title_i18n, locale)} · {draw.access_code_suffix}</span></div>
-              <span>{noPrize ? t(locale, "未中奖", "No prize") : instantPrize ? t(locale, "现场发放", "Give now") : draw.redeemed_at ? t(locale, "已兑奖", "Redeemed") : t(locale, "中奖 · 待兑奖", "Won · Pending")}</span>
-              {canRedeem && !noPrize && !instantPrize && !draw.redeemed_at ? confirmRedeemId === draw.id ? <div className="lottery-redeem-confirmation">
-                <button className="lottery-redeem-confirm" onClick={() => redeemDraw(draw)}><Sparkles size={14} />{t(locale, "确认兑奖", "Confirm redeem")}</button>
-                <button onClick={() => setConfirmRedeemId(null)}>{t(locale, "取消", "Cancel")}</button>
-              </div> : <button onClick={() => setConfirmRedeemId(draw.id)}><Sparkles size={14} />{t(locale, "兑奖", "Redeem")}</button> : null}
+              <span>{noPrize ? t(locale, "未中奖", "No prize") : instantPrize ? t(locale, "现场发放", "Give now") : voided ? t(locale, "已作废", "Voided") : draw.redeemed_at ? t(locale, "已兑奖", "Redeemed") : t(locale, "中奖 · 待兑奖", "Won · Pending")}</span>
+              {canRedeem && !noPrize && !instantPrize && !draw.redeemed_at && !voided ? action ? <div className="lottery-redeem-confirmation">
+                <span className="lottery-action-confirm-label">{action === "void" ? t(locale, "确认作废？", "Confirm void?") : t(locale, "确认兑奖？", "Confirm redeem?")}</span>
+                <button className={action === "void" ? "lottery-record-action void" : "lottery-record-action primary"} onClick={() => action === "void" ? voidDraw(draw) : redeemDraw(draw)}>{action === "void" ? <Ban size={14} /> : <Sparkles size={14} />}{action === "void" ? t(locale, "确认作废", "Confirm void") : t(locale, "确认兑奖", "Confirm redeem")}</button>
+                <button className="lottery-record-action" onClick={() => setConfirmDrawAction(null)}>{t(locale, "取消", "Cancel")}</button>
+              </div> : <div className="lottery-record-actions">
+                <button className="lottery-record-action primary" onClick={() => setConfirmDrawAction({ id: draw.id, action: "redeem" })}><Sparkles size={14} />{t(locale, "兑奖", "Redeem")}</button>
+                <button className="lottery-record-action void" onClick={() => setConfirmDrawAction({ id: draw.id, action: "void" })}><Ban size={14} />{t(locale, "作废", "Void")}</button>
+              </div> : null}
             </div>;
           })}
+        </div>
+        <div className="lottery-pagination" aria-label={t(locale, "抽奖记录分页", "Lottery history pagination")}>
+          <button className="lottery-record-action" type="button" disabled={drawPage <= 1} onClick={() => setDrawPage((page) => Math.max(1, page - 1))}><ChevronLeft size={15} />{t(locale, "上一页", "Previous")}</button>
+          <span>{t(locale, `第 ${drawPage} / ${drawPageCount} 页`, `Page ${drawPage} / ${drawPageCount}`)} · {draws.length}</span>
+          <button className="lottery-record-action" type="button" disabled={drawPage >= drawPageCount} onClick={() => setDrawPage((page) => Math.min(drawPageCount, page + 1))}>{t(locale, "下一页", "Next")}<ChevronRight size={15} /></button>
         </div>
       </section>}
     </div>

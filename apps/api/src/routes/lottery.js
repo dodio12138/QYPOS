@@ -357,7 +357,8 @@ export default function register({ app, pool, redis, query, one, requirePermissi
   app.get("/lottery/draws", async (request, reply) => {
     if (!await requirePermission(request, reply, "manage_lottery")) return;
     return query(
-      `SELECT d.id, d.campaign_id, d.prize_id, d.claim_code_suffix, d.claim_expires_at, d.redeemed_at, d.created_at,
+      `SELECT d.id, d.campaign_id, d.prize_id, d.claim_code_suffix, d.claim_expires_at,
+              d.redeemed_at, d.voided_at, d.created_at,
               d.prize_snapshot, t.access_code_suffix, t.source_order_id,
               p.kind AS prize_kind, p.name_i18n AS prize_name_i18n,
               c.title_i18n AS campaign_title_i18n,
@@ -381,10 +382,34 @@ export default function register({ app, pool, redis, query, one, requirePermissi
       reply.code(409);
       return { error: "This prize does not require redemption" };
     }
+    if (draw.voided_at) return { ...draw, already_voided: true };
     if (draw.redeemed_at) return { ...draw, already_redeemed: true };
     if (draw.claim_expires_at && new Date(draw.claim_expires_at) <= new Date()) { reply.code(409); return { error: "Prize claim has expired" }; }
     const updated = await one("UPDATE lottery_draws SET redeemed_at = now(), redeemed_by = $2 WHERE id = $1 AND redeemed_at IS NULL RETURNING *", [draw.id, actor?.id ?? null]);
     await auditLog(request, "lottery.prize.redeem", "lottery_draw", draw.id, { redeemed_by: actor?.id ?? null });
+    return updated ?? draw;
+  });
+
+  app.post("/lottery/draws/:id/void", async (request, reply) => {
+    if (!await requirePermission(request, reply, "redeem_lottery")) return;
+    const actor = await userFromToken(request);
+    const draw = await one("SELECT * FROM lottery_draws WHERE id = $1", [request.params.id]);
+    if (!draw) { reply.code(404); return { error: "Draw not found" }; }
+    const prize = jsonObject(draw.prize_snapshot);
+    if (prize.kind === "no_prize" || prize.fulfillment_type === "instant") {
+      reply.code(409);
+      return { error: "This prize does not require redemption" };
+    }
+    if (draw.voided_at) return { ...draw, already_voided: true };
+    if (draw.redeemed_at) {
+      reply.code(409);
+      return { error: "A redeemed prize cannot be voided" };
+    }
+    const updated = await one(
+      "UPDATE lottery_draws SET voided_at = now(), voided_by = $2 WHERE id = $1 AND redeemed_at IS NULL AND voided_at IS NULL RETURNING *",
+      [draw.id, actor?.id ?? null]
+    );
+    await auditLog(request, "lottery.prize.void", "lottery_draw", draw.id, { voided_by: actor?.id ?? null });
     return updated ?? draw;
   });
 }

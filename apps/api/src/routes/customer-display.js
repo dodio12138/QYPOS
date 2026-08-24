@@ -211,7 +211,7 @@ export default function register({
       `SELECT t.id AS ticket_id, t.source_order_id, t.order_group_id, t.issuance_index, t.status AS ticket_status,
               t.issued_at, t.expires_at,
               d.id AS draw_id, d.prize_snapshot, d.claim_code_suffix, d.claim_expires_at,
-              d.redeemed_at, d.created_at AS drawn_at,
+              d.redeemed_at, d.voided_at, d.created_at AS drawn_at,
               c.title_i18n AS campaign_title_i18n
        FROM lottery_tickets t
        JOIN lottery_campaigns c ON c.id = t.campaign_id

@@ -123,7 +123,7 @@ app.get("/orders/:id", async (request) => {
     query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [order.id]),
     query(
       `SELECT d.id, d.ticket_id, d.prize_id, d.prize_snapshot, d.claim_code_suffix,
-              d.claim_expires_at, d.redeemed_at, d.created_at AS drawn_at,
+              d.claim_expires_at, d.redeemed_at, d.voided_at, d.created_at AS drawn_at,
               t.source_order_id, t.order_group_id,
               c.title_i18n AS campaign_title_i18n,
               source_order.order_no AS source_order_no

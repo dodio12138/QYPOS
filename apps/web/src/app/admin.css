@@ -4995,6 +4995,7 @@ button.action-copy:disabled {
 }
 .lottery-prize-editor > button:hover { border-color: var(--accent); color: var(--accent-strong); }
 .lottery-campaign-list, .lottery-draw-list { display: grid; gap: 8px; }
+.lottery-new-campaign { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 12px; }
 .lottery-test-panel { display: grid; gap: 12px; }
 .lottery-test-controls {
   display: grid;
@@ -5063,8 +5064,16 @@ button.action-copy:disabled {
 .lottery-draw-result strong { color: var(--ink); }
 .lottery-draw-result span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lottery-draw-row button { display: inline-flex; align-items: center; gap: 5px; }
-.lottery-redeem-confirmation { display: inline-flex; align-items: center; gap: 6px; }
-.lottery-redeem-confirm { border-color: #86efac; background: #f0fdf4; color: #15803d; font-weight: 700; }
+.lottery-record-actions, .lottery-redeem-confirmation { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.lottery-record-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--ink); font-size: 12px; font-weight: 750; }
+.lottery-record-action:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); }
+.lottery-record-action.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.lottery-record-action.primary:hover:not(:disabled) { border-color: var(--accent-strong); background: var(--accent-strong); color: #fff; }
+.lottery-record-action.void { border-color: #f5c58b; background: #fff8ed; color: #9a4d00; }
+.lottery-record-action.void:hover:not(:disabled) { border-color: #e8a34f; background: #fff1d6; color: #7c3d00; }
+.lottery-record-action:disabled { cursor: not-allowed; opacity: 0.45; }
+.lottery-action-confirm-label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.lottery-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .lottery-order-link {
   flex: 0 0 auto;
   min-height: 34px;
