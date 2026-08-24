@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import {
   buildCustomerBill,
+  customerDisplayInvitationMatches,
   customerDisplayMatchesOrder,
   defaultCustomerDisplayState,
   displaySettings,
@@ -9,7 +10,7 @@ import {
   resetCustomerDisplay,
   shouldRefreshCustomerDisplayOrder
 } from "../services/customer-display.js";
-import { drawLottery, getLotteryCampaignSnapshot, testLotteryCampaign } from "../services/lottery.js";
+import { drawLottery, getLotteryCampaignSnapshot, issueAdditionalLotteryTicket, testLotteryCampaign } from "../services/lottery.js";
 
 function httpError(message, statusCode = 400) {
   const error = new Error(message);
@@ -37,7 +38,9 @@ export default function register({
 
   async function currentState() {
     const { idle } = await settingsAndDisplay();
-    return getCustomerDisplayState(redis, idle);
+    const state = await getCustomerDisplayState(redis, idle);
+    if (state.mode !== "idle") return state;
+    return { ...defaultCustomerDisplayState(idle), revision: state.revision };
   }
 
   async function publishIdle() {
@@ -65,11 +68,32 @@ export default function register({
     });
   }
 
-  async function publishLotteryReady(orderId) {
-    const state = await currentState();
-    const ticketId = state.payload?.ticket_id;
-    if (!ticketId || state.payload?.order_id !== orderId) throw httpError("No eligible lottery ticket is ready for this order", 409);
-    const campaign = await getLotteryCampaignSnapshot(pool, state.payload.campaign_id).catch(() => null);
+  async function issueReadyForOrder(orderId) {
+    const ticket = (await query(
+      `SELECT t.id, t.campaign_id, t.expires_at, t.issuance_index
+       FROM lottery_tickets t
+       WHERE t.source_order_id = $1 AND t.status = 'issued' AND t.expires_at > now()
+       ORDER BY t.issued_at DESC LIMIT 1`,
+      [orderId]
+    ))[0];
+    return ticket;
+  }
+
+  async function ensureReadyForOrder(orderId) {
+    const existing = await issueReadyForOrder(orderId);
+    if (existing) return { ticket: existing, additional: false };
+    const order = await one("SELECT * FROM orders WHERE id = $1", [orderId]);
+    if (!order) throw httpError("Order not found", 404);
+    const issued = await issueAdditionalLotteryTicket({ pool, order });
+    if (!issued.eligible || !issued.ticket_id) throw httpError("Order is not eligible for another lottery entry", 409);
+    return {
+      ticket: { id: issued.ticket_id, campaign_id: issued.campaign_id, expires_at: issued.expires_at, issuance_index: issued.issuance_index },
+      additional: true
+    };
+  }
+
+  async function publishLotteryReady({ orderId, ticket }) {
+    const campaign = await getLotteryCampaignSnapshot(pool, ticket.campaign_id);
     if (!campaign) throw httpError("Lottery campaign not found", 409);
     const actionToken = crypto.randomBytes(18).toString("hex");
     const settings = displaySettings(await getSettings());
@@ -79,7 +103,7 @@ export default function register({
       mode: "lottery_ready",
       payload: {
         order_id: orderId,
-        ticket_id: ticketId,
+        ticket_id: ticket.id,
         campaign,
         action_token: actionToken,
         interaction_mode: settings.interaction_mode
@@ -88,15 +112,24 @@ export default function register({
     });
   }
 
-  async function issueReadyForOrder(orderId) {
-    const ticket = (await query(
-      `SELECT t.id, t.campaign_id, t.expires_at
-       FROM lottery_tickets t
-       WHERE t.source_order_id = $1 AND t.status = 'issued' AND t.expires_at > now()
-       ORDER BY t.issued_at DESC LIMIT 1`,
-      [orderId]
-    ))[0];
-    return ticket;
+  async function publishLotteryInvitation(orderId) {
+    const ticket = await issueReadyForOrder(orderId);
+    if (!ticket) throw httpError("No eligible lottery ticket is ready for this order", 409);
+    const settings = displaySettings(await getSettings());
+    if (!settings.lottery_invitation_enabled) throw httpError("Lottery invitation is disabled", 409);
+    return publishCustomerDisplayState({
+      redis,
+      broadcast: emitCustomerDisplay,
+      mode: "lottery_invitation",
+      payload: {
+        order_id: orderId,
+        ticket_id: ticket.id,
+        campaign_id: ticket.campaign_id,
+        invitation_token: crypto.randomBytes(18).toString("hex"),
+        invitation_i18n: settings.lottery_invitation_i18n
+      },
+      durationSeconds: 0
+    });
   }
 
   async function executeDraw({ ticketId, actionToken, revision, idempotencyKey, request }) {
@@ -175,7 +208,7 @@ export default function register({
     }
     const orderGroupId = order.parent_order_id || order.id;
     const lottery = await one(
-      `SELECT t.id AS ticket_id, t.source_order_id, t.order_group_id, t.status AS ticket_status,
+      `SELECT t.id AS ticket_id, t.source_order_id, t.order_group_id, t.issuance_index, t.status AS ticket_status,
               t.issued_at, t.expires_at,
               d.id AS draw_id, d.prize_snapshot, d.claim_code_suffix, d.claim_expires_at,
               d.redeemed_at, d.created_at AS drawn_at,
@@ -227,21 +260,43 @@ export default function register({
     if (!await requirePermission(request, reply, "control_customer_display")) return;
     try {
       const orderId = request.body?.order_id;
-      const ticket = await issueReadyForOrder(orderId);
-      if (!ticket) throw httpError("No eligible lottery ticket is ready for this order", 409);
+      const ready = await ensureReadyForOrder(orderId);
+      const ticket = ready.ticket;
       const billState = await publishOrder(orderId);
-      const campaign = await getLotteryCampaignSnapshot(pool, ticket.campaign_id);
-      const actionToken = crypto.randomBytes(18).toString("hex");
-      const settings = displaySettings(await getSettings());
-      const state = await publishCustomerDisplayState({
-        redis,
-        broadcast: emitCustomerDisplay,
-        mode: "lottery_ready",
-        payload: { order_id: orderId, ticket_id: ticket.id, campaign, action_token: actionToken, interaction_mode: settings.interaction_mode },
-        durationSeconds: 0
-      });
-      await auditLog(request, "customer_display.show_lottery", "lottery_ticket", ticket.id, { order_id: orderId, previous_revision: billState.revision });
+      const state = await publishLotteryReady({ orderId, ticket });
+      await auditLog(request, "customer_display.show_lottery", "lottery_ticket", ticket.id, { order_id: orderId, previous_revision: billState.revision, additional_entry: ready.additional, issuance_index: ticket.issuance_index || null });
       return state;
+    } catch (error) {
+      reply.code(error.statusCode || 400);
+      return { error: error.message };
+    }
+  });
+
+  app.post("/customer-display/show-lottery-invitation", async (request, reply) => {
+    if (!await requirePermission(request, reply, "control_customer_display")) return;
+    try {
+      const orderId = request.body?.order_id;
+      const state = await publishLotteryInvitation(orderId);
+      await auditLog(request, "customer_display.show_lottery_invitation", "lottery_ticket", state.payload.ticket_id, { order_id: orderId });
+      return state;
+    } catch (error) {
+      reply.code(error.statusCode || 400);
+      return { error: error.message };
+    }
+  });
+
+  app.post("/customer-display/lottery-invitation/respond", async (request, reply) => {
+    try {
+      const state = await currentState();
+      if (!customerDisplayInvitationMatches(state, {
+        revision: request.body?.revision,
+        token: request.body?.invitation_token
+      })) throw httpError("The lottery invitation is no longer active", 409);
+
+      if (request.body?.accepted !== true) return publishIdle();
+      const ticket = await issueReadyForOrder(state.payload?.order_id);
+      if (!ticket || ticket.id !== state.payload?.ticket_id) throw httpError("Lottery ticket is no longer available", 409);
+      return publishLotteryReady({ orderId: state.payload.order_id, ticket });
     } catch (error) {
       reply.code(error.statusCode || 400);
       return { error: error.message };

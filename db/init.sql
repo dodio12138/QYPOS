@@ -40,6 +40,8 @@ CREATE TABLE settings (
   customer_display_payment_success_seconds INTEGER NOT NULL DEFAULT 5,
   customer_display_lottery_result_seconds INTEGER NOT NULL DEFAULT 20,
   customer_display_idle_content JSONB NOT NULL DEFAULT '{}',
+  customer_display_lottery_invitation_enabled BOOLEAN NOT NULL DEFAULT true,
+  customer_display_lottery_invitation_i18n JSONB NOT NULL DEFAULT '{"zh-CN":"留下 Google 评论即可参加幸运大转盘抽奖","en-GB":"Leave us a Google review to join the Lucky Wheel draw"}',
   last_backup_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

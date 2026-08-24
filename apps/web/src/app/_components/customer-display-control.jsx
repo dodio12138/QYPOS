@@ -76,6 +76,7 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
   const prizeNameEn = labelOf(prize?.name_i18n, "en-GB");
   const prizeName = prizeNameEn && prizeNameEn !== prizeNameZh ? `${prizeNameZh} / ${prizeNameEn}` : prizeNameZh || prizeNameEn;
   const won = Boolean(draw && prize?.kind !== "no_prize");
+  const instantPrize = won && prize?.fulfillment_type === "instant";
   const lotteryReady = lottery?.ticket_status === "issued" && !draw;
   return (
     <section className="customer-display-control" aria-label={text(locale, "顾客屏控制", "Customer display controls")}>
@@ -89,7 +90,7 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
         <button type="button" onClick={() => call("bill", "/customer-display/show-order", { order_id: order?.id })} disabled={disabled}>
           <ReceiptText size={15} />{busy === "bill" ? "…" : text(locale, "显示账单", "Show bill")}
         </button>
-        <button type="button" onClick={() => call("lottery", "/customer-display/show-lottery", { order_id: order?.id })} disabled={disabled || order?.status !== "paid" || !lotteryReady}>
+        <button type="button" onClick={() => call("lottery", "/customer-display/show-lottery", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"}>
           <Sparkles size={15} />{busy === "lottery" ? "…" : text(locale, "抽奖节目", "Lottery screen")}
         </button>
       </div>
@@ -108,7 +109,7 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
                   : text(locale, "本次未中奖", "No prize this time")
                 : text(locale, "抽奖资格已绑定此订单", "Lottery entry linked to this order")}
             </strong>
-            {draw?.redeemed_at ? <small>{text(locale, "奖品已兑奖", "Prize redeemed")}</small> : null}
+            {instantPrize ? <small>{text(locale, "请现场发放奖品", "Give this prize now")}</small> : draw?.redeemed_at ? <small>{text(locale, "奖品已兑奖", "Prize redeemed")}</small> : null}
           </span>
           {won && draw.claim_code_suffix ? (
             <span className="customer-display-order-lottery-code">

@@ -4912,6 +4912,22 @@ button.action-copy:disabled {
 }
 .lottery-admin-view .settings-fields input,
 .lottery-admin-view .settings-fields select { min-height: 40px; border-width: 1.5px; }
+.lottery-display-settings { grid-column: 1 / -1; }
+.lottery-display-copy-group {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.lottery-display-copy-group .panel-title { margin: 0; }
+.lottery-display-copy-group .settings-fields {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.lottery-display-copy-group .lottery-welcome-fields { grid-template-columns: minmax(0, 1fr); }
 .lottery-prize-editor {
   display: grid;
   gap: 10px;
@@ -4925,7 +4941,7 @@ button.action-copy:disabled {
 .lottery-prize-editor .panel-title span { margin-left: auto; color: var(--accent-strong); font-weight: 800; }
 .lottery-prize-row {
   display: grid;
-  grid-template-columns: 0.75fr 1.15fr 1.15fr minmax(130px, 0.8fr) 0.75fr auto;
+  grid-template-columns: 0.68fr 0.82fr 1.1fr 1.1fr minmax(130px, 0.8fr) 0.72fr auto;
   gap: 8px;
   align-items: center;
   padding: 10px;
@@ -5014,6 +5030,34 @@ button.action-copy:disabled {
 }
 .lottery-campaign-card > div:first-child { display: grid; gap: 3px; min-width: 0; }
 .lottery-campaign-card.is-editing { border-color: var(--accent); background: var(--lavender); }
+.lottery-campaign-card.is-running {
+  border-color: #f2b8b5;
+  border-left: 5px solid var(--accent);
+  background: #fff7f7;
+  box-shadow: 0 3px 12px rgba(185, 28, 28, 0.1);
+}
+.lottery-campaign-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lottery-campaign-name strong { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.lottery-campaign-name em {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+.lottery-campaign-name em.is-conflicting {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+.lottery-campaign-card .settings-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .lottery-campaign-card span, .lottery-draw-row { color: var(--muted, #6b7280); font-size: 13px; }
 .lottery-draw-result { display: grid; gap: 3px; margin-right: auto; min-width: 0; }
 .lottery-draw-result strong { color: var(--ink); }

@@ -22,6 +22,10 @@ function activeCampaignWhere(now = new Date()) {
   return [now.toISOString()];
 }
 
+export function lotteryClaimCodeRequired(prize) {
+  return prize?.kind === "prize" && prize?.fulfillment_type !== "instant";
+}
+
 export async function activeLotteryCampaign(pool, now = new Date()) {
   const result = await pool.query(
     `SELECT * FROM lottery_campaigns
@@ -32,11 +36,30 @@ export async function activeLotteryCampaign(pool, now = new Date()) {
   return result.rows[0] ?? null;
 }
 
+export async function assertNoOverlappingLotteryCampaign(client, campaign) {
+  // Serialize campaign activation so two simultaneous publish/resume requests
+  // cannot both pass the overlap check before either update is visible.
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["lottery_campaign_schedule"]);
+  const overlap = (await client.query(
+    `SELECT id FROM lottery_campaigns
+     WHERE id <> $1 AND deleted_at IS NULL AND status = 'published'
+       AND starts_at < $3 AND ends_at > $2
+     LIMIT 1`,
+    [campaign.id, campaign.starts_at, campaign.ends_at]
+  )).rows[0];
+  if (overlap) {
+    throw Object.assign(
+      new Error("Only one lottery campaign can run at a time. Pause or end the overlapping campaign first."),
+      { statusCode: 409, code: "LOTTERY_CAMPAIGN_OVERLAP" }
+    );
+  }
+}
+
 export async function getLotteryCampaignSnapshot(pool, campaignId) {
   const campaign = (await pool.query("SELECT * FROM lottery_campaigns WHERE id = $1 AND deleted_at IS NULL", [campaignId])).rows[0];
   if (!campaign) return null;
   const prizes = (await pool.query(
-    `SELECT id, kind, name_i18n, description_i18n, claim_instructions_i18n,
+    `SELECT id, kind, fulfillment_type, name_i18n, description_i18n, claim_instructions_i18n,
             weight_bps, stock_total, stock_awarded, position, background_color, text_color, enabled
        FROM lottery_prizes WHERE campaign_id = $1 AND enabled = true ORDER BY position`,
     [campaignId]
@@ -52,6 +75,7 @@ export async function getLotteryCampaignSnapshot(pool, campaignId) {
     prizes: prizes.map((prize) => ({
       id: prize.id,
       kind: prize.kind,
+      fulfillment_type: prize.kind === "prize" ? prize.fulfillment_type || "voucher" : null,
       name_i18n: jsonValue(prize.name_i18n),
       description_i18n: jsonValue(prize.description_i18n),
       weight_bps: Number(prize.weight_bps),
@@ -63,7 +87,7 @@ export async function getLotteryCampaignSnapshot(pool, campaignId) {
   };
 }
 
-export async function issueLotteryTicket({ pool, order, now = new Date() }) {
+async function eligibleLotteryContext({ pool, order, now = new Date() }) {
   if (!order || order.status !== "paid") return { eligible: false, reason: "order_not_paid" };
   if (order.service_type !== "dine_in" && order.service_type !== "takeaway") return { eligible: false, reason: "service_type_not_eligible" };
   const campaign = await activeLotteryCampaign(pool, now);
@@ -83,8 +107,15 @@ export async function issueLotteryTicket({ pool, order, now = new Date() }) {
       return { eligible: false, reason: "order_group_not_fully_paid" };
     }
   }
+  return { eligible: true, campaign, order_group_id: orderGroupId };
+}
+
+export async function issueLotteryTicket({ pool, order, now = new Date() }) {
+  const context = await eligibleLotteryContext({ pool, order, now });
+  if (!context.eligible) return context;
+  const { campaign, order_group_id: orderGroupId } = context;
   const existing = (await pool.query(
-    "SELECT id, access_code_suffix, expires_at, status FROM lottery_tickets WHERE campaign_id = $1 AND order_group_id = $2",
+    "SELECT id, access_code_suffix, expires_at, status FROM lottery_tickets WHERE campaign_id = $1 AND order_group_id = $2 AND issuance_index = 1",
     [campaign.id, orderGroupId]
   )).rows[0];
   if (existing) return { eligible: true, duplicate: true, ticket_id: existing.id, expires_at: existing.expires_at, code: null };
@@ -93,15 +124,15 @@ export async function issueLotteryTicket({ pool, order, now = new Date() }) {
   const expiresAt = new Date(now.getTime() + Number(campaign.ticket_valid_minutes || 1440) * 60_000);
   const inserted = await pool.query(
     `INSERT INTO lottery_tickets
-      (campaign_id, order_group_id, source_order_id, access_code_hash, access_code_suffix, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (campaign_id, order_group_id) DO NOTHING
+      (campaign_id, order_group_id, source_order_id, access_code_hash, access_code_suffix, expires_at, issuance_index)
+     VALUES ($1, $2, $3, $4, $5, $6, 1)
+     ON CONFLICT (campaign_id, order_group_id, issuance_index) DO NOTHING
      RETURNING id, expires_at`,
     [campaign.id, orderGroupId, order.id, hash(plainCode), plainCode.slice(-4), expiresAt.toISOString()]
   );
   if (!inserted.rows[0]) {
     const duplicate = (await pool.query(
-      "SELECT id, expires_at FROM lottery_tickets WHERE campaign_id = $1 AND order_group_id = $2",
+      "SELECT id, expires_at FROM lottery_tickets WHERE campaign_id = $1 AND order_group_id = $2 AND issuance_index = 1",
       [campaign.id, orderGroupId]
     )).rows[0];
     return { eligible: true, duplicate: true, ticket_id: duplicate?.id ?? null, expires_at: duplicate?.expires_at ?? null, code: null };
@@ -114,6 +145,46 @@ export async function issueLotteryTicket({ pool, order, now = new Date() }) {
     code: plainCode,
     campaign_id: campaign.id
   };
+}
+
+export async function issueAdditionalLotteryTicket({ pool, order, now = new Date() }) {
+  const context = await eligibleLotteryContext({ pool, order, now });
+  if (!context.eligible) return context;
+  const { campaign, order_group_id: orderGroupId } = context;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`${campaign.id}:${orderGroupId}`]);
+    const issuance = (await client.query(
+      "SELECT COALESCE(MAX(issuance_index), 0)::integer + 1 AS next_index FROM lottery_tickets WHERE campaign_id = $1 AND order_group_id = $2",
+      [campaign.id, orderGroupId]
+    )).rows[0]?.next_index || 1;
+    const plainCode = code();
+    const expiresAt = new Date(now.getTime() + Number(campaign.ticket_valid_minutes || 1440) * 60_000);
+    const ticket = (await client.query(
+      `INSERT INTO lottery_tickets
+        (campaign_id, order_group_id, source_order_id, access_code_hash, access_code_suffix, expires_at, issuance_index)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, expires_at, issuance_index`,
+      [campaign.id, orderGroupId, order.id, hash(plainCode), plainCode.slice(-4), expiresAt.toISOString(), issuance]
+    )).rows[0];
+    await client.query("COMMIT");
+    return {
+      eligible: true,
+      duplicate: false,
+      additional: true,
+      ticket_id: ticket.id,
+      issuance_index: Number(ticket.issuance_index),
+      expires_at: ticket.expires_at,
+      code: plainCode,
+      campaign_id: campaign.id
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export function makeWheelSnapshot(prizes, fallbackId) {
@@ -130,6 +201,7 @@ export function makeWheelSnapshot(prizes, fallbackId) {
       end_bps: cursor + weight,
       name_i18n: jsonValue(effectivePrize.name_i18n),
       kind: effectivePrize.kind,
+      fulfillment_type: effectivePrize.kind === "prize" ? effectivePrize.fulfillment_type || "voucher" : null,
       background_color: effectivePrize.background_color,
       text_color: effectivePrize.text_color,
       weight_bps: weight
@@ -169,6 +241,7 @@ export async function testLotteryCampaign({ pool, campaignId }) {
     prize: {
       id: outcome.prize.id,
       kind: outcome.prize.kind,
+      fulfillment_type: outcome.prize.kind === "prize" ? outcome.prize.fulfillment_type || "voucher" : null,
       name_i18n: jsonValue(outcome.prize.name_i18n),
       description_i18n: jsonValue(outcome.prize.description_i18n),
       background_color: outcome.prize.background_color,
@@ -249,13 +322,15 @@ export async function drawLottery({ pool, ticketId, idempotencyKey, now = new Da
       );
       if (!updated.rows[0]) prize = fallback;
     }
-    const claimCode = prize.kind === "no_prize" ? null : code(8);
+    const fulfillmentType = prize.kind === "prize" ? prize.fulfillment_type || "voucher" : null;
+    const claimCode = lotteryClaimCodeRequired(prize) ? code(8) : null;
     const claimExpiresAt = claimCode
       ? new Date(now.getTime() + Number(campaign.claim_valid_minutes || 1440) * 60_000)
       : null;
     const prizeSnapshot = {
       id: prize.id,
       kind: prize.kind,
+      fulfillment_type: fulfillmentType,
       name_i18n: jsonValue(prize.name_i18n),
       description_i18n: jsonValue(prize.description_i18n),
       claim_instructions_i18n: jsonValue(prize.claim_instructions_i18n),

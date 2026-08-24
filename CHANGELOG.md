@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: enforce a single running lottery campaign across overlapping schedules when publishing or resuming using a transactional lock and database exclusion constraint; flag schedule conflicts in Admin and disable conflicting publish/resume actions
+- feat: allow staff to issue multiple numbered lottery entries for the same eligible paid order by reopening it and using the POS Lottery screen button; keep every draw linked to that order, make the wheel note optional/editable, and highlight the currently running campaign in Admin
+- feat: distinguish instant lottery prizes from next-use voucher prizes; instant prizes are handed out on site without a redemption code, while voucher prizes generate a claim code and retain the confirmed redemption workflow
+- feat: add an editable bilingual lottery invitation on the customer display after eligible payments, with QYPOS-styled Yes/No actions, a gently animated red Yes button, secure customer response handling, and automatic restoration when the paid order is reopened; make optional welcome-screen titles and subtitles editable in Admin and render each configured language on its own line without separators
 - docs: add bilingual customer-display WebSocket setup covering isolation from the website-order `NEXT_PUBLIC_WS_URL`, LAN discovery, custom ports, HTTPS/WSS proxying, build-time variables, verification, and troubleshooting
 - fix: preserve non-conflicting Admin wheel colours while automatically replacing duplicate or visually similar adjacent colours, including the closing last-to-first edge, with a high-contrast fallback
 - fix: draw a dedicated high-contrast separator between crowded or same-colour wheel slices, lay bilingual labels out radially, and adapt their font sizes to slice count and label length so text stays readable without overlapping or appearing upside down

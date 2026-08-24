@@ -1,7 +1,7 @@
 export const CUSTOMER_DISPLAY_STATE_KEY = "customer_display:state";
 export const CUSTOMER_DISPLAY_REVISION_KEY = "customer_display:revision";
 
-const DISPLAY_MODES = new Set(["idle", "bill", "paid", "lottery_ready", "lottery_spinning", "lottery_result"]);
+const DISPLAY_MODES = new Set(["idle", "bill", "paid", "lottery_invitation", "lottery_ready", "lottery_spinning", "lottery_result"]);
 
 function numberOrZero(value) {
   const number = Number(value);
@@ -35,6 +35,15 @@ export function defaultCustomerDisplayState(idleContent = {}) {
 
 export function customerDisplayMatchesOrder(state, orderId) {
   return Boolean(orderId && state?.payload?.order_id === orderId);
+}
+
+export function customerDisplayInvitationMatches(state, { revision, token } = {}) {
+  return Boolean(
+    state?.mode === "lottery_invitation"
+    && Number(state.revision) === Number(revision)
+    && token
+    && state.payload?.invitation_token === token
+  );
 }
 
 export function shouldRefreshCustomerDisplayOrder(state, orderId) {
@@ -131,6 +140,13 @@ export function displaySettings(settings = {}) {
     interaction_mode: "customer_touch",
     show_bill_on_checkout: settings.customer_display_show_bill_on_checkout !== false,
     auto_show_lottery: Boolean(settings.customer_display_auto_show_lottery),
+    lottery_invitation_enabled: settings.customer_display_lottery_invitation_enabled !== false,
+    lottery_invitation_i18n: settings.customer_display_lottery_invitation_i18n && typeof settings.customer_display_lottery_invitation_i18n === "object"
+      ? settings.customer_display_lottery_invitation_i18n
+      : {
+          "zh-CN": "留下 Google 评论即可参加幸运大转盘抽奖",
+          "en-GB": "Leave us a Google review to join the Lucky Wheel draw"
+        },
     payment_success_seconds: Math.min(30, Math.max(1, Number(settings.customer_display_payment_success_seconds || 5))),
     lottery_result_seconds: Math.min(120, Math.max(5, Number(settings.customer_display_lottery_result_seconds || 20))),
     idle_content: settings.customer_display_idle_content && typeof settings.customer_display_idle_content === "object"

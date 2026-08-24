@@ -332,16 +332,45 @@ export default function PosPage() {
   }, [notice]);
 
   // Showing a different order must not leave the previous customer's bill or
-  // lottery result on the unpaired customer display. Same-order refreshes are
-  // intentionally ignored so adding items and taking payment remain visible.
+  // lottery result on the unpaired customer display. A paid order with a live
+  // ticket immediately restores its configured invitation when it is reopened.
   const canControlCustomerDisplay = Boolean(user?.permissions?.includes("control_customer_display"));
   useEffect(() => {
     const previousId = previousSelectedOrderIdRef.current;
     const currentId = selectedOrder?.id || null;
     previousSelectedOrderIdRef.current = currentId;
-    if (!previousId || !currentId || previousId === currentId || !canControlCustomerDisplay) return;
-    api("/customer-display/reset", { method: "POST" }).catch(() => {});
-  }, [canControlCustomerDisplay, selectedOrder?.id]);
+    if (!currentId || previousId === currentId || !canControlCustomerDisplay) return undefined;
+    let active = true;
+    async function syncSelectedOrderDisplay() {
+      await api("/customer-display/reset", { method: "POST" }).catch(() => {});
+      if (!active || selectedOrder?.status !== "paid") return;
+      const path = settings?.customer_display_lottery_invitation_enabled !== false
+        ? "/customer-display/show-lottery-invitation"
+        : settings?.customer_display_auto_show_lottery
+          ? "/customer-display/show-lottery"
+          : null;
+      if (path) await api(path, { method: "POST", body: JSON.stringify({ order_id: currentId }) }).catch(() => {});
+    }
+    syncSelectedOrderDisplay();
+    return () => { active = false; };
+  }, [canControlCustomerDisplay, selectedOrder?.id, selectedOrder?.status, settings?.customer_display_auto_show_lottery, settings?.customer_display_lottery_invitation_enabled]);
+
+  async function presentPostPaymentLottery(orderId, lotteryTicket) {
+    if (!canControlCustomerDisplay || !orderId || !lotteryTicket) return null;
+    if (settings?.customer_display_lottery_invitation_enabled !== false) {
+      try {
+        await api("/customer-display/show-lottery-invitation", { method: "POST", body: JSON.stringify({ order_id: orderId }) });
+        return "invitation";
+      } catch { return null; }
+    }
+    if (settings?.customer_display_auto_show_lottery) {
+      try {
+        await api("/customer-display/show-lottery", { method: "POST", body: JSON.stringify({ order_id: orderId }) });
+        return "lottery";
+      } catch { return null; }
+    }
+    return null;
+  }
 
   function toggleTabletMode() {
     setTabletMode((current) => {
@@ -595,13 +624,10 @@ export default function PosPage() {
         try { await api("/print-jobs/cash-drawer", { method: "POST", body: JSON.stringify({ source: "cash_payment_auto" }) }); } catch { /* drawer is optional */ }
       }
       if (result.order.status === "paid") {
-        const autoShowLottery = settings?.customer_display_auto_show_lottery && user?.permissions?.includes("control_customer_display");
-        if (autoShowLottery) {
-          try { await api("/customer-display/show-lottery", { method: "POST", body: JSON.stringify({ order_id: result.order.id }) }); } catch { /* no eligible campaign is not a payment failure */ }
-        }
+        const lotteryPresentation = await presentPostPaymentLottery(result.order.id, result.lottery_ticket);
         // Keep a manually paid order selected until the cashier either starts
         // its lottery or exits, so the POS still has an order to target.
-        setSelectedOrder(autoShowLottery ? null : result.order);
+        setSelectedOrder(lotteryPresentation === "lottery" ? null : result.order);
         setPaying(false);
         navigateMobileStep("tables");
       } else {
@@ -650,12 +676,9 @@ export default function PosPage() {
     setNotice(text(locale, "Dojo 刷卡成功", "Dojo payment succeeded"));
     const fullyPaid = result.order?.status === "paid";
     if (fullyPaid) {
-      const autoShowLottery = settings?.customer_display_auto_show_lottery && user?.permissions?.includes("control_customer_display") && result.order?.id;
-      if (autoShowLottery) {
-        try { await api("/customer-display/show-lottery", { method: "POST", body: JSON.stringify({ order_id: result.order.id }) }); } catch { /* no eligible campaign is not a payment failure */ }
-      }
+      const lotteryPresentation = await presentPostPaymentLottery(result.order.id, result.lottery_ticket);
       setPaying(false);
-      setSelectedOrder(autoShowLottery ? null : result.order);
+      setSelectedOrder(lotteryPresentation === "lottery" ? null : result.order);
       navigateMobileStep("tables");
     } else if (result.order?.id) {
       setSelectedOrder(await api(`/orders/${result.order.id}`));

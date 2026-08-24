@@ -194,6 +194,20 @@
   line-height: 1.6;
 }
 
+.customer-display-welcome-title,
+.customer-display-welcome-subtitle {
+  display: grid;
+  gap: 8px;
+  max-width: 100%;
+}
+.customer-display-welcome-title span,
+.customer-display-welcome-subtitle span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .customer-display-idle-hint {
   position: relative;
   flex-wrap: wrap;
@@ -469,6 +483,14 @@
 .customer-display-result-modal p { margin: 0; }
 .customer-display-result-modal h2 { font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.12; }
 .customer-display-result-modal p { max-width: 430px; color: var(--muted); font-size: clamp(1rem, 1.2vw, 1.25rem); line-height: 1.55; }
+.customer-display-result-modal .customer-display-result-fulfillment {
+  padding: 10px 14px;
+  border: 1px solid #f2b8b5;
+  border-radius: 10px;
+  background: var(--lavender);
+  color: var(--accent-strong);
+  font-weight: 800;
+}
 
 .customer-display-result-modal .customer-display-claim-code {
   min-width: min(100%, 320px);
@@ -791,6 +813,80 @@
 .customer-display-claim-code strong { font-size: 1.45rem; letter-spacing: 0.16em; }
 .customer-display-error-banner { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; }
 
+.customer-display-lottery-invitation {
+  align-content: center;
+  min-height: calc(100vh - 36px);
+  padding: clamp(28px, 6vw, 72px);
+}
+.customer-display-invitation-icon {
+  display: grid;
+  place-items: center;
+  width: 82px;
+  height: 82px;
+  border: 1px solid #f2b8b5;
+  border-radius: 20px;
+  background: var(--lavender);
+  color: var(--accent-strong);
+}
+.customer-display-invitation-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent-strong);
+  font-size: clamp(0.95rem, 0.6vw + 0.85rem, 1.2rem);
+  font-weight: 800;
+}
+.customer-display-lottery-invitation h1 {
+  max-width: 950px;
+  font-size: clamp(1.8rem, 3.5vw, 3.7rem);
+  line-height: 1.24;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+.customer-display-invitation-actions {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.72fr) minmax(220px, 1fr);
+  gap: 14px;
+  width: min(100%, 620px);
+  margin-top: 14px;
+}
+.customer-display-invitation-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 68px;
+  padding: 14px 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: clamp(1.05rem, 0.7vw + 0.95rem, 1.35rem);
+  font-weight: 800;
+}
+.customer-display-invitation-no {
+  background: var(--panel);
+  color: var(--ink);
+}
+.customer-display-invitation-yes {
+  border-color: var(--accent) !important;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(185, 28, 28, 0.18);
+  animation: customer-display-invitation-nudge 3.2s ease-in-out infinite;
+}
+.customer-display-invitation-yes:hover:not(:disabled),
+.customer-display-invitation-yes:active:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+@keyframes customer-display-invitation-nudge {
+  0%, 76%, 100% { transform: translateX(0); }
+  80% { transform: translateX(-4px) rotate(-0.5deg); }
+  84% { transform: translateX(4px) rotate(0.5deg); }
+  88% { transform: translateX(-3px); }
+  92% { transform: translateX(3px); }
+  96% { transform: translateX(0); }
+}
+
 /* Receipt layout: match the bilingual thermal-receipt preview used in POS
    settings instead of presenting the bill as a dashboard side panel. */
 .customer-display-bill-grid {
@@ -940,4 +1036,17 @@
   .customer-display-totals {
     width: 100%;
   }
+  .customer-display-lottery-invitation {
+    min-height: calc(100vh - 28px);
+    padding: 28px 18px;
+  }
+  .customer-display-invitation-actions {
+    grid-template-columns: 1fr;
+  }
+  .customer-display-invitation-yes { grid-row: 1; }
+  .customer-display-invitation-no { grid-row: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .customer-display-invitation-yes { animation: none; }
 }

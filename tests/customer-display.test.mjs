@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const { deterministicLotteryStopUnit, distinctAdjacentWheelColors, equalWheelSliceBounds, equalWheelTargetAngle, lotterySafeStopAngle, lotteryWheelLabelLayout, lotteryWheelSeparatorWidth, LOTTERY_SPIN_MS, lotteryDrawPayload, lotteryPresentationPhase, lotteryTickSchedule, lotteryWheelRotation } = await import("../apps/web/src/app/customer-display/customer-display-helpers.js");
-const { customerDisplayMatchesOrder, displaySettings, shouldRefreshCustomerDisplayOrder } = await import("../apps/api/src/services/customer-display.js");
+const { customerDisplayInvitationMatches, customerDisplayMatchesOrder, defaultCustomerDisplayState, displaySettings, shouldRefreshCustomerDisplayOrder } = await import("../apps/api/src/services/customer-display.js");
 const { nextPosLotteryFeedback, POS_LOTTERY_FEEDBACK_MS } = await import("../apps/web/src/app/_components/customer-display-control-helpers.js");
 
 test("customer display draw sends the ticket, action token, revision, and idempotency key", () => {
@@ -52,6 +52,39 @@ test("POS only shows newly observed lottery results and does not restore feedbac
 
 test("customer display remains touch controlled when a legacy cashier setting is stored", () => {
   assert.equal(displaySettings({ customer_display_interaction_mode: "cashier_controlled" }).interaction_mode, "customer_touch");
+});
+
+test("customer display lottery invitation settings have editable bilingual defaults", () => {
+  const defaults = displaySettings({});
+  const configured = displaySettings({
+    customer_display_lottery_invitation_enabled: false,
+    customer_display_lottery_invitation_i18n: { "zh-CN": "写评论后抽奖", "en-GB": "Review to enter" }
+  });
+
+  assert.equal(defaults.lottery_invitation_enabled, true);
+  assert.match(defaults.lottery_invitation_i18n["en-GB"], /Lucky Wheel/);
+  assert.equal(configured.lottery_invitation_enabled, false);
+  assert.deepEqual(configured.lottery_invitation_i18n, { "zh-CN": "写评论后抽奖", "en-GB": "Review to enter" });
+});
+
+test("welcome screen copy is optional and empty by default", () => {
+  const state = defaultCustomerDisplayState();
+
+  assert.deepEqual(state.payload.title_i18n, {});
+  assert.deepEqual(state.payload.subtitle_i18n, {});
+});
+
+test("customer invitation responses only match the current revision and token", () => {
+  const state = {
+    revision: 12,
+    mode: "lottery_invitation",
+    payload: { invitation_token: "invite-token" }
+  };
+
+  assert.equal(customerDisplayInvitationMatches(state, { revision: 12, token: "invite-token" }), true);
+  assert.equal(customerDisplayInvitationMatches(state, { revision: 11, token: "invite-token" }), false);
+  assert.equal(customerDisplayInvitationMatches(state, { revision: 12, token: "old-token" }), false);
+  assert.equal(customerDisplayInvitationMatches({ ...state, mode: "idle" }, { revision: 12, token: "invite-token" }), false);
 });
 
 test("lottery result stays hidden until its wheel animation completes", () => {

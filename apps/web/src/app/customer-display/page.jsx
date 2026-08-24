@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Loader2, Receipt, Trophy, Volume2, VolumeX } from "lucide-react";
+import { AlertCircle, Gift, Loader2, Receipt, Sparkles, Trophy, Volume2, VolumeX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, labelOf } from "../../lib/api";
 import qyposLogo from "../../pic/logo.png";
@@ -19,6 +19,7 @@ const CUSTOMER_DISPLAY_EVENTS = new Set([
   "customer_display.idle",
   "customer_display.bill",
   "customer_display.paid",
+  "customer_display.lottery_invitation",
   "customer_display.lottery_ready",
   "customer_display.lottery_spinning",
   "customer_display.lottery_result",
@@ -234,9 +235,10 @@ function sanitizeState(source) {
       restaurantName: labelOf(payload?.restaurant_name_i18n || payload?.restaurant_name || payload?.brand?.name_i18n, locale) || "QYPOS",
       logoUrl: payload?.logo_url || payload?.idle_content?.logo_url || "/pic/logo.png",
       welcomeTitle: labelOf(payload?.idle_content?.title_i18n || payload?.welcome_title_i18n || payload?.title_i18n, locale),
-      welcomeMessage:
-        labelOf(payload?.idle_content?.message_i18n || payload?.idle_content?.subtitle_i18n || payload?.welcome_message_i18n || payload?.brand?.welcome_i18n || payload?.subtitle_i18n, locale) ||
-        text(locale, "请在此查看账单或抽奖结果", "Your bill and prize result appear here"),
+      welcomeTitleI18n: payload?.idle_content?.title_i18n || payload?.welcome_title_i18n || payload?.title_i18n || {},
+      welcomeMessage: labelOf(payload?.idle_content?.message_i18n || payload?.idle_content?.subtitle_i18n || payload?.welcome_message_i18n || payload?.brand?.welcome_i18n || payload?.subtitle_i18n, locale),
+      welcomeMessageI18n: payload?.idle_content?.message_i18n || payload?.idle_content?.subtitle_i18n || payload?.welcome_message_i18n || payload?.brand?.welcome_i18n || payload?.subtitle_i18n || {},
+      invitationI18n: payload?.invitation_i18n || {},
       orderNumber: order?.order_number || bill?.order_no || payload?.order_number || payload?.display_order_number || "",
       serviceType: order?.service_type || bill?.service_type || payload?.service_type || "",
       tableLabel: order?.table_name || bill?.table_label || payload?.table_name || payload?.table_label || "",
@@ -257,6 +259,7 @@ function sanitizeState(source) {
         payload?.result_title_i18n || payload?.prize?.title_i18n || payload?.prize_snapshot?.title_i18n ||
         payload?.prize?.name_i18n || payload?.prize_snapshot?.name_i18n || {},
       resultKind: payload?.prize?.kind || payload?.prize_snapshot?.kind || payload?.draw?.prize_snapshot?.kind || "prize",
+      resultFulfillmentType: payload?.prize?.fulfillment_type || payload?.prize_snapshot?.fulfillment_type || null,
       resultMessage:
         labelOf(payload?.result_message_i18n || payload?.prize?.message_i18n || payload?.prize_snapshot?.message_i18n, locale) ||
         labelOf(payload?.losing_message_i18n, locale),
@@ -268,6 +271,7 @@ function sanitizeState(source) {
       winningIndex: resolveWinningIndex(payload, wheelSegments),
       ticketId: payload?.ticket_id || null,
       actionToken: payload?.action_token || null,
+      invitationToken: payload?.invitation_token || null,
       claimExpiresAt: toIsoOrNull(payload?.claim_expires_at || payload?.result_expires_at),
       disconnected: Boolean(payload?.disconnected || mode === "disconnected")
     }
@@ -488,6 +492,7 @@ export default function CustomerDisplayPage() {
   const [fetchError, setFetchError] = useState("");
   const [drawError, setDrawError] = useState("");
   const [drawing, setDrawing] = useState(false);
+  const [invitationBusy, setInvitationBusy] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [revealedResultRevision, setRevealedResultRevision] = useState(0);
   const latestRevisionRef = useRef(0);
@@ -741,6 +746,28 @@ export default function CustomerDisplayPage() {
     }
   }
 
+  async function respondToInvitation(accepted) {
+    if (!effectiveState.payload.invitationToken || invitationBusy) return;
+    setInvitationBusy(true);
+    setDrawError("");
+    try {
+      const result = await api("/customer-display/lottery-invitation/respond", {
+        method: "POST",
+        body: JSON.stringify({
+          accepted,
+          revision: effectiveState.revision,
+          invitation_token: effectiveState.payload.invitationToken
+        })
+      });
+      applyState(result, { force: true });
+    } catch {
+      setDrawError(bilingual("此邀请已失效，请联系店员", "This invitation has expired. Please ask a member of staff."));
+      refreshState();
+    } finally {
+      setInvitationBusy(false);
+    }
+  }
+
   async function toggleSound() {
     if (soundEnabled) {
       clearTickTimers();
@@ -781,7 +808,34 @@ export default function CustomerDisplayPage() {
           <section className="customer-display-center-panel customer-display-idle">
             <div className="customer-display-idle-orb" aria-hidden="true" />
             <img src={logoSource(effectiveState.payload.logoUrl)} alt="" className="customer-display-idle-logo" />
-            <h1>Welcome to Granny Noodles</h1>
+            {effectiveState.payload.welcomeTitleI18n?.["zh-CN"] || effectiveState.payload.welcomeTitleI18n?.["en-GB"] ? (
+              <h1 className="customer-display-welcome-title">
+                {effectiveState.payload.welcomeTitleI18n?.["zh-CN"] ? <span lang="zh-CN">{effectiveState.payload.welcomeTitleI18n["zh-CN"]}</span> : null}
+                {effectiveState.payload.welcomeTitleI18n?.["en-GB"] ? <span lang="en">{effectiveState.payload.welcomeTitleI18n["en-GB"]}</span> : null}
+              </h1>
+            ) : null}
+            {effectiveState.payload.welcomeMessageI18n?.["zh-CN"] || effectiveState.payload.welcomeMessageI18n?.["en-GB"] ? (
+              <p className="customer-display-welcome-subtitle">
+                {effectiveState.payload.welcomeMessageI18n?.["zh-CN"] ? <span lang="zh-CN">{effectiveState.payload.welcomeMessageI18n["zh-CN"]}</span> : null}
+                {effectiveState.payload.welcomeMessageI18n?.["en-GB"] ? <span lang="en">{effectiveState.payload.welcomeMessageI18n["en-GB"]}</span> : null}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {!loading && effectiveState.mode === "lottery_invitation" ? (
+          <section className="customer-display-center-panel customer-display-lottery-invitation" role="dialog" aria-modal="true" aria-labelledby="lottery-invitation-title">
+            <div className="customer-display-invitation-icon" aria-hidden="true"><Gift size={42} /></div>
+            <span className="customer-display-invitation-kicker"><Sparkles size={18} />{bilingual("幸运抽奖", "Lucky draw")}</span>
+            <h1 id="lottery-invitation-title">{bilingualLabel(effectiveState.payload.invitationI18n, "留下 Google 评论即可参加幸运大转盘抽奖", "Leave us a Google review to join the Lucky Wheel draw")}</h1>
+            <div className="customer-display-invitation-actions">
+              <button type="button" className="customer-display-invitation-no" disabled={invitationBusy} onClick={() => respondToInvitation(false)}>{bilingual("否", "No")}</button>
+              <button type="button" className="customer-display-invitation-yes" disabled={invitationBusy} onClick={() => respondToInvitation(true)}>
+                {invitationBusy ? <Loader2 className="customer-display-spinner-inline" /> : <Sparkles size={22} />}
+                {bilingual("是", "Yes")}
+              </button>
+            </div>
+            {drawError || fetchError ? <p className="customer-display-side-note">{drawError || fetchError}</p> : null}
           </section>
         ) : null}
 
@@ -842,7 +896,13 @@ export default function CustomerDisplayPage() {
                 ariaLabel={bilingual("滑动轮盘开始抽奖", "Swipe the wheel to start")}
               />
 
-              <p className="customer-display-lottery-receipt">{bilingualLabel(effectiveState.payload.campaignSubtitleI18n, "每张有效小票一次机会", "One chance per valid receipt")}</p>
+              {effectiveState.payload.campaignSubtitleI18n?.["zh-CN"] || effectiveState.payload.campaignSubtitleI18n?.["en-GB"] ? (
+                <p className="customer-display-lottery-receipt">
+                  {effectiveState.payload.campaignSubtitleI18n?.["zh-CN"] || ""}
+                  {effectiveState.payload.campaignSubtitleI18n?.["zh-CN"] && effectiveState.payload.campaignSubtitleI18n?.["en-GB"] ? " / " : ""}
+                  {effectiveState.payload.campaignSubtitleI18n?.["en-GB"] || ""}
+                </p>
+              ) : null}
 
               {!showLotteryResult && lotteryPhase === "drawing" ? <div className="customer-display-lottery-copy">
                   <h2>{bilingual("开奖中", "Drawing...")}</h2>
@@ -866,6 +926,9 @@ export default function CustomerDisplayPage() {
                         : bilingualLabel(effectiveState.payload.resultTitleI18n, "抽奖完成", "Draw complete")}
                     </h2>
                     {effectiveState.payload.resultMessage ? <p>{effectiveState.payload.resultMessage}</p> : null}
+                    {effectiveState.payload.resultKind !== "no_prize" && effectiveState.payload.resultFulfillmentType === "instant" ? (
+                      <p className="customer-display-result-fulfillment">{bilingual("请向店员现场领取", "Please collect your prize from a member of staff")}</p>
+                    ) : null}
                     {effectiveState.payload.claimCode ? (
                       <div className="customer-display-claim-code">
                         <span>{bilingual("兑奖码", "Claim code")}</span>

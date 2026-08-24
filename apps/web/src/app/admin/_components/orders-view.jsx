@@ -136,6 +136,7 @@ function OrderDetailModal({ order, locale, currency, canAdjustPaidOrder, onClose
               {lotteryRecords.map((record) => {
                 const prize = record.prize_snapshot || {};
                 const noPrize = prize.kind === "no_prize";
+                const instantPrize = !noPrize && prize.fulfillment_type === "instant";
                 return (
                   <article className="order-lottery-record" key={record.id}>
                     <div>
@@ -147,7 +148,7 @@ function OrderDetailModal({ order, locale, currency, canAdjustPaidOrder, onClose
                       {record.source_order_id !== order.id && <span>{t(locale, "来源订单", "Source order")}: {record.source_order_no}</span>}
                       {record.claim_code_suffix && <span>{t(locale, "兑奖码", "Claim code")}: •••• {record.claim_code_suffix}</span>}
                       <em className={`admin-chip ${noPrize ? "chip-grey" : record.redeemed_at ? "chip-green" : "chip-blue"}`}>
-                        {noPrize ? t(locale, "未中奖", "No prize") : record.redeemed_at ? t(locale, "已兑奖", "Redeemed") : t(locale, "中奖 · 待兑奖", "Won · Pending")}
+                        {noPrize ? t(locale, "未中奖", "No prize") : instantPrize ? t(locale, "现场发放", "Give now") : record.redeemed_at ? t(locale, "已兑奖", "Redeemed") : t(locale, "中奖 · 待兑奖", "Won · Pending")}
                       </em>
                     </div>
                   </article>

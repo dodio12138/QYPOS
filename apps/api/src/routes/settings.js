@@ -133,6 +133,8 @@ app.put("/settings", async (request, reply) => {
       customer_display_payment_success_seconds = COALESCE($30::integer, customer_display_payment_success_seconds),
       customer_display_lottery_result_seconds = COALESCE($31::integer, customer_display_lottery_result_seconds),
       customer_display_idle_content = COALESCE($32::jsonb, customer_display_idle_content),
+      customer_display_lottery_invitation_enabled = COALESCE($33::boolean, customer_display_lottery_invitation_enabled),
+      customer_display_lottery_invitation_i18n = COALESCE($34::jsonb, customer_display_lottery_invitation_i18n),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -168,7 +170,9 @@ app.put("/settings", async (request, reply) => {
       body.customer_display_auto_show_lottery,
       body.customer_display_payment_success_seconds,
       body.customer_display_lottery_result_seconds,
-      body.customer_display_idle_content === undefined ? null : JSON.stringify(body.customer_display_idle_content)
+      body.customer_display_idle_content === undefined ? null : JSON.stringify(body.customer_display_idle_content),
+      body.customer_display_lottery_invitation_enabled,
+      body.customer_display_lottery_invitation_i18n === undefined ? null : JSON.stringify(body.customer_display_lottery_invitation_i18n)
     ]
   );
   // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing

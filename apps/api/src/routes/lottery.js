@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { publishCustomerDisplayState } from "../services/customer-display.js";
-import { activeLotteryCampaign, deleteLotteryCampaign, drawLottery, getLotteryCampaignSnapshot, testLotteryCampaign } from "../services/lottery.js";
+import { activeLotteryCampaign, assertNoOverlappingLotteryCampaign, deleteLotteryCampaign, drawLottery, getLotteryCampaignSnapshot, testLotteryCampaign } from "../services/lottery.js";
 
 function jsonObject(value, fallback = {}) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : fallback;
@@ -16,22 +16,33 @@ function fail(message, statusCode = 400) {
   return error;
 }
 
+function campaignActivationError(error) {
+  if (error?.code === "23P01" || error?.constraint === "lottery_campaigns_one_published_schedule") {
+    return fail("Only one lottery campaign can run at a time. Pause or end the overlapping campaign first.", 409);
+  }
+  return error;
+}
+
 function normalizePrizes(prizes) {
   if (!Array.isArray(prizes)) throw fail("At least two lottery prizes are required");
-  return prizes.map((prize, position) => ({
-    id: prize.id ? String(prize.id) : null,
-    kind: prize.kind === "no_prize" ? "no_prize" : "prize",
-    name_i18n: jsonObject(prize.name_i18n),
-    description_i18n: jsonObject(prize.description_i18n),
-    claim_instructions_i18n: jsonObject(prize.claim_instructions_i18n),
-    weight_bps: Number(prize.weight_bps),
-    stock_total: prize.stock_total == null || prize.stock_total === "" ? null : Number(prize.stock_total),
-    stock_awarded: Number(prize.stock_awarded || 0),
-    position: Number.isInteger(Number(prize.position)) ? Number(prize.position) : position,
-    background_color: String(prize.background_color || "#f59e0b"),
-    text_color: String(prize.text_color || "#241b12"),
-    enabled: prize.enabled !== false
-  }));
+  return prizes.map((prize, position) => {
+    const kind = prize.kind === "no_prize" ? "no_prize" : "prize";
+    return {
+      id: prize.id ? String(prize.id) : null,
+      kind,
+      fulfillment_type: kind === "no_prize" ? null : prize.fulfillment_type === "instant" ? "instant" : "voucher",
+      name_i18n: jsonObject(prize.name_i18n),
+      description_i18n: jsonObject(prize.description_i18n),
+      claim_instructions_i18n: jsonObject(prize.claim_instructions_i18n),
+      weight_bps: Number(prize.weight_bps),
+      stock_total: prize.stock_total == null || prize.stock_total === "" ? null : Number(prize.stock_total),
+      stock_awarded: Number(prize.stock_awarded || 0),
+      position: Number.isInteger(Number(prize.position)) ? Number(prize.position) : position,
+      background_color: String(prize.background_color || "#f59e0b"),
+      text_color: String(prize.text_color || "#241b12"),
+      enabled: prize.enabled !== false
+    };
+  });
 }
 
 function validatePrizes(prizes, { publish = false } = {}) {
@@ -75,9 +86,9 @@ async function insertPrizes(client, campaignId, prizes) {
   for (const prize of prizes) {
     await client.query(
       `INSERT INTO lottery_prizes
-        (campaign_id, kind, name_i18n, description_i18n, claim_instructions_i18n, weight_bps, stock_total, position, background_color, text_color, enabled)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [campaignId, prize.kind, prize.name_i18n, prize.description_i18n, prize.claim_instructions_i18n, prize.weight_bps, prize.stock_total, prize.position, prize.background_color, prize.text_color, prize.enabled]
+        (campaign_id, kind, fulfillment_type, name_i18n, description_i18n, claim_instructions_i18n, weight_bps, stock_total, position, background_color, text_color, enabled)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [campaignId, prize.kind, prize.fulfillment_type, prize.name_i18n, prize.description_i18n, prize.claim_instructions_i18n, prize.weight_bps, prize.stock_total, prize.position, prize.background_color, prize.text_color, prize.enabled]
     );
   }
 }
@@ -237,9 +248,9 @@ export default function register({ app, pool, redis, query, one, requirePermissi
           await client.query(
             `UPDATE lottery_prizes SET kind = $2, name_i18n = $3, description_i18n = $4,
                claim_instructions_i18n = $5, weight_bps = $6, stock_total = $7, position = $8,
-               background_color = $9, text_color = $10, enabled = $11, updated_at = now()
+               background_color = $9, text_color = $10, enabled = $11, fulfillment_type = $12, updated_at = now()
              WHERE id = $1`,
-            [prize.id, prize.kind, prize.name_i18n, prize.description_i18n, prize.claim_instructions_i18n, prize.weight_bps, prize.stock_total, prize.position, prize.background_color, prize.text_color, prize.enabled]
+            [prize.id, prize.kind, prize.name_i18n, prize.description_i18n, prize.claim_instructions_i18n, prize.weight_bps, prize.stock_total, prize.position, prize.background_color, prize.text_color, prize.enabled, prize.fulfillment_type]
           );
         } else {
           await insertPrizes(client, campaign.id, [prize]);
@@ -273,29 +284,30 @@ export default function register({ app, pool, redis, query, one, requirePermissi
 
   app.post("/lottery/campaigns/:id/publish", async (request, reply) => {
     if (!await requirePermission(request, reply, "manage_lottery")) return;
+    const client = await pool.connect();
     try {
-      const campaign = await one("SELECT * FROM lottery_campaigns WHERE id = $1 AND deleted_at IS NULL", [request.params.id]);
+      await client.query("BEGIN");
+      const campaign = (await client.query("SELECT * FROM lottery_campaigns WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", [request.params.id])).rows[0];
       if (!campaign) throw fail("Campaign not found", 404);
-      const prizes = await query("SELECT * FROM lottery_prizes WHERE campaign_id = $1 AND enabled = true ORDER BY position", [campaign.id]);
+      const prizes = (await client.query("SELECT * FROM lottery_prizes WHERE campaign_id = $1 AND enabled = true ORDER BY position", [campaign.id])).rows;
       validatePrizes(prizes.map((prize) => ({ ...prize, weight_bps: Number(prize.weight_bps), stock_total: prize.stock_total == null ? null : Number(prize.stock_total) })), { publish: true });
-      const overlap = await one(
-        `SELECT id FROM lottery_campaigns
-         WHERE id <> $1 AND deleted_at IS NULL AND status = 'published' AND starts_at < $3 AND ends_at > $2 LIMIT 1`,
-        [campaign.id, campaign.starts_at, campaign.ends_at]
-      );
-      if (overlap) throw fail("Another published campaign overlaps this time range", 409);
-      const updated = await one("UPDATE lottery_campaigns SET status = 'published', published_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING *", [campaign.id]);
+      await assertNoOverlappingLotteryCampaign(client, campaign);
+      const updated = (await client.query("UPDATE lottery_campaigns SET status = 'published', published_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING *", [campaign.id])).rows[0];
+      await client.query("COMMIT");
       await auditLog(request, "lottery.campaign.publish", "lottery_campaign", campaign.id, {});
       return updated;
     } catch (error) {
-      reply.code(error.statusCode || 400);
-      return { error: error.message };
+      await client.query("ROLLBACK").catch(() => {});
+      const activationError = campaignActivationError(error);
+      reply.code(activationError.statusCode || 400);
+      return { error: activationError.message, code: activationError.code };
+    } finally {
+      client.release();
     }
   });
 
   for (const [path, status, action] of [
     ["pause", "paused", "lottery.campaign.pause"],
-    ["resume", "published", "lottery.campaign.resume"],
     ["end", "ended", "lottery.campaign.end"]
   ]) {
     app.post(`/lottery/campaigns/:id/${path}`, async (request, reply) => {
@@ -306,6 +318,31 @@ export default function register({ app, pool, redis, query, one, requirePermissi
       return updated;
     });
   }
+
+  app.post("/lottery/campaigns/:id/resume", async (request, reply) => {
+    if (!await requirePermission(request, reply, "manage_lottery")) return;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const campaign = (await client.query("SELECT * FROM lottery_campaigns WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", [request.params.id])).rows[0];
+      if (!campaign) throw fail("Campaign not found", 404);
+      if (campaign.status !== "paused") throw fail("Only a paused campaign can be resumed", 409);
+      const prizes = (await client.query("SELECT * FROM lottery_prizes WHERE campaign_id = $1 AND enabled = true ORDER BY position", [campaign.id])).rows;
+      validatePrizes(prizes.map((prize) => ({ ...prize, weight_bps: Number(prize.weight_bps), stock_total: prize.stock_total == null ? null : Number(prize.stock_total) })), { publish: true });
+      await assertNoOverlappingLotteryCampaign(client, campaign);
+      const updated = (await client.query("UPDATE lottery_campaigns SET status = 'published', updated_at = now() WHERE id = $1 RETURNING *", [campaign.id])).rows[0];
+      await client.query("COMMIT");
+      await auditLog(request, "lottery.campaign.resume", "lottery_campaign", updated.id, { status: "published" });
+      return updated;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      const activationError = campaignActivationError(error);
+      reply.code(activationError.statusCode || 400);
+      return { error: activationError.message, code: activationError.code };
+    } finally {
+      client.release();
+    }
+  });
 
   app.delete("/lottery/campaigns/:id", async (request, reply) => {
     if (!await requirePermission(request, reply, "manage_lottery")) return;
@@ -341,6 +378,11 @@ export default function register({ app, pool, redis, query, one, requirePermissi
     const actor = await userFromToken(request);
     const draw = await one("SELECT * FROM lottery_draws WHERE id = $1", [request.params.id]);
     if (!draw) { reply.code(404); return { error: "Draw not found" }; }
+    const prize = jsonObject(draw.prize_snapshot);
+    if (prize.kind === "no_prize" || prize.fulfillment_type === "instant") {
+      reply.code(409);
+      return { error: "This prize does not require redemption" };
+    }
     if (draw.redeemed_at) return { ...draw, already_redeemed: true };
     if (draw.claim_expires_at && new Date(draw.claim_expires_at) <= new Date()) { reply.code(409); return { error: "Prize claim has expired" }; }
     const updated = await one("UPDATE lottery_draws SET redeemed_at = now(), redeemed_by = $2 WHERE id = $1 AND redeemed_at IS NULL RETURNING *", [draw.id, actor?.id ?? null]);

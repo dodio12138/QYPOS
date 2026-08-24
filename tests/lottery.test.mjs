@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { deleteLotteryCampaign, selectLotteryOutcome, testLotteryCampaign } = await import("../apps/api/src/services/lottery.js");
+const { assertNoOverlappingLotteryCampaign, deleteLotteryCampaign, issueAdditionalLotteryTicket, lotteryClaimCodeRequired, selectLotteryOutcome, testLotteryCampaign } = await import("../apps/api/src/services/lottery.js");
 const { lotteryProbabilities, normalizedLotteryWeights } = await import("../apps/web/src/app/admin/_components/lottery-form-helpers.js");
 
 function prizes() {
@@ -9,6 +9,7 @@ function prizes() {
     {
       id: "drink",
       kind: "prize",
+      fulfillment_type: "instant",
       name_i18n: { "zh-CN": "免费饮料", "en-GB": "Free drink" },
       weight_bps: 2000,
       stock_total: 1,
@@ -34,9 +35,88 @@ test("lottery test selection uses the same weighted server-side outcome", () => 
   const noPrize = selectLotteryOutcome(prizes(), () => 2000);
 
   assert.equal(winning.prize.id, "drink");
+  assert.equal(winning.prize.fulfillment_type, "instant");
   assert.equal(winning.winning_segment_index, 0);
   assert.equal(noPrize.prize.id, "thanks");
   assert.equal(noPrize.winning_segment_index, 1);
+});
+
+test("only next-use prizes generate redemption codes", () => {
+  assert.equal(lotteryClaimCodeRequired({ kind: "prize", fulfillment_type: "instant" }), false);
+  assert.equal(lotteryClaimCodeRequired({ kind: "prize", fulfillment_type: "voucher" }), true);
+  assert.equal(lotteryClaimCodeRequired({ kind: "prize" }), true);
+  assert.equal(lotteryClaimCodeRequired({ kind: "no_prize", fulfillment_type: null }), false);
+});
+
+test("campaign activation is serialized and rejects an overlapping published schedule", async () => {
+  const statements = [];
+  const client = {
+    async query(sql, params = []) {
+      statements.push({ sql, params });
+      if (sql.includes("FROM lottery_campaigns")) return { rows: [{ id: "already-running" }] };
+      return { rows: [] };
+    }
+  };
+
+  await assert.rejects(
+    assertNoOverlappingLotteryCampaign(client, {
+      id: "candidate",
+      starts_at: "2026-08-24T12:00:00.000Z",
+      ends_at: "2026-08-24T14:00:00.000Z"
+    }),
+    (error) => error.statusCode === 409 && error.code === "LOTTERY_CAMPAIGN_OVERLAP"
+  );
+  assert.ok(statements[0].sql.includes("pg_advisory_xact_lock"));
+  assert.deepEqual(statements[1].params, ["candidate", "2026-08-24T12:00:00.000Z", "2026-08-24T14:00:00.000Z"]);
+});
+
+test("campaign activation accepts a schedule with no published overlap", async () => {
+  const client = {
+    async query(sql) {
+      return { rows: sql.includes("FROM lottery_campaigns") ? [] : [] };
+    }
+  };
+
+  await assert.doesNotReject(assertNoOverlappingLotteryCampaign(client, {
+    id: "candidate",
+    starts_at: "2026-08-24T14:00:00.000Z",
+    ends_at: "2026-08-24T16:00:00.000Z"
+  }));
+});
+
+test("staff can issue the next numbered lottery entry for the same paid order", async () => {
+  const statements = [];
+  const client = {
+    async query(sql, params = []) {
+      statements.push({ sql, params });
+      if (sql.includes("MAX(issuance_index)")) return { rows: [{ next_index: 2 }] };
+      if (sql.includes("INSERT INTO lottery_tickets")) return { rows: [{ id: "ticket-2", expires_at: "2026-08-25T12:00:00.000Z", issuance_index: 2 }] };
+      return { rows: [] };
+    },
+    release() { statements.push({ sql: "RELEASE", params: [] }); }
+  };
+  const pool = {
+    async query(sql) {
+      if (sql.includes("FROM lottery_campaigns")) {
+        return { rows: [{ id: "campaign", minimum_order_total: 0, service_types: ["dine_in"], excluded_payment_methods: [], ticket_valid_minutes: 60 }] };
+      }
+      return { rows: [] };
+    },
+    async connect() { return client; }
+  };
+
+  const result = await issueAdditionalLotteryTicket({
+    pool,
+    order: { id: "order-1", status: "paid", service_type: "dine_in", total: 25, parent_order_id: null },
+    now: new Date("2026-08-24T12:00:00.000Z")
+  });
+
+  assert.equal(result.additional, true);
+  assert.equal(result.ticket_id, "ticket-2");
+  assert.equal(result.issuance_index, 2);
+  assert.ok(statements.some(({ sql }) => sql.includes("pg_advisory_xact_lock")));
+  assert.ok(statements.some(({ sql, params }) => sql.includes("INSERT INTO lottery_tickets") && params.at(-1) === 2));
+  assert.ok(statements.some(({ sql }) => sql === "COMMIT"));
 });
 
 test("admin probability values are displayed and saved as an exact normalized 100 percent", () => {
