@@ -12,6 +12,7 @@ import { calculateTotals, localToday } from "@qypos/shared";
 import { defaultPrinterProfiles, printerProfiles, selectPrinter, isValidPrinter } from "./services/printers.js";
 import { normalizePermissions, hashPin, verifyPin, userFromToken as userFromTokenWithRedis } from "./services/permissions.js";
 import { assertPositivePayment } from "./services/validation.js";
+import { issueLotteryTicket } from "./services/lottery.js";
 import { ADMIN_GRANT_SCOPES, CASHIER_PERMISSIONS, OWNER_PERMISSIONS, canPatchMenuItem } from "./services/role-permissions.js";
 import {
   cancelDojoTerminalSession,
@@ -53,6 +54,8 @@ pool.on('connect', async (client) => {
 export const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
 export const redisSub = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
 export const sockets = new Set();
+export const customerDisplaySockets = new Set();
+const CUSTOMER_DISPLAY_HEARTBEAT_MS = 30_000;
 export const execFileAsync = promisify(execFile);
 export const backupDir = process.env.BACKUP_DIR ?? path.resolve(process.cwd(), "../../backups");
 let backupTimer = null;
@@ -104,6 +107,13 @@ export async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_empty_tables_after_idle BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS auto_clear_empty_tables_idle_minutes INTEGER NOT NULL DEFAULT 60");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS delivery_auto_sync_enabled BOOLEAN NOT NULL DEFAULT false");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_enabled BOOLEAN NOT NULL DEFAULT true");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_interaction_mode TEXT NOT NULL DEFAULT 'customer_touch'");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_show_bill_on_checkout BOOLEAN NOT NULL DEFAULT true");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_auto_show_lottery BOOLEAN NOT NULL DEFAULT false");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_payment_success_seconds INTEGER NOT NULL DEFAULT 5");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_lottery_result_seconds INTEGER NOT NULL DEFAULT 20");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_idle_content JSONB NOT NULL DEFAULT '{}'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
   await pool.query(`CREATE TABLE IF NOT EXISTS menu_option_presets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -375,6 +385,38 @@ await app.register(cors, {
 });
 await app.register(websocket);
 
+app.get("/ws/customer-display", { websocket: true }, (connection) => {
+  const socket = connection.socket ?? connection;
+  socket.isAlive = true;
+  customerDisplaySockets.add(socket);
+  app.log.info({ customerDisplaySocketCount: customerDisplaySockets.size }, "Customer display connected");
+  socket.on("pong", () => { socket.isAlive = true; });
+  socket.on("close", () => {
+    customerDisplaySockets.delete(socket);
+    app.log.info({ customerDisplaySocketCount: customerDisplaySockets.size }, "Customer display disconnected");
+  });
+  socket.on("error", (error) => {
+    app.log.warn({ err: error }, "Customer display websocket error");
+  });
+});
+
+const customerDisplayHeartbeat = setInterval(() => {
+  for (const socket of customerDisplaySockets) {
+    if (socket?.readyState !== 1) {
+      customerDisplaySockets.delete(socket);
+      continue;
+    }
+    if (socket.isAlive === false) {
+      customerDisplaySockets.delete(socket);
+      socket.terminate?.();
+      continue;
+    }
+    socket.isAlive = false;
+    socket.ping?.();
+  }
+}, CUSTOMER_DISPLAY_HEARTBEAT_MS);
+customerDisplayHeartbeat.unref?.();
+
 await redisSub.subscribe("print_events");
 redisSub.on("message", (_channel, message) => {
   try {
@@ -406,6 +448,18 @@ export function emit(event, data) {
       openSocketCount,
       sentSocketCount
     }, "Broadcasted online_order.received");
+  }
+}
+
+export function emitCustomerDisplay(event, data) {
+  const message = JSON.stringify({ event, data });
+  for (const socket of customerDisplaySockets) {
+    if (socket?.readyState !== 1) continue;
+    try {
+      socket.send(message);
+    } catch (error) {
+      app.log.warn({ err: error, event }, "Customer display broadcast failed");
+    }
   }
 }
 
@@ -864,6 +918,8 @@ import registerOrders from "./routes/orders.js";
 import registerReports from "./routes/reports.js";
 import registerOps from "./routes/ops.js";
 import registerOnlineOrders from "./routes/online-orders.js";
+import registerCustomerDisplay from "./routes/customer-display.js";
+import registerLottery from "./routes/lottery.js";
 
 const routeCtx = {
   app,
@@ -871,6 +927,7 @@ const routeCtx = {
   redis,
   redisSub,
   sockets,
+  customerDisplaySockets,
   query,
   one,
   getSettings,
@@ -880,6 +937,8 @@ const routeCtx = {
   clientIp,
   checkRateLimit,
   emit,
+  emitCustomerDisplay,
+  issueLotteryTicket,
   recalculateOrder,
   createPrintJob,
   getOrderItems,
@@ -941,6 +1000,8 @@ registerOrders(routeCtx);
 registerReports(routeCtx);
 registerOps(routeCtx);
 registerOnlineOrders(routeCtx);
+registerCustomerDisplay(routeCtx);
+registerLottery(routeCtx);
 
 // ── Start server ──────────────────────────────────────────────────────────
 const port = Number(process.env.API_PORT ?? 4000);

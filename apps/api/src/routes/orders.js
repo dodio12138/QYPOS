@@ -20,6 +20,7 @@ export default function register({
   createPrintJob,
   getOrderItems,
   recordPayment,
+  issueLotteryTicket,
   updateOrderKitchenState,
   ensureSchema,
   runMigrations,
@@ -108,6 +109,8 @@ app.get("/orders", async (request) => {
 
 app.get("/orders/:id", async (request) => {
   const order = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
+  if (!order) return null;
+  const orderGroupId = order.parent_order_id || order.id;
   const childOrders = order?.status === "split"
     ? await query("SELECT * FROM orders WHERE parent_order_id = $1 ORDER BY order_no", [order.id])
     : [];
@@ -115,11 +118,30 @@ app.get("/orders/:id", async (request) => {
     child.items = await getOrderItems(child.id);
     child.payments = await query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [child.id]);
   }
+  const [items, payments, lotteryRecords] = await Promise.all([
+    getOrderItems(order.id),
+    query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [order.id]),
+    query(
+      `SELECT d.id, d.ticket_id, d.prize_id, d.prize_snapshot, d.claim_code_suffix,
+              d.claim_expires_at, d.redeemed_at, d.created_at AS drawn_at,
+              t.source_order_id, t.order_group_id,
+              c.title_i18n AS campaign_title_i18n,
+              source_order.order_no AS source_order_no
+       FROM lottery_draws d
+       JOIN lottery_tickets t ON t.id = d.ticket_id
+       JOIN lottery_campaigns c ON c.id = d.campaign_id
+       JOIN orders source_order ON source_order.id = t.source_order_id
+       WHERE t.source_order_id = $1 OR t.order_group_id = $2
+       ORDER BY (t.source_order_id = $1) DESC, d.created_at DESC`,
+      [order.id, orderGroupId]
+    )
+  ]);
   return {
     ...order,
-    items: await getOrderItems(order.id),
-    payments: await query("SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at", [order.id]),
-    child_orders: childOrders
+    items,
+    payments,
+    child_orders: childOrders,
+    lottery_records: lotteryRecords
   };
 });
 
@@ -853,7 +875,11 @@ app.get("/payment-attempts/:id", async (request, reply) => {
           amount: attempt.amount
         });
       }
-      return { ...safePaymentAttempt(attempt), order: result.order, payment: result.payment };
+      let lotteryTicket = null;
+      if (result.order?.status === "paid") {
+        try { lotteryTicket = await issueLotteryTicket({ pool, order: result.order }); } catch (error) { request.log.warn({ err: error }, "Lottery ticket issue failed after Dojo payment"); }
+      }
+      return { ...safePaymentAttempt(attempt), order: result.order, payment: result.payment, lottery_ticket: lotteryTicket };
     }
 
     attempt = await one(
@@ -948,6 +974,10 @@ app.post("/orders/:id/payments", async (request, reply) => {
       changeDue: body.change_due ?? 0,
       retainExcess: body.retain_excess === true
     });
+    let lotteryTicket = null;
+    if (result.order?.status === "paid") {
+      try { lotteryTicket = await issueLotteryTicket({ pool, order: result.order }); } catch (error) { request.log.warn({ err: error }, "Lottery ticket issue failed after payment"); }
+    }
     await auditLog(request, "payment.create", "payment", result.payment.id, {
       order_id: request.params.id,
       method: result.payment.method,
@@ -956,7 +986,7 @@ app.post("/orders/:id/payments", async (request, reply) => {
       retained_amount: Number(result.payment.retained_amount),
       recorded_income: Number(result.payment.amount) - Number(result.payment.change_due)
     });
-    return { payment: result.payment, order: result.order, paid: result.paid };
+    return { payment: result.payment, order: result.order, paid: result.paid, lottery_ticket: lotteryTicket };
   } catch (error) {
     if (error.statusCode) {
       reply.code(error.statusCode);

@@ -143,6 +143,13 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 | `apps/online-order-connector/src/worker.js` | 网站在线订单 SSE Connector（游标恢复、详情拉取、幂等导入、ACK） |
 | `apps/api/src/routes/online-orders.js` | 在线订单收件箱管理接口与 Connector 内部导入接口 |
 | `apps/api/src/services/online-order-inbox.js` | 在线订单 payload 校验与事务性幂等保存 |
+| `apps/api/src/routes/customer-display.js` | 顾客屏状态、账单、抽奖触发与清屏接口 |
+| `apps/api/src/routes/lottery.js` | 抽奖活动、奖项、开奖记录与兑奖接口 |
+| `apps/api/src/services/customer-display.js` | 顾客账单脱敏白名单与 Redis 状态发布 |
+| `apps/api/src/services/lottery.js` | 抽奖票幂等发放、加权开奖与库存事务 |
+| `apps/web/src/app/customer-display/` | 固定地址顾客屏 Logo、账单、轮盘与结果页面 |
+| `apps/web/src/app/admin/_components/lottery-view.jsx` | 后台抽奖活动与顾客屏设置界面 |
+| `db/migrations/022_customer_display_lottery.sql` | 顾客屏设置与抽奖活动/奖项/票据/记录表 |
 | `packages/shared/src/index.js` | 共享工具函数 |
 | `db/init.sql` | 数据库 schema + 种子数据 |
 | `db/migrations/` | 增量迁移脚本 |
@@ -159,6 +166,8 @@ ESLint 配置有意保持精简：仅 `js.configs.recommended`（核心是 `no-u
 - [PROJECT_STATUS.md](./PROJECT_STATUS.md) — 功能实现状态与已验证业务路径
 - [CONTRIBUTING_zh.md](./CONTRIBUTING_zh.md) / [CONTRIBUTING.md](./CONTRIBUTING.md) — 贡献指南
 - [docs/UI_UX_BRIEF_zh.md](./docs/UI_UX_BRIEF_zh.md) — UI/UX 设计概要
+- [docs/CUSTOMER_LOTTERY_WHEEL_TASK_zh.md](./docs/CUSTOMER_LOTTERY_WHEEL_TASK_zh.md) — 顾客外屏、账单展示与抽奖轮盘开发任务
+- [docs/CUSTOMER_DISPLAY_WEBSOCKET_zh.md](./docs/CUSTOMER_DISPLAY_WEBSOCKET_zh.md) / [docs/CUSTOMER_DISPLAY_WEBSOCKET.md](./docs/CUSTOMER_DISPLAY_WEBSOCKET.md) — 顾客屏专用 WebSocket 的局域网、WSS、代理与排错配置
 - [CHANGELOG_zh.md](./CHANGELOG_zh.md) / [CHANGELOG.md](./CHANGELOG.md) — 变更日志
 
 本地数据库默认凭据：`Owner/12138`、`Cashier/1111`、`Kitchen/2222`（以实际 `docker compose exec` 查询为准）。

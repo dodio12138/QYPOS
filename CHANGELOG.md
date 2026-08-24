@@ -14,6 +14,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- docs: add bilingual customer-display WebSocket setup covering isolation from the website-order `NEXT_PUBLIC_WS_URL`, LAN discovery, custom ports, HTTPS/WSS proxying, build-time variables, verification, and troubleshooting
+- fix: preserve non-conflicting Admin wheel colours while automatically replacing duplicate or visually similar adjacent colours, including the closing last-to-first edge, with a high-contrast fallback
+- fix: draw a dedicated high-contrast separator between crowded or same-colour wheel slices, lay bilingual labels out radially, and adapt their font sizes to slice count and label length so text stays readable without overlapping or appearing upside down
+- Added dedicated customer-display kiosk safeguards that prevent pinch/shortcut zoom, selection, long-press menus, asset dragging, and page overscroll while preserving receipt scrolling and wheel gestures.
+
+- fix: await browser audio-context activation inside the customer tap, swipe, or unmute gesture, play an immediate first tick, and strengthen the wheel ticks and finish bell so tablet browsers no longer leave the draw silent
+- fix: derive a stable randomized in-segment wheel stop for every draw instead of always landing at the center, reserving a 20% safe zone beside each slice boundary so the pointer never appears to straddle a dividing line or shift after refresh
+- fix: move the valid-receipt message below the customer wheel, remove the duplicate tap/swipe hint and pink wheel backdrop, replace the pointer with a long red wedge, and show each new POS lottery result for 15 seconds without restoring it after a page refresh
+- feat: make Admin test draw show a customer-controlled ready screen before drawing without stock or history side effects; accept arbitrary prize weight values, normalize their displayed and saved probabilities to exactly 100%, and align the test action with QYPOS controls
+- fix: require a second confirmation before lottery redemption, and refresh the customer bill in real time after POS discount or service-charge adjustments only when that same order is currently displayed
+- feat: support safe lottery campaign deletion that revokes unused tickets while preserving order and draw history, and simplify the result modal into the QYPOS white-and-red panel style without duplicate headings or prompts
+- feat: show bilingual lottery results in a centered customer-display modal after the wheel stops, standardize the no-prize English label as “Thank you”, and add a side-effect-free Admin test draw with optional full customer-display preview
+- feat: give the customer wheel a roughly ten-second wind-up and long deceleration, synchronized ticks, a finish bell, subtle pointer movement, and a mute control using locally synthesized browser audio
+- feat: show bilingual prize names on the wheel and winning result, add separate Chinese/English prize fields, and render equal-size wheel slices while keeping backend probability weights unchanged
+- fix: simplify the customer lottery ready screen to one tap-or-swipe hint, remove duplicate headings and the Customer touch badge, and normalize legacy cashier-controlled settings back to customer touch
+- fix: remove the Start draw button from POS customer-display controls so draws are initiated only by customer touch or wheel dragging on the customer screen
+- feat: link Admin draw history to the original order and show the campaign, lottery result, draw time, claim-code suffix, and redemption state in order details
+- fix: prevent result polling from restarting or rewinding the lottery wheel and reveal the prize only after the wheel has fully stopped
+- feat: remove the lottery notice sidebar, show order-linked lottery eligibility and results in POS, and reject cashier draw requests for a different order
+- fix: include ticket_id in customer-display draw requests and restore the ready screen when a draw fails instead of leaving it stuck on Drawing
+- feat: add campaign editing in Admin lottery management for draft or paused campaign copy, dates, conditions, prizes, weights, and stock
+- fix: align the customer display with the POS front desk using the same light workspace, white cards, red actions, borders, shadows, and spacing
+- fix: align the POS customer-display controls and Admin lottery management with the existing panel, button, form, and status-card styles
+- feat: make the customer-display lottery bilingual as “Lucky Wheel” and support touch-dragging the wheel as well as the Start draw button
+- fix: reset the customer display to the welcome screen when POS switches from order A to order B, preventing stale order content
+- fix: fix lottery campaign creation failing with HTTP 400 because JSONB arrays were not serialized explicitly
+- feat: add POS customer-display buttons for manual switching between the welcome, bill, and lottery screens
+- feat: add a dedicated LAN customer-display WebSocket with 1-second HTTP polling fallback, isolated from the website-order WebSocket
+- fix: fix false offline status behind the default HTTP proxy, the broken logo path, inherited POS grid squeezing, mobile overflow, and skipped wheel animation; align the display with the QYPOS red card skin
+- fix: prevent lottery tickets before all split orders are paid, enforce campaign service types, show claim codes, and resolve exhausted-prize wheel segments correctly
+- feat: add an unpaired fixed `/customer-display` page with logo idle mode, checkout bills, realtime lottery wheel, automatic result clearing, and POS controls
+- feat: add admin lottery campaigns with prize weights/stock, publish/pause actions, redemption history, customer-display settings, and idempotent ticket issuance after eligible payment
 - feat: add a captured online-order inbox with idempotent import, cursor-based SSE reconnecting connector, and read-only admin inspection; M1 creates no POS orders or payment records
 - feat: add prominent POS/admin alerts, alert sound, inbox auto-refresh, an Ops test button, and JSON-snapshot simple kitchen printing after confirmation
 - feat: limit the online-order Connector to the Europe/London 11:00–22:05 opening window, with no SSE or reconnect activity outside business hours

@@ -21,6 +21,9 @@ export const OWNER_PERMISSIONS = [
   "split_order",
   "take_payment",
   "print_receipt",
+  "manage_lottery",
+  "redeem_lottery",
+  "control_customer_display",
 ];
 
 export const CASHIER_PERMISSIONS = [
@@ -35,6 +38,8 @@ export const CASHIER_PERMISSIONS = [
   "split_order",
   "take_payment",
   "print_receipt",
+  "redeem_lottery",
+  "control_customer_display",
 ];
 
 export const ADMIN_GRANT_SCOPES = {
@@ -47,6 +52,7 @@ export const ADMIN_GRANT_SCOPES = {
   layout: ["manage_tables"],
   schedule: ["view_staff_schedules", "manage_staff_schedules"],
   "online-orders": ["manage_ops"],
+  lottery: ["manage_lottery"],
 };
 
 export function canPatchMenuItem(user, body) {

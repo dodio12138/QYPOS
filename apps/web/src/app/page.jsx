@@ -42,6 +42,7 @@ import PaymentModal from "./_components/payment-modal";
 import MobileWorkflow from "./_components/mobile-workflow";
 import MenuPicker from "./_components/menu-picker";
 import OrderPanel from "./_components/order-panel";
+import CustomerDisplayControl from "./_components/customer-display-control";
 import OnlineOrderAlertModal from "./admin/_components/online-order-alert-modal";
 
 const statusText = {
@@ -150,6 +151,7 @@ export default function PosPage() {
   const [tabletMode, setTabletMode] = useState(false);
   const kitchenPrintRef = useRef(true);
   const userRef = useRef(null);
+  const previousSelectedOrderIdRef = useRef(null);
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
@@ -329,6 +331,18 @@ export default function PosPage() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  // Showing a different order must not leave the previous customer's bill or
+  // lottery result on the unpaired customer display. Same-order refreshes are
+  // intentionally ignored so adding items and taking payment remain visible.
+  const canControlCustomerDisplay = Boolean(user?.permissions?.includes("control_customer_display"));
+  useEffect(() => {
+    const previousId = previousSelectedOrderIdRef.current;
+    const currentId = selectedOrder?.id || null;
+    previousSelectedOrderIdRef.current = currentId;
+    if (!previousId || !currentId || previousId === currentId || !canControlCustomerDisplay) return;
+    api("/customer-display/reset", { method: "POST" }).catch(() => {});
+  }, [canControlCustomerDisplay, selectedOrder?.id]);
+
   function toggleTabletMode() {
     setTabletMode((current) => {
       const next = !current;
@@ -350,6 +364,9 @@ export default function PosPage() {
   }
 
   async function logout() {
+    if (user?.permissions?.includes("control_customer_display")) {
+      await api("/customer-display/reset", { method: "POST" }).catch(() => {});
+    }
     await api("/auth/logout", { method: "POST" }).catch(() => {});
     window.localStorage.removeItem("qypos_token");
     setUser(null);
@@ -578,11 +595,20 @@ export default function PosPage() {
         try { await api("/print-jobs/cash-drawer", { method: "POST", body: JSON.stringify({ source: "cash_payment_auto" }) }); } catch { /* drawer is optional */ }
       }
       if (result.order.status === "paid") {
-        setSelectedOrder(null);
+        const autoShowLottery = settings?.customer_display_auto_show_lottery && user?.permissions?.includes("control_customer_display");
+        if (autoShowLottery) {
+          try { await api("/customer-display/show-lottery", { method: "POST", body: JSON.stringify({ order_id: result.order.id }) }); } catch { /* no eligible campaign is not a payment failure */ }
+        }
+        // Keep a manually paid order selected until the cashier either starts
+        // its lottery or exits, so the POS still has an order to target.
+        setSelectedOrder(autoShowLottery ? null : result.order);
         setPaying(false);
         navigateMobileStep("tables");
       } else {
         setSelectedOrder(await api(`/orders/${result.order.id}`));
+        if (settings?.customer_display_show_bill_on_checkout !== false && user?.permissions?.includes("control_customer_display")) {
+          try { await api("/customer-display/show-order", { method: "POST", body: JSON.stringify({ order_id: result.order.id }) }); } catch { /* customer display is optional */ }
+        }
       }
       await refresh(false);
     }, text(locale, "付款已记录", "Payment recorded"));
@@ -612,6 +638,9 @@ export default function PosPage() {
         body: JSON.stringify(payment)
       });
       setSelectedOrder(await api(`/orders/${result.order.id}`));
+      if (settings?.customer_display_show_bill_on_checkout !== false && user?.permissions?.includes("control_customer_display")) {
+        try { await api("/customer-display/show-order", { method: "POST", body: JSON.stringify({ order_id: result.order.id }) }); } catch { /* customer display is optional */ }
+      }
       await refresh(false);
     }, text(locale, `已收 ${money(payment.amount, currency, locale)}`, `Received ${money(payment.amount, currency, locale)}`));
     return result;
@@ -621,8 +650,12 @@ export default function PosPage() {
     setNotice(text(locale, "Dojo 刷卡成功", "Dojo payment succeeded"));
     const fullyPaid = result.order?.status === "paid";
     if (fullyPaid) {
+      const autoShowLottery = settings?.customer_display_auto_show_lottery && user?.permissions?.includes("control_customer_display") && result.order?.id;
+      if (autoShowLottery) {
+        try { await api("/customer-display/show-lottery", { method: "POST", body: JSON.stringify({ order_id: result.order.id }) }); } catch { /* no eligible campaign is not a payment failure */ }
+      }
       setPaying(false);
-      setSelectedOrder(null);
+      setSelectedOrder(autoShowLottery ? null : result.order);
       navigateMobileStep("tables");
     } else if (result.order?.id) {
       setSelectedOrder(await api(`/orders/${result.order.id}`));
@@ -662,6 +695,12 @@ export default function PosPage() {
         body: JSON.stringify(patch)
       });
       setSelectedOrder(await api(`/orders/${updated.id}`));
+      if (canControlCustomerDisplay) {
+        await api("/customer-display/refresh-order", {
+          method: "POST",
+          body: JSON.stringify({ order_id: updated.id })
+        }).catch(() => {});
+      }
       await refresh(false);
     }, text(locale, "服务费已更新", "Service charge updated"));
   }
@@ -673,6 +712,12 @@ export default function PosPage() {
       body: JSON.stringify(patch)
     });
     setSelectedOrder(await api(`/orders/${updated.id}`));
+    if (canControlCustomerDisplay) {
+      await api("/customer-display/refresh-order", {
+        method: "POST",
+        body: JSON.stringify({ order_id: updated.id })
+      }).catch(() => {});
+    }
     await refresh(false);
     setNotice(text(locale, "折扣已更新", "Discount updated"));
   }
@@ -724,7 +769,7 @@ export default function PosPage() {
   }
 
   return (
-    <main className={`pos-shell ${tabletMode ? "tablet-mode" : ""}`}>
+    <main className={`pos-shell${tabletMode ? " tablet-mode" : ""}${canControlCustomerDisplay ? " has-customer-display-control" : ""}`}>
       <header className="pos-header">
         <div className="brand compact">
           <img className="brand-logo" src={qyposLogo.src} alt="QYPOS" />
@@ -777,6 +822,8 @@ export default function PosPage() {
         onAccept={acceptOnlineOrderAlert}
       />
 
+      <CustomerDisplayControl order={selectedOrder} locale={locale} user={user} onNotify={setNotice} />
+
       <MobileWorkflow
         step={mobileStep}
         order={selectedOrder}
@@ -827,7 +874,16 @@ export default function PosPage() {
           onSaveNotes={saveOrderNotes}
           onSubmit={submitOrder}
           onPrintBill={printBill}
-          onPay={() => setPaying(true)}
+          onPay={async () => {
+            setPaying(true);
+            if (settings?.customer_display_show_bill_on_checkout !== false && user?.permissions?.includes("control_customer_display") && selectedOrder?.id) {
+              try {
+                await api("/customer-display/show-order", { method: "POST", body: JSON.stringify({ order_id: selectedOrder.id }) });
+              } catch (error) {
+                setNotice(error.message);
+              }
+            }
+          }}
           onSplit={(mode) => setSplitting(mode)}
           onMerge={mergeOrder}
           onAdjustService={adjustServiceCharge}

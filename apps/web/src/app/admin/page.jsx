@@ -45,6 +45,7 @@ import {
   Users,
   WifiOff,
   Wrench,
+  Sparkles,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -65,6 +66,7 @@ import MenuAdmin, { MenuAvailabilityAdmin } from "./_components/menu-admin";
 import DeliverySalesView from "./_components/delivery-sales-view";
 import OnlineOrdersView from "./_components/online-orders-view";
 import OnlineOrderAlertModal from "./_components/online-order-alert-modal";
+import LotteryView from "./_components/lottery-view";
 
 const tabs = [
   ["orders", ClipboardList, { "zh-CN": "订单", "en-GB": "Orders" }, ["manage_orders"]],
@@ -79,9 +81,10 @@ const tabs = [
   ["ops", Wrench, { "zh-CN": "运维", "en-GB": "Ops" }, ["manage_ops"]],
   ["delivery", CloudDownload, { "zh-CN": "外卖", "en-GB": "Delivery" }, ["manage_ops"]],
   ["online-orders", ClipboardList, { "zh-CN": "网站", "en-GB": "Website" }, ["manage_ops"]],
-  ["layout", Armchair, { "zh-CN": "布局", "en-GB": "Layout" }, ["manage_tables"]]
+  ["layout", Armchair, { "zh-CN": "布局", "en-GB": "Layout" }, ["manage_tables"]],
+  ["lottery", Sparkles, { "zh-CN": "抽奖", "en-GB": "Lottery" }, ["manage_lottery", "redeem_lottery", "control_customer_display"]]
 ];
-const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "delivery", "online-orders", "layout"]);
+const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "delivery", "online-orders", "layout", "lottery"]);
 
 const ROLE_LABELS = {
   owner: { "zh-CN": "管理员", "en-GB": "Owner" },
@@ -349,6 +352,7 @@ function combineHotItemTrends(items, trendsByKey) {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState("orders");
+  const [requestedOrderId, setRequestedOrderId] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && localStorage.getItem("qypos_sidebar_collapsed") === "1");
   const [adminGateTarget, setAdminGateTarget] = useState(null);
   const [adminGrantTab, setAdminGrantTab] = useState(null);
@@ -467,11 +471,11 @@ export default function AdminPage() {
     }
   }
 
-  function showNotice(message) {
+  const showNotice = useCallback((message) => {
     setNotice(message);
     if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setNotice(""), 3000);
-  }
+  }, []);
 
   function enqueueOnlineOrderAlert(summary) {
     if (!summary?.id) return;
@@ -538,6 +542,15 @@ export default function AdminPage() {
     if (id === "users") await refreshUsers(user);
     if (id === "ops") await refreshOps(user);
   }
+
+  async function openOrderFromLottery(orderId) {
+    if (!orderId) return;
+    await revokeAdminGrant();
+    setRequestedOrderId(orderId);
+    setActiveTab("orders");
+  }
+
+  const clearRequestedOrder = useCallback(() => setRequestedOrderId(null), []);
 
   async function enterAdminTab(id) {
     try {
@@ -686,7 +699,7 @@ export default function AdminPage() {
 
         {!online && <div className="offline-banner"><WifiOff size={16} />{t(locale, "当前离线，部分操作会失败，请检查网络或本地服务。", "You're offline. Some actions may fail. Check the network or local service.")}</div>}
         {notice && <button className="notice toast" onClick={() => setNotice("")}>{notice}</button>}
-        {activeTab === "orders" && <OrdersView orders={orders} locale={locale} currency={currency} user={user} onOrdersChange={setOrders} onNotify={showNotice} />}
+        {activeTab === "orders" && <OrdersView orders={orders} locale={locale} currency={currency} user={user} requestedOrderId={requestedOrderId} onRequestedOrderOpened={clearRequestedOrder} onOrdersChange={setOrders} onNotify={showNotice} />}
         {activeTab === "kitchen" && <KitchenView items={kitchenItems} locale={locale} onStatus={async (item, status) => run(async () => {
           await api(`/orders/${item.order_id}/items/${item.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
           await refresh();
@@ -707,6 +720,7 @@ export default function AdminPage() {
         {activeTab === "ops" && settings && <OpsView health={opsHealth} backups={backups} settings={settings} setSettings={setSettings} locale={locale} onRefresh={refreshOps} onSaved={async () => { await refresh(); await refreshOps(); }} onTestOnlineOrderAlert={testOnlineOrderAlert} />}
         {activeTab === "delivery" && <DeliverySalesView locale={locale} currency={currency} onNotify={showNotice} />}
         {activeTab === "online-orders" && <OnlineOrdersView locale={locale} currency={currency} onNotify={showNotice} />}
+        {activeTab === "lottery" && <LotteryView locale={locale} user={user} onOpenOrder={openOrderFromLottery} onNotify={showNotice} />}
       </section>
       <OnlineOrderAlertModal
         order={onlineOrderAlerts[0]}

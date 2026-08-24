@@ -310,6 +310,8 @@ Configure via `.env` file:
 | `TZ` | `Europe/London` | Timezone for date calculations |
 | `NEXT_PUBLIC_API_URL` | `/api-proxy` | Web → API proxy path |
 | `NEXT_PUBLIC_WS_URL` | (follows `NEXT_PUBLIC_API_URL`) | WebSocket endpoint or proxy path for the frontend |
+| `NEXT_PUBLIC_CUSTOMER_DISPLAY_WS_URL` | automatically uses the current host on port `4000` | Dedicated LAN WebSocket for the customer display; set `ws://POS_IP:4000/ws/customer-display` when needed |
+| `NEXT_PUBLIC_CUSTOMER_DISPLAY_WS_PORT` | `4000` | API port used by automatic customer-display WebSocket discovery |
 | `API_INTERNAL_URL` | `http://api:4000` | Internal API URL for server-side requests |
 | `PRINTER_DEFAULT_HOST` | `192.168.1.100` | Default printer IP |
 | `PRINTER_DEFAULT_PORT` | `9100` | Default printer port |
@@ -317,6 +319,8 @@ Configure via `.env` file:
 | `DOJO_API_KEY` | (optional) | Dojo Go API key for terminal payments |
 | `DOJO_API_BASE_URL` | `https://api.dojo.tech` | Dojo API base URL |
 | `DOJO_API_VERSION` | `2026-02-27` | Dojo API version |
+
+See [Customer Display WebSocket Configuration](./docs/CUSTOMER_DISPLAY_WEBSOCKET.md) for LAN, HTTPS/WSS, reverse-proxy, verification, and troubleshooting instructions. Do not change the website-order `NEXT_PUBLIC_WS_URL` when configuring the customer display.
 
 ---
 

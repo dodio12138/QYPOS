@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, Edit3, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { AlertCircle, Edit3, Gift, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { api, labelOf } from "../../../lib/api";
 
 function t(locale, zh, en) { return locale === "en-GB" ? en : zh; }
@@ -34,6 +34,7 @@ function OrderDetailModal({ order, locale, currency, canAdjustPaidOrder, onClose
   const items = order.items || [];
   const payments = order.payments || [];
   const childOrders = order.child_orders || [];
+  const lotteryRecords = order.lottery_records || [];
   const totalPayments = payments.reduce(
     (sum, p) => sum + Number(p.amount || 0) - Number(p.change_due || 0) - Number(p.retained_amount || 0),
     0
@@ -129,6 +130,31 @@ function OrderDetailModal({ order, locale, currency, canAdjustPaidOrder, onClose
             {totalPayments > 0 && <><span>{t(locale,"已收款","Paid")}</span><span>{money(totalPayments, currency, locale)}</span></>}
             {totalPayments > Number(order.total || 0) && <><span>{t(locale,"需退款","Refund due")}</span><strong>{money(totalPayments - Number(order.total || 0), currency, locale)}</strong></>}
           </div>
+          {lotteryRecords.length > 0 && (
+            <section className="order-lottery-records">
+              <div className="order-lottery-title"><Gift size={17} /><strong>{t(locale, "抽奖结果", "Lottery result")}</strong></div>
+              {lotteryRecords.map((record) => {
+                const prize = record.prize_snapshot || {};
+                const noPrize = prize.kind === "no_prize";
+                return (
+                  <article className="order-lottery-record" key={record.id}>
+                    <div>
+                      <strong>{labelOf(prize.name_i18n, locale) || t(locale, "抽奖结果", "Lottery result")}</strong>
+                      <span>{labelOf(record.campaign_title_i18n, locale)}</span>
+                    </div>
+                    <div className="order-lottery-meta">
+                      <span>{new Date(record.drawn_at).toLocaleString(locale)}</span>
+                      {record.source_order_id !== order.id && <span>{t(locale, "来源订单", "Source order")}: {record.source_order_no}</span>}
+                      {record.claim_code_suffix && <span>{t(locale, "兑奖码", "Claim code")}: •••• {record.claim_code_suffix}</span>}
+                      <em className={`admin-chip ${noPrize ? "chip-grey" : record.redeemed_at ? "chip-green" : "chip-blue"}`}>
+                        {noPrize ? t(locale, "未中奖", "No prize") : record.redeemed_at ? t(locale, "已兑奖", "Redeemed") : t(locale, "中奖 · 待兑奖", "Won · Pending")}
+                      </em>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+          )}
           {order.status === "paid" && (
             <section style={{marginTop:14,padding:12,border:"1px solid var(--line)",borderRadius:8,display:"grid",gap:10}}>
               <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center"}}>
@@ -180,7 +206,7 @@ function OrderDetailModal({ order, locale, currency, canAdjustPaidOrder, onClose
   );
 }
 
-export default function OrdersView({ orders, locale, currency, user, onOrdersChange, onNotify }) {
+export default function OrdersView({ orders, locale, currency, user, requestedOrderId, onRequestedOrderOpened, onOrdersChange, onNotify }) {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [sortBy, setSortBy] = useState("time_desc");
@@ -222,6 +248,24 @@ export default function OrdersView({ orders, locale, currency, user, onOrdersCha
 
   useEffect(() => { setPage(1); }, [filterStatus, filterType, sortBy, search]);
   useEffect(() => { setPage((c) => Math.min(c, totalPages)); }, [totalPages]);
+  useEffect(() => {
+    if (!requestedOrderId) return undefined;
+    let active = true;
+    setLoadingId(requestedOrderId);
+    api(`/orders/${requestedOrderId}`)
+      .then((full) => {
+        if (!active) return;
+        if (!full?.id) throw new Error(t(locale, "找不到原订单", "Original order not found"));
+        setDetailOrder(full);
+      })
+      .catch((error) => { if (active) onNotify?.(error.message); })
+      .finally(() => {
+        if (!active) return;
+        setLoadingId(null);
+        onRequestedOrderOpened?.();
+      });
+    return () => { active = false; };
+  }, [locale, onNotify, onRequestedOrderOpened, requestedOrderId]);
 
   return (
     <>

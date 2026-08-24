@@ -4885,3 +4885,173 @@ button.action-copy:disabled {
   opacity: 0.55;
   border: 1px dashed rgba(255,255,255,0.5);
 }
+
+.lottery-admin-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 14px;
+  align-items: start;
+}
+.lottery-admin-view > .panel { min-width: 0; }
+.lottery-admin-view > .panel:first-child { grid-column: 1 / -1; }
+.lottery-admin-view .settings-form {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: none;
+  gap: 12px;
+}
+.lottery-admin-view .settings-actions { grid-area: auto; }
+.lottery-admin-view .settings-fields {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.lottery-admin-view .settings-fields label {
+  font-size: 12px;
+  font-weight: 700;
+}
+.lottery-admin-view .settings-fields input,
+.lottery-admin-view .settings-fields select { min-height: 40px; border-width: 1.5px; }
+.lottery-prize-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.lottery-prize-editor .panel-title { justify-content: flex-start; gap: 8px; margin-bottom: 2px; }
+.lottery-prize-editor .panel-title span { margin-left: auto; color: var(--accent-strong); font-weight: 800; }
+.lottery-prize-row {
+  display: grid;
+  grid-template-columns: 0.75fr 1.15fr 1.15fr minmax(130px, 0.8fr) 0.75fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.lottery-prize-row input,
+.lottery-prize-row select { min-width: 0; min-height: 40px; border-width: 1.5px; }
+.lottery-weight-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.lottery-weight-field span {
+  min-width: 48px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+.lottery-remove-prize,
+.lottery-cancel-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--muted);
+}
+.lottery-remove-prize { width: 40px; padding: 0; color: var(--danger); }
+.lottery-remove-prize:hover:not(:disabled) { border-color: #fecaca; background: #fef2f2; }
+.lottery-cancel-edit:hover { border-color: var(--accent); color: var(--accent-strong); }
+.lottery-prize-editor > button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 600;
+}
+.lottery-prize-editor > button:hover { border-color: var(--accent); color: var(--accent-strong); }
+.lottery-campaign-list, .lottery-draw-list { display: grid; gap: 8px; }
+.lottery-test-panel { display: grid; gap: 12px; }
+.lottery-test-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.lottery-test-controls label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.lottery-test-controls select { min-width: 0; min-height: 40px; border: 1.5px solid var(--line); }
+.lottery-test-controls button,
+.lottery-test-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  font-weight: 700;
+}
+.lottery-test-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.lottery-campaign-card, .lottery-draw-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.lottery-campaign-card > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.lottery-campaign-card.is-editing { border-color: var(--accent); background: var(--lavender); }
+.lottery-campaign-card span, .lottery-draw-row { color: var(--muted, #6b7280); font-size: 13px; }
+.lottery-draw-result { display: grid; gap: 3px; margin-right: auto; min-width: 0; }
+.lottery-draw-result strong { color: var(--ink); }
+.lottery-draw-result span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lottery-draw-row button { display: inline-flex; align-items: center; gap: 5px; }
+.lottery-redeem-confirmation { display: inline-flex; align-items: center; gap: 6px; }
+.lottery-redeem-confirm { border-color: #86efac; background: #f0fdf4; color: #15803d; font-weight: 700; }
+.lottery-order-link {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 10px;
+  border-color: #f2b8b5;
+  background: #fff;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+.lottery-order-link:hover { border-color: var(--accent); background: var(--lavender); }
+.lottery-delete-campaign { color: var(--danger); }
+.lottery-delete-campaign:hover { border-color: #fecaca; background: #fef2f2; }
+.order-lottery-records {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #f2b8b5;
+  border-radius: 10px;
+  background: #fff8f7;
+}
+.order-lottery-title { display: flex; align-items: center; gap: 7px; color: var(--accent-strong); }
+.order-lottery-record { display: grid; gap: 8px; padding-top: 9px; border-top: 1px solid #f6d6d4; }
+.order-lottery-record > div:first-child { display: grid; gap: 2px; }
+.order-lottery-record > div:first-child span { color: var(--muted); font-size: 12px; }
+.order-lottery-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; color: var(--muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .lottery-admin-view { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .lottery-prize-row { grid-template-columns: 1fr 1fr; }
+  .lottery-campaign-card, .lottery-draw-row { align-items: flex-start; flex-wrap: wrap; }
+  .lottery-test-controls { grid-template-columns: 1fr; }
+}

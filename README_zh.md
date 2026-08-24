@@ -310,6 +310,8 @@ graph TD
 | `TZ` | `Europe/London` | 日期计算的时区 |
 | `NEXT_PUBLIC_API_URL` | `/api-proxy` | 前端 → API 代理路径 |
 | `NEXT_PUBLIC_WS_URL` | （跟随 `NEXT_PUBLIC_API_URL`） | 前端 WebSocket 地址或代理路径 |
+| `NEXT_PUBLIC_CUSTOMER_DISPLAY_WS_URL` | 自动使用当前主机 `4000` 端口 | 顾客屏专用局域网 WebSocket 地址；可设为 `ws://POS_IP:4000/ws/customer-display` |
+| `NEXT_PUBLIC_CUSTOMER_DISPLAY_WS_PORT` | `4000` | 顾客屏专用 WebSocket 自动发现时使用的 API 端口 |
 | `API_INTERNAL_URL` | `http://api:4000` | 服务端内部 API 地址 |
 | `PRINTER_DEFAULT_HOST` | `192.168.1.100` | 默认打印机 IP |
 | `PRINTER_DEFAULT_PORT` | `9100` | 默认打印机端口 |
@@ -317,6 +319,8 @@ graph TD
 | `DOJO_API_KEY` | （可选） | Dojo Go 终端支付 API Key |
 | `DOJO_API_BASE_URL` | `https://api.dojo.tech` | Dojo API 基础地址 |
 | `DOJO_API_VERSION` | `2026-02-27` | Dojo API 版本 |
+
+顾客屏 WebSocket 的局域网直连、HTTPS/WSS、反向代理、验证和排错步骤请参阅 [顾客屏 WebSocket 配置指南](./docs/CUSTOMER_DISPLAY_WEBSOCKET_zh.md)。配置顾客屏时不要修改网站订单使用的 `NEXT_PUBLIC_WS_URL`。
 
 ---
 

@@ -33,6 +33,13 @@ CREATE TABLE settings (
   backup_interval_hours INTEGER NOT NULL DEFAULT 24,
   auto_clear_tables_after_payment BOOLEAN NOT NULL DEFAULT false,
   delivery_auto_sync_enabled BOOLEAN NOT NULL DEFAULT false,
+  customer_display_enabled BOOLEAN NOT NULL DEFAULT true,
+  customer_display_interaction_mode TEXT NOT NULL DEFAULT 'customer_touch',
+  customer_display_show_bill_on_checkout BOOLEAN NOT NULL DEFAULT true,
+  customer_display_auto_show_lottery BOOLEAN NOT NULL DEFAULT false,
+  customer_display_payment_success_seconds INTEGER NOT NULL DEFAULT 5,
+  customer_display_lottery_result_seconds INTEGER NOT NULL DEFAULT 20,
+  customer_display_idle_content JSONB NOT NULL DEFAULT '{}',
   last_backup_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

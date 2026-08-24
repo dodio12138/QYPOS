@@ -126,6 +126,13 @@ app.put("/settings", async (request, reply) => {
       kitchen_qty_bold = COALESCE($23::boolean, kitchen_qty_bold),
       auto_clear_empty_tables_after_idle = COALESCE($24::boolean, auto_clear_empty_tables_after_idle),
       auto_clear_empty_tables_idle_minutes = COALESCE($25::integer, auto_clear_empty_tables_idle_minutes),
+      customer_display_enabled = COALESCE($26::boolean, customer_display_enabled),
+      customer_display_interaction_mode = COALESCE($27, customer_display_interaction_mode),
+      customer_display_show_bill_on_checkout = COALESCE($28::boolean, customer_display_show_bill_on_checkout),
+      customer_display_auto_show_lottery = COALESCE($29::boolean, customer_display_auto_show_lottery),
+      customer_display_payment_success_seconds = COALESCE($30::integer, customer_display_payment_success_seconds),
+      customer_display_lottery_result_seconds = COALESCE($31::integer, customer_display_lottery_result_seconds),
+      customer_display_idle_content = COALESCE($32::jsonb, customer_display_idle_content),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -154,7 +161,14 @@ app.put("/settings", async (request, reply) => {
       body.kitchen_item_bold,
       body.kitchen_qty_bold,
       body.auto_clear_empty_tables_after_idle,
-      body.auto_clear_empty_tables_idle_minutes
+      body.auto_clear_empty_tables_idle_minutes,
+      body.customer_display_enabled,
+      body.customer_display_interaction_mode,
+      body.customer_display_show_bill_on_checkout,
+      body.customer_display_auto_show_lottery,
+      body.customer_display_payment_success_seconds,
+      body.customer_display_lottery_result_seconds,
+      body.customer_display_idle_content === undefined ? null : JSON.stringify(body.customer_display_idle_content)
     ]
   );
   // Auto-heal printer routing: if the configured kitchen/receipt printer id is missing
