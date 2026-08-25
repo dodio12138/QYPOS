@@ -96,10 +96,23 @@ async function insertPrizes(client, campaignId, prizes) {
   }
 }
 
-export default function register({ app, pool, redis, query, one, requirePermission, auditLog, userFromToken, emitCustomerDisplay }) {
+export default function register({ app, pool, redis, query, one, requirePermission, requireAnyPermission, auditLog, userFromToken, emitCustomerDisplay }) {
   app.get("/lottery/public/active", async () => {
     const campaign = await activeLotteryCampaign(pool);
     return campaign ? getLotteryCampaignSnapshot(pool, campaign.id) : null;
+  });
+
+  // The POS customer-display controls need only the campaign state and id;
+  // keep prize and configuration details behind the full lottery permission.
+  app.get("/lottery/control-campaign", async (request, reply) => {
+    if (!await requireAnyPermission(request, reply, ["manage_lottery", "control_customer_display"])) return;
+    return query(
+      `SELECT id, status, created_at, updated_at
+       FROM lottery_campaigns
+       WHERE deleted_at IS NULL AND status IN ('published', 'paused', 'draft')
+       ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
+                updated_at DESC NULLS LAST, created_at DESC`
+    );
   });
 
   app.post("/lottery/public/tickets/validate", async (request, reply) => {
@@ -287,7 +300,7 @@ export default function register({ app, pool, redis, query, one, requirePermissi
   });
 
   app.post("/lottery/campaigns/:id/publish", async (request, reply) => {
-    if (!await requirePermission(request, reply, "manage_lottery")) return;
+    if (!await requireAnyPermission(request, reply, ["manage_lottery", "control_customer_display"])) return;
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -315,7 +328,10 @@ export default function register({ app, pool, redis, query, one, requirePermissi
     ["end", "ended", "lottery.campaign.end"]
   ]) {
     app.post(`/lottery/campaigns/:id/${path}`, async (request, reply) => {
-      if (!await requirePermission(request, reply, "manage_lottery")) return;
+      const allowed = path === "pause"
+        ? await requireAnyPermission(request, reply, ["manage_lottery", "control_customer_display"])
+        : await requirePermission(request, reply, "manage_lottery");
+      if (!allowed) return;
       const updated = await one("UPDATE lottery_campaigns SET status = $2, ended_at = CASE WHEN $2 = 'ended' THEN now() ELSE ended_at END, updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING *", [request.params.id, status]);
       if (!updated) { reply.code(404); return { error: "Campaign not found" }; }
       await auditLog(request, action, "lottery_campaign", updated.id, { status });
@@ -324,7 +340,7 @@ export default function register({ app, pool, redis, query, one, requirePermissi
   }
 
   app.post("/lottery/campaigns/:id/resume", async (request, reply) => {
-    if (!await requirePermission(request, reply, "manage_lottery")) return;
+    if (!await requireAnyPermission(request, reply, ["manage_lottery", "control_customer_display"])) return;
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

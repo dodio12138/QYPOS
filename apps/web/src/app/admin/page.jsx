@@ -676,11 +676,14 @@ export default function AdminPage() {
             {activeTab === "settings" && settings && <p>{`${settings.currency} · Tax ${(Number(settings.tax_rate) * 100).toFixed(1)}% · Service ${(Number(settings.service_charge_rate) * 100).toFixed(1)}%`}</p>}
           </div>
           <div className="top-actions">
-            <span className="user-chip"><User size={16} />{user.name} · {roleLabel(user.role, locale)}</span>
+            <span className="user-chip" title={`${user.name} · ${roleLabel(user.role, locale)}`}><User size={16} /><span className="user-chip-label">{user.name} · {roleLabel(user.role, locale)}</span></span>
             <span className={`realtime-status ${wsStatus}`} title={t(locale, "网站订单实时连接状态", "Website order realtime connection status")}>
-              {t(locale, "实时", "Live")}: {wsStatus === "connected" ? t(locale, "已连接", "Connected") : wsStatus === "connecting" ? t(locale, "连接中", "Connecting") : wsStatus === "error" ? t(locale, "异常", "Error") : t(locale, "已断开", "Disconnected")}
+              <span className="realtime-status-label">{t(locale, "实时", "Live")}: {wsStatus === "connected" ? t(locale, "已连接", "Connected") : wsStatus === "connecting" ? t(locale, "连接中", "Connecting") : wsStatus === "error" ? t(locale, "异常", "Error") : t(locale, "已断开", "Disconnected")}</span>
             </span>
-            <a className="link-button" href="/">{locale === "en-GB" ? "POS" : "点餐前台"}</a>
+            <a className="link-button" href="/" title={locale === "en-GB" ? "POS" : "点餐前台"} aria-label={locale === "en-GB" ? "POS" : "点餐前台"}>
+              <ReceiptText size={18} />
+              <span className="header-action-label">{locale === "en-GB" ? "POS" : "点餐前台"}</span>
+            </a>
             <button onClick={refresh} title={locale === "en-GB" ? "Refresh" : "刷新"}>
               <Save size={18} />
               <span>{locale === "en-GB" ? "Refresh" : "刷新"}</span>

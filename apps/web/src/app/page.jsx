@@ -12,6 +12,7 @@ import {
   Printer,
   RefreshCw,
   Search,
+  Settings,
   ShoppingBag,
   TabletSmartphone,
   Loader2,
@@ -70,7 +71,7 @@ const statusText = {
 
 const UI_COPY = {
   "zh-CN": {
-    posTitle: "点餐前台",
+    posTitle: "前台",
     adminLink: "后台",
     refresh: "刷新",
     refreshing: "刷新中",
@@ -828,11 +829,14 @@ export default function PosPage() {
           <span>{copy.posTitle}</span>
         </div>
         <div className="top-actions">
-          <span className="user-chip"><UserRound size={16} />{user.name}</span>
+          <span className="user-chip" title={user.name}><UserRound size={16} /><span className="user-chip-label">{user.name}</span></span>
           <span className={`realtime-status ${wsStatus}`} title={text(locale, "网站订单实时连接状态", "Website order realtime connection status")}>
-            {text(locale, "实时", "Live")}: {wsStatus === "connected" ? text(locale, "已连接", "Connected") : wsStatus === "connecting" ? text(locale, "连接中", "Connecting") : wsStatus === "error" ? text(locale, "异常", "Error") : text(locale, "已断开", "Disconnected")}
+            <span className="realtime-status-label">{text(locale, "实时", "Live")}: {wsStatus === "connected" ? text(locale, "已连接", "Connected") : wsStatus === "connecting" ? text(locale, "连接中", "Connecting") : wsStatus === "error" ? text(locale, "异常", "Error") : text(locale, "已断开", "Disconnected")}</span>
           </span>
-          <a className="link-button" href="/admin">{copy.adminLink}</a>
+          <a className="link-button" href="/admin" title={copy.adminLink} aria-label={copy.adminLink}>
+            <Settings size={18} />
+            <span className="header-action-label">{copy.adminLink}</span>
+          </a>
           <button className={refreshing ? "is-refreshing" : ""} onClick={manualRefresh} disabled={busy || refreshing} title={copy.refresh}>
             <RefreshCw className={refreshing ? "spin" : ""} size={18} />
             <span>{refreshing ? copy.refreshing : copy.refresh}</span>

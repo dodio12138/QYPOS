@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- feat: Add one Start/Pause lottery toggle to the POS customer-display controls; after pausing, Start resumes the most recently paused campaign while preserving existing permissions and publish, resume, and pause endpoints
+
+- fix: On tablet layouts, make user, realtime status and admin entry icon-first, use icon-only customer display controls, and reclaim vertical space for the table, menu and order workspace
+
+- fix: compact the tablet customer-display controls into one row, keep the POS title horizontal, and make Cashier, live status, and header actions icon-first so the Tables and Menu areas remain visible
+
+- feat: optimise tablet layouts for the POS front end and Admin, aligning QYPOS red navigation, touch targets, step navigation, panel spacing, and preventing order tables or lottery prize editors from overflowing
+
 - fix: audit all lottery-admin numeric fields; minimum order, wheel duration, prize stock, paid feedback, and result duration now support continuous editing and commit-time range normalization
 
 - fix: make exact probability fields continuously editable, selecting the current value on focus so leading zeros no longer turn edits into values such as 02 or 05

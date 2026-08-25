@@ -27,6 +27,6 @@ export const statusText = {
 export function statusLabel(status, locale) { return statusText[locale]?.[status] || status; }
 
 export const UI_COPY = {
-  "zh-CN": { posTitle:"点餐前台", adminLink:"后台", refresh:"刷新", refreshing:"刷新中", takeaway:"外带", tabletMode:"平板模式", desktopMode:"桌面模式", logout:"退出", language:"中文" },
+  "zh-CN": { posTitle:"前台", adminLink:"后台", refresh:"刷新", refreshing:"刷新中", takeaway:"外带", tabletMode:"平板模式", desktopMode:"桌面模式", logout:"退出", language:"中文" },
   "en-GB": { posTitle:"POS", adminLink:"Admin", refresh:"Refresh", refreshing:"Refreshing", takeaway:"Takeaway", tabletMode:"Tablet mode", desktopMode:"Desktop mode", logout:"Sign out", language:"English" }
 };

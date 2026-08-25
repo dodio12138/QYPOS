@@ -1431,6 +1431,31 @@
 }
 .customer-display-lottery-status.is-active { color: #166534; }
 .customer-display-lottery-status.is-active i { background: #16a34a; }
+.customer-display-campaign-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.customer-display-campaign-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+}
+.customer-display-campaign-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.customer-display-campaign-actions button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
 .customer-display-control-actions {
   display: grid;
   grid-template-columns: repeat(4, minmax(118px, 1fr));
@@ -1562,4 +1587,309 @@
     border-left: 0;
     border-top: 1px solid #fecaca;
   }
+}
+
+/* Tablet touch layout: preserve the QYPOS red header, clear step hierarchy
+   and comfortable targets without wasting the limited vertical viewport. */
+@media (min-width: 721px) and (max-width: 1440px) {
+  .pos-shell {
+    height: 100dvh;
+    min-height: 620px;
+  }
+
+  .pos-shell .pos-header {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    min-height: 60px;
+    padding: 8px 14px;
+    gap: 10px;
+  }
+
+  .pos-shell .brand.compact {
+    gap: 7px;
+    font-size: 18px;
+  }
+
+  .pos-shell .brand.compact .brand-logo {
+    width: 32px;
+    height: 28px;
+  }
+
+  .pos-shell .mode-pill {
+    min-width: max-content;
+    padding: 7px 10px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .pos-shell .top-actions {
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .pos-shell .top-actions button,
+  .pos-shell .top-actions .link-button {
+    min-height: 44px;
+    padding: 0 10px;
+  }
+
+  .pos-shell .top-actions button span {
+    display: none;
+  }
+
+  .pos-shell .top-actions button {
+    width: 44px;
+    padding: 0;
+  }
+
+  .pos-shell .top-actions .user-chip,
+  .pos-shell .top-actions .realtime-status {
+    justify-content: center;
+    width: 40px;
+    min-height: 36px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .pos-shell .top-actions .user-chip-label,
+  .pos-shell .top-actions .realtime-status-label,
+  .pos-shell .top-actions .header-action-label {
+    display: none;
+  }
+
+  .pos-shell .top-actions .link-button {
+    min-width: 44px;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .pos-shell .customer-display-control {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    margin: 6px 14px 0;
+    padding: 6px 10px;
+  }
+
+  .pos-shell .customer-display-control-heading,
+  .pos-shell .customer-display-control-actions,
+  .pos-shell .customer-display-control > small {
+    grid-column: 1;
+  }
+
+  .pos-shell .customer-display-control-heading {
+    min-height: 28px;
+    padding: 0 2px;
+  }
+
+  .pos-shell .customer-display-control-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    justify-items: center;
+  }
+
+  .pos-shell .customer-display-control-actions button {
+    min-height: 34px;
+    width: 44px;
+    padding: 0;
+    font-size: 12px;
+    gap: 4px;
+    white-space: nowrap;
+  }
+
+  .pos-shell .customer-display-control-label {
+    display: none;
+  }
+
+  .pos-shell .customer-display-control > small {
+    display: none;
+  }
+
+  .pos-shell .mobile-workflow {
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px 14px 0;
+  }
+
+  .pos-shell .mobile-back-btn,
+  .pos-shell .mobile-order-chip,
+  .pos-shell .mobile-step-tabs button {
+    min-height: 44px;
+  }
+
+  .pos-shell .mobile-step-tabs {
+    width: min(100%, 840px);
+    min-width: 0;
+    justify-self: center;
+    grid-column: 1 / -1;
+    margin-inline: auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .pos-shell .mobile-step-tabs button {
+    min-height: 40px;
+    padding: 0 8px;
+    font-size: 13px;
+    border-radius: 10px 10px 0 0;
+  }
+
+  .pos-shell .pos-board {
+    gap: 12px;
+    padding: 12px 14px 14px;
+  }
+
+  .pos-shell .pos-board .panel {
+    border-radius: 14px;
+  }
+
+  .pos-shell .pos-board.mobile-step-tables .floor-canvas {
+    min-height: max(420px, calc(100dvh - 300px));
+  }
+
+  .pos-shell .sticky-actions {
+    padding-top: 8px;
+  }
+}
+
+/* The front desk can be switched to tablet mode manually. Keep the compact
+   layout tied to that mode as well as the responsive breakpoint so embedded
+   tablet browsers with a wider CSS viewport receive the same treatment. */
+.pos-shell.tablet-mode .pos-header {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  min-height: 60px;
+  padding: 8px 14px;
+  gap: 10px;
+}
+
+.pos-shell.tablet-mode .brand.compact {
+  gap: 7px;
+  font-size: 18px;
+}
+
+.pos-shell.tablet-mode .brand.compact .brand-logo {
+  width: 32px;
+  height: 28px;
+}
+
+.pos-shell.tablet-mode .mode-pill {
+  min-width: max-content;
+  padding: 7px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.pos-shell.tablet-mode .top-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.pos-shell.tablet-mode .top-actions button,
+.pos-shell.tablet-mode .top-actions .link-button {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  justify-content: center;
+}
+
+.pos-shell.tablet-mode .top-actions button span,
+.pos-shell.tablet-mode .top-actions .user-chip-label,
+.pos-shell.tablet-mode .top-actions .realtime-status-label,
+.pos-shell.tablet-mode .top-actions .header-action-label {
+  display: none;
+}
+
+.pos-shell.tablet-mode .top-actions .user-chip,
+.pos-shell.tablet-mode .top-actions .realtime-status {
+  width: 40px;
+  min-height: 36px;
+  padding: 0 8px;
+  justify-content: center;
+}
+
+.pos-shell.tablet-mode .customer-display-control {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  margin: 6px 14px 0;
+  padding: 6px 10px;
+}
+
+.pos-shell.tablet-mode .customer-display-control-heading,
+.pos-shell.tablet-mode .customer-display-control-actions,
+.pos-shell.tablet-mode .customer-display-control > small {
+  grid-column: 1;
+}
+
+.pos-shell.tablet-mode .customer-display-control-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  justify-items: center;
+}
+
+.pos-shell.tablet-mode .customer-display-control-heading {
+  min-height: 28px;
+  padding: 0 2px;
+}
+
+.pos-shell.tablet-mode .customer-display-control-actions button {
+  width: 44px;
+  min-height: 34px;
+  padding: 0;
+  gap: 4px;
+}
+
+.pos-shell.tablet-mode .customer-display-control-label {
+  display: none;
+}
+
+.pos-shell.tablet-mode .customer-display-control > small {
+  display: none;
+}
+
+.pos-shell.tablet-mode .mobile-workflow {
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+
+.pos-shell.tablet-mode .mobile-step-tabs {
+  width: min(100%, 840px);
+  min-width: 0;
+  justify-self: center;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-inline: auto;
+}
+
+.pos-shell.tablet-mode .mobile-step-tabs button {
+  min-height: 40px;
+  padding: 0 8px;
+  font-size: 13px;
+  border-radius: 10px 10px 0 0;
+}
+
+/* These elements are hidden on desktop and should always consume the full
+   front-desk width whenever the compact workflow is visible. */
+.mobile-workflow {
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mobile-step-tabs {
+  width: min(100%, 840px);
+  min-width: 0;
+  justify-self: center;
+  grid-column: 1 / -1;
+  margin-inline: auto;
 }

@@ -5175,3 +5175,122 @@ button.action-copy:disabled {
   .lottery-display-image-setting { grid-template-columns: 1fr; }
   .lottery-display-image-preview { justify-content: flex-start; }
 }
+
+/* Tablet layout: preserve the QYPOS panel rhythm while giving touch controls
+   room to breathe and preventing dense admin rows from overflowing. */
+@media (min-width: 721px) and (max-width: 1440px) {
+  main.admin-shell {
+    min-height: 100dvh;
+  }
+
+  main.admin-shell > .sidebar {
+    flex-basis: 196px;
+    width: 196px;
+    padding: 16px 10px;
+  }
+
+  main.admin-shell > .sidebar nav button {
+    min-height: 44px;
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  main.admin-shell > .workspace {
+    padding: 16px;
+  }
+
+  main.admin-shell .topbar {
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  main.admin-shell .topbar h1 {
+    font-size: 24px;
+  }
+
+  main.admin-shell .topbar .top-actions {
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  main.admin-shell .topbar .top-actions button,
+  main.admin-shell .topbar .top-actions .link-button {
+    min-height: 44px;
+    padding: 0 10px;
+  }
+
+  main.admin-shell .topbar .top-actions .user-chip,
+  main.admin-shell .topbar .top-actions .realtime-status {
+    justify-content: center;
+    width: 40px;
+    min-height: 36px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  main.admin-shell .topbar .top-actions .user-chip-label,
+  main.admin-shell .topbar .top-actions .realtime-status-label,
+  main.admin-shell .topbar .top-actions .header-action-label {
+    display: none;
+  }
+
+  main.admin-shell .topbar .top-actions .link-button {
+    width: 44px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  main.admin-shell .panel {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .orders-toolbar {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .orders-search {
+    flex: 1 1 220px;
+  }
+
+  .orders-table {
+    overflow-x: auto;
+  }
+
+  .orders-table-head,
+  .orders-table-row {
+    min-width: 640px;
+  }
+
+  .lottery-prize-row {
+    grid-template-columns: 0.8fr 0.9fr minmax(150px, 1fr) minmax(150px, 1fr);
+  }
+
+  .lottery-prize-row .lottery-weight-field {
+    grid-column: 1 / -1;
+  }
+
+  .lottery-campaign-card,
+  .lottery-draw-row {
+    min-height: 64px;
+  }
+}
+
+@media (max-width: 900px) {
+  .lottery-prize-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lottery-prize-row .lottery-weight-field {
+    grid-column: 1 / -1;
+  }
+
+  .lottery-display-image-setting {
+    grid-template-columns: 1fr;
+  }
+
+  .lottery-display-image-preview {
+    justify-content: flex-start;
+  }
+}
