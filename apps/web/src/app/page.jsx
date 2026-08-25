@@ -585,17 +585,24 @@ export default function PosPage() {
 
   async function submitOrder() {
     if (!selectedOrder) return;
+    if (["cancelled", "split"].includes(selectedOrder.status)) return;
     if (!(selectedOrder.items || []).length) {
       setNotice(text(locale, "订单没有菜品，无法提交", "This order has no items and cannot be submitted"));
       return;
     }
+    const isPaidOrder = selectedOrder.status === "paid";
+    const isKitchenReprint = ["paid", "submitted", "preparing", "ready", "ready_to_serve", "partially_served", "pending_payment"].includes(selectedOrder.status);
     kitchenPrintRef.current = true;
     setConfirmAction({
-      title: text(locale, "厨房下单", "Send to kitchen"),
-      message: text(locale, "确认下单？新菜品将发送到厨房。", "Submit this order? New items will be sent to the kitchen."),
-      confirmLabel: text(locale, "确认下单", "Submit"),
+      title: isKitchenReprint ? text(locale, "补打后厨单", "Reprint kitchen") : text(locale, "厨房下单", "Send to kitchen"),
+      message: isPaidOrder
+        ? text(locale, "该订单已付款，是否补打后厨单？订单状态将保持为已付款。", "This order is already paid. Reprint the kitchen ticket? Its status will remain paid.")
+        : isKitchenReprint
+          ? text(locale, "该订单已经发送过后厨，是否补打后厨单？订单状态不会改变。", "This order has already been sent to the kitchen. Reprint the kitchen ticket? Its status will not change.")
+        : text(locale, "确认下单？新菜品将发送到厨房。", "Submit this order? New items will be sent to the kitchen."),
+      confirmLabel: isKitchenReprint ? text(locale, "补打后厨单", "Reprint kitchen") : text(locale, "确认下单", "Submit"),
       icon: <Printer size={22} />,
-      extra: (
+      extra: !isKitchenReprint && (
         <label className="modal-print-toggle">
           <input
             type="checkbox"
@@ -614,7 +621,11 @@ export default function PosPage() {
           });
           setSelectedOrder(await api(`/orders/${selectedOrder.id}`));
           await refresh(false);
-        }, shouldPrint ? text(locale, "已下单，厨打已发送", "Submitted, kitchen print sent") : text(locale, "已下单", "Submitted"));
+        }, isPaidOrder
+          ? text(locale, "后厨单已补打，订单仍为已付款", "Kitchen ticket reprinted; order remains paid")
+          : isKitchenReprint
+            ? text(locale, "后厨单已补打，订单状态未改变", "Kitchen ticket reprinted; order status unchanged")
+            : shouldPrint ? text(locale, "已下单，厨打已发送", "Submitted, kitchen print sent") : text(locale, "已下单", "Submitted"));
         setConfirmAction(null);
       }
     });

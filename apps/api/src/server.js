@@ -893,6 +893,12 @@ export async function createPrintJob(orderId, type) {
 }
 
 export async function updateOrderKitchenState(orderId) {
+  const currentOrder = await one("SELECT * FROM orders WHERE id = $1", [orderId]);
+  if (!currentOrder) return null;
+  // Kitchen updates can arrive from a stale screen after payment has already
+  // completed. Never let kitchen progress downgrade a paid/cancelled/split
+  // order's lifecycle or accounting state.
+  if (["paid", "cancelled", "split"].includes(currentOrder.status)) return currentOrder;
   const items = await query("SELECT status FROM order_items WHERE order_id = $1 AND status <> 'cancelled'", [orderId]);
   if (!items.length) return null;
 
@@ -900,7 +906,8 @@ export async function updateOrderKitchenState(orderId) {
   if (items.some((item) => item.status === "preparing")) status = "preparing";
   if (items.every((item) => ["ready_to_serve", "served"].includes(item.status))) status = "ready";
 
-  const order = await one("UPDATE orders SET status = $2, updated_at = now() WHERE id = $1 RETURNING *", [orderId, status]);
+  const order = await one("UPDATE orders SET status = $2, updated_at = now() WHERE id = $1 AND status NOT IN ('paid', 'cancelled', 'split') RETURNING *", [orderId, status]);
+  if (!order) return one("SELECT * FROM orders WHERE id = $1", [orderId]);
   if (order?.table_id) {
     const tableStatus = status === "ready" ? "ready_to_serve" : status;
     await query("UPDATE tables SET status = $2, updated_at = now() WHERE id = $1", [order.table_id, tableStatus]);

@@ -213,9 +213,9 @@ export default function OrderPanel({ order, orders, tables, locale, currency, us
             </div>
           </details>
           <div className="action-row sticky-actions">
-            <button onClick={onSubmit} disabled={busy || !(order.items || []).length || order.status === "split"}>
+            <button onClick={onSubmit} disabled={busy || !(order.items || []).length || ["cancelled", "split"].includes(order.status)}>
               <Printer size={18} />
-              <span>{text(locale, "厨房下单", "Send to kitchen")}</span>
+              <span>{["paid", "submitted", "preparing", "ready", "ready_to_serve", "partially_served", "pending_payment"].includes(order.status) ? text(locale, "补打后厨单", "Reprint kitchen") : text(locale, "厨房下单", "Send to kitchen")}</span>
             </button>
             <button onClick={onPrintBill} disabled={busy || !(order.items || []).length}>
               <ClipboardList size={18} />

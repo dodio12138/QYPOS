@@ -700,6 +700,12 @@ app.post("/orders/:id/cancel", async (request, reply) => {
 
 app.post("/orders/:id/submit", async (request, reply) => {
   if (!await requirePermission(request, reply, "create_order")) return;
+  const currentOrder = await one("SELECT * FROM orders WHERE id = $1", [request.params.id]);
+  if (!currentOrder) { reply.code(404); return { error: "Order not found" }; }
+  if (["cancelled", "split"].includes(currentOrder.status)) {
+    reply.code(409);
+    return { error: "Cancelled or split orders cannot be sent to the kitchen" };
+  }
   const itemCount = await one("SELECT COUNT(*)::integer AS count FROM order_items WHERE order_id = $1", [request.params.id]);
   if (Number(itemCount?.count ?? 0) === 0) {
     reply.code(400);
@@ -707,9 +713,53 @@ app.post("/orders/:id/submit", async (request, reply) => {
   }
   const body = request.body ?? {};
   const shouldPrint = body.print !== false;
+
+  // Orders that have already entered the kitchen lifecycle may still need a
+  // ticket for a newly added item or a printer retry. Reprint them without
+  // changing their current lifecycle/accounting state.
+  const kitchenReprintStatuses = ["paid", "submitted", "preparing", "ready", "ready_to_serve", "partially_served", "pending_payment"];
+  if (kitchenReprintStatuses.includes(currentOrder.status)) {
+    let job = null;
+    if (shouldPrint) {
+      try {
+        job = await createPrintJob(currentOrder.id, "kitchen");
+      } catch (printErr) {
+        if (printErr?.message === "No new items to print to kitchen") {
+          reply.code(printErr.statusCode ?? 409);
+          return { error: printErr.message };
+        }
+        // Keep the existing submit behavior: an unavailable printer should
+        // not turn a successful payment into an API failure.
+      }
+    }
+    const action = currentOrder.status === "paid" ? "order.kitchen_print_after_paid" : "order.kitchen_print_reprint";
+    await auditLog(request, action, "order", currentOrder.id, { print_job_id: job?.id ?? null, status: currentOrder.status });
+    return { order: currentOrder, print_job: job, kitchen_reprint: true, paid_reprint: currentOrder.status === "paid" };
+  }
+
   const order = await recalculateOrder(request.params.id);
   // 先更新状态，再尝试打印（打印失败不影响下单）
-  const updated = await one("UPDATE orders SET status = 'submitted', updated_at = now() WHERE id = $1 RETURNING *", [order.id]);
+  // Keep this conditional so a payment that commits while the request is in
+  // flight cannot be downgraded from paid to submitted.
+  const updated = await one("UPDATE orders SET status = 'submitted', updated_at = now() WHERE id = $1 AND status NOT IN ('paid', 'cancelled', 'split') RETURNING *", [order.id]);
+  if (!updated) {
+    const latest = await one("SELECT * FROM orders WHERE id = $1", [order.id]);
+    if (latest?.status === "paid") {
+      let job = null;
+      if (shouldPrint) {
+        try { job = await createPrintJob(latest.id, "kitchen"); } catch (printErr) {
+          if (printErr?.message === "No new items to print to kitchen") {
+            reply.code(printErr.statusCode ?? 409);
+            return { error: printErr.message };
+          }
+        }
+      }
+      await auditLog(request, "order.kitchen_print_after_paid", "order", latest.id, { print_job_id: job?.id ?? null });
+      return { order: latest, print_job: job, paid_reprint: true };
+    }
+    reply.code(409);
+    return { error: "Order cannot be sent to the kitchen in its current state" };
+  }
   if (updated.table_id) {
     await query("UPDATE tables SET status = 'ordered', updated_at = now() WHERE id = $1", [updated.table_id]);
     emit("table.status.updated", { table_id: updated.table_id, status: "ordered" });

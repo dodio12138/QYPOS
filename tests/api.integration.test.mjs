@@ -393,6 +393,7 @@ describe("order lifecycle", async () => {
     });
     await req(`/orders/${order.id}/submit`, { method: "POST" });
     const second = await req(`/orders/${order.id}`);
+    assert.equal(second.status, "submitted");
     assert.equal(second.items.filter((i) => i.kitchen_printed_at).length, 2);
   });
 
@@ -495,6 +496,23 @@ describe("order lifecycle", async () => {
     const detail = await req(`/orders/${order.id}`);
     assert.deepEqual(detail.payments.map((payment) => payment.method), ["cash", "card"]);
     assert.deepEqual(detail.payments.map((payment) => Number(payment.amount)), [cashAmount, cardAmount]);
+
+    // A paid order may still be sent to the kitchen for a reprint, but the
+    // submit endpoint must not downgrade its lifecycle status.
+    const reprint = await req(`/orders/${order.id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ print: false }),
+    });
+    assert.equal(reprint.paid_reprint, true);
+    assert.equal(reprint.order.status, "paid");
+
+    // A stale kitchen screen must not overwrite paid with a kitchen progress
+    // status either.
+    const kitchenUpdate = await req(`/orders/${order.id}/items/${detail.items[0].id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "preparing" }),
+    });
+    assert.equal(kitchenUpdate.order.status, "paid");
   });
 
   test("manual non-cash payment cannot exceed the remaining balance or include change", async () => {
