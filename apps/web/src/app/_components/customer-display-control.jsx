@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, Gift, Home, Monitor, ReceiptText, Sparkles, TicketCheck } from "lucide-react";
+import { CircleCheck, Gift, Home, MessageCircle, Monitor, ReceiptText, Sparkles, TicketCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, labelOf } from "../../lib/api";
 import { nextPosLotteryFeedback, POS_LOTTERY_FEEDBACK_MS } from "./customer-display-control-helpers";
@@ -13,9 +13,32 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
   const [busy, setBusy] = useState("");
   const [orderLottery, setOrderLottery] = useState(null);
   const [lotteryFeedback, setLotteryFeedback] = useState(null);
+  const [activeCampaign, setActiveCampaign] = useState(null);
   const feedbackTrackerRef = useRef({ initialized: false, seenDrawId: null });
   const feedbackTimerRef = useRef(null);
   const canControl = Boolean(user?.permissions?.includes("control_customer_display"));
+
+  useEffect(() => {
+    let active = true;
+    if (!canControl) {
+      setActiveCampaign(null);
+      return undefined;
+    }
+    async function refreshActiveCampaign() {
+      try {
+        const campaign = await api("/lottery/public/active");
+        if (active) setActiveCampaign(campaign || null);
+      } catch {
+        if (active) setActiveCampaign(null);
+      }
+    }
+    refreshActiveCampaign();
+    const timer = window.setInterval(refreshActiveCampaign, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [canControl]);
 
   useEffect(() => {
     let active = true;
@@ -82,6 +105,10 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
     <section className="customer-display-control" aria-label={text(locale, "顾客屏控制", "Customer display controls")}>
       <div className="customer-display-control-heading">
         <span><Monitor size={16} />{text(locale, "顾客屏", "Customer display")}</span>
+        <span className={`customer-display-lottery-status${activeCampaign ? " is-active" : ""}`} title={activeCampaign ? labelOf(activeCampaign.title_i18n, locale) : undefined}>
+          <i aria-hidden="true" />
+          {activeCampaign ? text(locale, "抽奖活动进行中", "Lottery active") : text(locale, "暂无抽奖活动", "No active draw")}
+        </span>
       </div>
       <div className="customer-display-control-actions">
         <button type="button" onClick={() => call("idle", "/customer-display/reset")} disabled={busy !== ""}>
@@ -89,6 +116,9 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
         </button>
         <button type="button" onClick={() => call("bill", "/customer-display/show-order", { order_id: order?.id })} disabled={disabled}>
           <ReceiptText size={15} />{busy === "bill" ? "…" : text(locale, "显示账单", "Show bill")}
+        </button>
+        <button type="button" onClick={() => call("lottery_invitation", "/customer-display/show-lottery-invitation", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"}>
+          <MessageCircle size={15} />{busy === "lottery_invitation" ? "…" : text(locale, "显示邀请页", "Show invitation")}
         </button>
         <button type="button" onClick={() => call("lottery", "/customer-display/show-lottery", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"}>
           <Sparkles size={15} />{busy === "lottery" ? "…" : text(locale, "抽奖节目", "Lottery screen")}
@@ -109,7 +139,7 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
                   : text(locale, "本次未中奖", "No prize this time")
                 : text(locale, "抽奖资格已绑定此订单", "Lottery entry linked to this order")}
             </strong>
-            {instantPrize ? <small>{text(locale, "请现场发放奖品", "Give this prize now")}</small> : draw?.redeemed_at ? <small>{text(locale, "奖品已兑奖", "Prize redeemed")}</small> : null}
+            {draw?.voided_at ? <small>{text(locale, "中奖记录已作废", "Prize record voided")}</small> : instantPrize ? <small>{text(locale, "请现场发放奖品", "Give this prize now")}</small> : draw?.redeemed_at ? <small>{text(locale, "奖品已兑奖", "Prize redeemed")}</small> : null}
           </span>
           {won && draw.claim_code_suffix ? (
             <span className="customer-display-order-lottery-code">

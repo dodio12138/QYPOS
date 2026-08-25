@@ -322,8 +322,21 @@
 }
 
 .customer-display-paid-pill {
+  gap: 6px;
   background: rgba(16, 185, 129, 0.18);
   color: #bbf7d0;
+}
+.customer-display-payment-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  background: #ecfdf5;
+  color: #166534;
+  font-size: clamp(1.05rem, 1vw + 0.7rem, 1.45rem);
 }
 
 .customer-display-side-panel {
@@ -821,28 +834,32 @@
 .customer-display-invitation-icon {
   display: grid;
   place-items: center;
-  width: 82px;
-  height: 82px;
-  border: 1px solid #f2b8b5;
-  border-radius: 20px;
-  background: var(--lavender);
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--accent-strong);
 }
-.customer-display-invitation-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--accent-strong);
-  font-size: clamp(0.95rem, 0.6vw + 0.85rem, 1.2rem);
-  font-weight: 800;
+.customer-display-invitation-image {
+  display: block;
+  width: min(220px, 42vw);
+  max-height: 220px;
+  margin: 4px auto 8px;
+  object-fit: contain;
+  border-radius: 12px;
 }
 .customer-display-lottery-invitation h1 {
+  display: grid;
+  gap: 8px;
   max-width: 950px;
   font-size: clamp(1.8rem, 3.5vw, 3.7rem);
   line-height: 1.24;
   letter-spacing: 0;
   text-wrap: balance;
 }
+.customer-display-lottery-invitation h1 span { display: block; }
 .customer-display-invitation-actions {
   display: grid;
   grid-template-columns: minmax(150px, 0.72fr) minmax(220px, 1fr);

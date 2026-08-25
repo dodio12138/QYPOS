@@ -63,6 +63,7 @@ test("customer display lottery invitation settings have editable bilingual defau
 
   assert.equal(defaults.lottery_invitation_enabled, true);
   assert.match(defaults.lottery_invitation_i18n["en-GB"], /Lucky Wheel/);
+  assert.equal(defaults.invitation_image_url, "/customer-display/default-review-qr.png");
   assert.equal(configured.lottery_invitation_enabled, false);
   assert.deepEqual(configured.lottery_invitation_i18n, { "zh-CN": "写评论后抽奖", "en-GB": "Review to enter" });
 });

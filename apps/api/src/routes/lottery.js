@@ -58,6 +58,10 @@ function campaignPayload(body = {}) {
   const startsAt = new Date(body.starts_at);
   const endsAt = new Date(body.ends_at);
   if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) throw fail("Campaign start and end times are invalid");
+  const spinDurationSeconds = Number(body.spin_duration_seconds ?? 10);
+  if (!Number.isFinite(spinDurationSeconds) || !Number.isInteger(spinDurationSeconds) || spinDurationSeconds < 3 || spinDurationSeconds > 30) {
+    throw fail("Wheel spin duration must be a whole number between 3 and 30 seconds");
+  }
   return {
     internal_name: String(body.internal_name || "").trim(),
     title_i18n: jsonObject(body.title_i18n),
@@ -68,6 +72,7 @@ function campaignPayload(body = {}) {
     status: "draft",
     starts_at: startsAt.toISOString(),
     ends_at: endsAt.toISOString(),
+    spin_duration_seconds: spinDurationSeconds,
     minimum_order_total: Number(body.minimum_order_total || 0),
     // PostgreSQL's `pg` driver serializes JavaScript arrays as SQL arrays.
     // These columns are JSONB, so serialize explicitly to avoid a 400 from
@@ -183,9 +188,9 @@ export default function register({ app, pool, redis, query, one, requirePermissi
         await client.query("BEGIN");
         const inserted = await client.query(
           `INSERT INTO lottery_campaigns
-            (internal_name, title_i18n, subtitle_i18n, button_i18n, losing_message_i18n, rules_i18n, starts_at, ends_at, minimum_order_total, service_types, excluded_payment_methods, ticket_valid_minutes, claim_valid_minutes, theme, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-          [campaign.internal_name, campaign.title_i18n, campaign.subtitle_i18n, campaign.button_i18n, campaign.losing_message_i18n, campaign.rules_i18n, campaign.starts_at, campaign.ends_at, campaign.minimum_order_total, campaign.service_types, campaign.excluded_payment_methods, campaign.ticket_valid_minutes, campaign.claim_valid_minutes, campaign.theme, (await userFromToken(request))?.id ?? null]
+            (internal_name, title_i18n, subtitle_i18n, button_i18n, losing_message_i18n, rules_i18n, starts_at, ends_at, spin_duration_seconds, minimum_order_total, service_types, excluded_payment_methods, ticket_valid_minutes, claim_valid_minutes, theme, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+          [campaign.internal_name, campaign.title_i18n, campaign.subtitle_i18n, campaign.button_i18n, campaign.losing_message_i18n, campaign.rules_i18n, campaign.starts_at, campaign.ends_at, campaign.spin_duration_seconds, campaign.minimum_order_total, campaign.service_types, campaign.excluded_payment_methods, campaign.ticket_valid_minutes, campaign.claim_valid_minutes, campaign.theme, (await userFromToken(request))?.id ?? null]
         );
         await insertPrizes(client, inserted.rows[0].id, prizes);
         await client.query("COMMIT");
@@ -230,10 +235,11 @@ export default function register({ app, pool, redis, query, one, requirePermissi
         `UPDATE lottery_campaigns SET
            internal_name = $2, title_i18n = $3, subtitle_i18n = $4, button_i18n = $5,
            losing_message_i18n = $6, rules_i18n = $7, starts_at = $8, ends_at = $9,
-           minimum_order_total = $10, service_types = $11, excluded_payment_methods = $12,
-           ticket_valid_minutes = $13, claim_valid_minutes = $14, theme = $15, updated_at = now()
+           spin_duration_seconds = $10, minimum_order_total = $11, service_types = $12,
+           excluded_payment_methods = $13, ticket_valid_minutes = $14, claim_valid_minutes = $15,
+           theme = $16, updated_at = now()
          WHERE id = $1 RETURNING *`,
-        [campaign.id, payload.internal_name, payload.title_i18n, payload.subtitle_i18n, payload.button_i18n, payload.losing_message_i18n, payload.rules_i18n, payload.starts_at, payload.ends_at, payload.minimum_order_total, payload.service_types, payload.excluded_payment_methods, payload.ticket_valid_minutes, payload.claim_valid_minutes, payload.theme]
+        [campaign.id, payload.internal_name, payload.title_i18n, payload.subtitle_i18n, payload.button_i18n, payload.losing_message_i18n, payload.rules_i18n, payload.starts_at, payload.ends_at, payload.spin_duration_seconds, payload.minimum_order_total, payload.service_types, payload.excluded_payment_methods, payload.ticket_valid_minutes, payload.claim_valid_minutes, payload.theme]
       )).rows[0];
 
       // Move old positions out of the active range before reordering. This
@@ -396,9 +402,9 @@ export default function register({ app, pool, redis, query, one, requirePermissi
     const draw = await one("SELECT * FROM lottery_draws WHERE id = $1", [request.params.id]);
     if (!draw) { reply.code(404); return { error: "Draw not found" }; }
     const prize = jsonObject(draw.prize_snapshot);
-    if (prize.kind === "no_prize" || prize.fulfillment_type === "instant") {
+    if (prize.kind === "no_prize") {
       reply.code(409);
-      return { error: "This prize does not require redemption" };
+      return { error: "A no-prize result cannot be voided" };
     }
     if (draw.voided_at) return { ...draw, already_voided: true };
     if (draw.redeemed_at) {

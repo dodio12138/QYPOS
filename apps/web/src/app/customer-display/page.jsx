@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Gift, Loader2, Receipt, Sparkles, Trophy, Volume2, VolumeX } from "lucide-react";
+import { AlertCircle, CircleCheck, Gift, Loader2, Receipt, Sparkles, Trophy, Volume2, VolumeX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, labelOf } from "../../lib/api";
 import qyposLogo from "../../pic/logo.png";
@@ -15,6 +15,7 @@ const FALLBACK_STATE = {
 };
 
 const CUSTOMER_DISPLAY_POLL_MS = 1000;
+const LOTTERY_RESULT_SOUND_DELAY_MS = 220;
 const CUSTOMER_DISPLAY_EVENTS = new Set([
   "customer_display.idle",
   "customer_display.bill",
@@ -224,6 +225,8 @@ function sanitizeState(source) {
   const order = payload?.order || bill?.order || {};
   const billItems = Array.isArray(bill?.items || order?.items) ? bill.items || order.items : [];
   const wheelSegments = normalizeWheelSegments(payload, locale);
+  const rawSpinDurationSeconds = Number(payload?.spin_duration_seconds ?? payload?.campaign?.spin_duration_seconds ?? 10);
+  const spinDurationMs = Math.min(30000, Math.max(3000, Number.isFinite(rawSpinDurationSeconds) ? rawSpinDurationSeconds * 1000 : LOTTERY_SPIN_MS));
 
   return {
     revision,
@@ -234,6 +237,7 @@ function sanitizeState(source) {
       currency,
       restaurantName: labelOf(payload?.restaurant_name_i18n || payload?.restaurant_name || payload?.brand?.name_i18n, locale) || "QYPOS",
       logoUrl: payload?.logo_url || payload?.idle_content?.logo_url || "/pic/logo.png",
+      invitationImageUrl: payload?.invitation_image_url || payload?.review_image_url || payload?.idle_content?.review_image_url || "/customer-display/default-review-qr.png",
       welcomeTitle: labelOf(payload?.idle_content?.title_i18n || payload?.welcome_title_i18n || payload?.title_i18n, locale),
       welcomeTitleI18n: payload?.idle_content?.title_i18n || payload?.welcome_title_i18n || payload?.title_i18n || {},
       welcomeMessage: labelOf(payload?.idle_content?.message_i18n || payload?.idle_content?.subtitle_i18n || payload?.welcome_message_i18n || payload?.brand?.welcome_i18n || payload?.subtitle_i18n, locale),
@@ -272,6 +276,7 @@ function sanitizeState(source) {
       ticketId: payload?.ticket_id || null,
       actionToken: payload?.action_token || null,
       invitationToken: payload?.invitation_token || null,
+      spinDurationMs,
       claimExpiresAt: toIsoOrNull(payload?.claim_expires_at || payload?.result_expires_at),
       disconnected: Boolean(payload?.disconnected || mode === "disconnected")
     }
@@ -302,7 +307,7 @@ function useNow(tickMs = 1000) {
   return now;
 }
 
-function Wheel({ state, spinning, reducedMotion, interactive, onSwipe, ariaLabel }) {
+function Wheel({ state, spinning, reducedMotion, interactive, onSwipe, onGesture, ariaLabel }) {
   const [dragRotation, setDragRotation] = useState(0);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef(null);
@@ -319,6 +324,7 @@ function Wheel({ state, spinning, reducedMotion, interactive, onSwipe, ariaLabel
 
   function beginDrag(event) {
     if (!interactive || spinning || dragRef.current) return;
+    void onGesture?.();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     dragRef.current = { pointerId: event.pointerId, lastAngle: pointerAngle(event, event.currentTarget), distance: 0 };
     setDragging(true);
@@ -361,7 +367,7 @@ function Wheel({ state, spinning, reducedMotion, interactive, onSwipe, ariaLabel
         className={`customer-display-wheel${spinning ? " is-spinning" : ""}${reducedMotion ? " is-reduced-motion" : ""}`}
         style={{
           transform: `rotate(${rotation}deg)`,
-          transitionDuration: dragging ? "0ms" : spinning ? reducedMotion ? "220ms" : `${LOTTERY_SPIN_MS}ms` : "0ms"
+          transitionDuration: dragging ? "0ms" : spinning ? reducedMotion ? "220ms" : `${state.payload.spinDurationMs || LOTTERY_SPIN_MS}ms` : "0ms"
         }}
         aria-hidden={interactive ? undefined : "true"}
       >
@@ -502,6 +508,7 @@ export default function CustomerDisplayPage() {
   const audioContextRef = useRef(null);
   const tickTimersRef = useRef([]);
   const soundedResultRevisionRef = useRef(0);
+  const resultSoundTimerRef = useRef(null);
   const reducedMotion = useReducedMotion();
   const now = useNow(1000);
 
@@ -529,7 +536,8 @@ export default function CustomerDisplayPage() {
   const locale = effectiveState.payload.locale || "zh-CN";
   const currency = effectiveState.payload.currency || "GBP";
   const lotteryPhase = lotteryPresentationPhase(effectiveState, revealedResultRevision);
-  const isSpinning = effectiveState.mode === "lottery_result" && lotteryPhase === "drawing";
+  const isSpinning = effectiveState.mode === "lottery_spinning"
+    || (effectiveState.mode === "lottery_result" && lotteryPhase === "drawing");
   const showLotteryResult = lotteryPhase === "result";
 
   const resumeAudioContext = useCallback(async () => {
@@ -560,29 +568,37 @@ export default function CustomerDisplayPage() {
     clearTickTimers();
     if (!isSpinning || !soundEnabled) return undefined;
     let cancelled = false;
+    const spinDurationMs = effectiveState.payload.spinDurationMs || LOTTERY_SPIN_MS;
     ensureAudioContext().then((context) => {
       if (cancelled || !context) return;
-      tickTimersRef.current = lotteryTickSchedule().map((delay) => window.setTimeout(() => playWheelTick(context, delay / LOTTERY_SPIN_MS), delay));
+      tickTimersRef.current = lotteryTickSchedule(spinDurationMs).map((delay) => window.setTimeout(() => playWheelTick(context, delay / spinDurationMs), delay));
     });
     return () => {
       cancelled = true;
       clearTickTimers();
     };
-  }, [clearTickTimers, ensureAudioContext, isSpinning, reducedMotion, soundEnabled]);
+  }, [clearTickTimers, effectiveState.payload.spinDurationMs, ensureAudioContext, isSpinning, reducedMotion, soundEnabled]);
 
   useEffect(() => {
     if (!showLotteryResult || soundedResultRevisionRef.current === effectiveState.revision) return;
     soundedResultRevisionRef.current = effectiveState.revision;
     if (!soundEnabled) return;
     let cancelled = false;
-    ensureAudioContext().then((context) => {
-      if (!cancelled && context) playWheelBell(context);
-    });
-    return () => { cancelled = true; };
+    resultSoundTimerRef.current = window.setTimeout(() => {
+      ensureAudioContext().then((context) => {
+        if (!cancelled && context) playWheelBell(context);
+      });
+    }, LOTTERY_RESULT_SOUND_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(resultSoundTimerRef.current);
+      resultSoundTimerRef.current = null;
+    };
   }, [effectiveState.revision, ensureAudioContext, showLotteryResult, soundEnabled]);
 
   useEffect(() => () => {
     clearTickTimers();
+    window.clearTimeout(resultSoundTimerRef.current);
     const closing = audioContextRef.current?.close?.();
     closing?.catch?.(() => {});
   }, [clearTickTimers]);
@@ -643,7 +659,7 @@ export default function CustomerDisplayPage() {
     if (normalized.mode === "lottery_result" && scheduledResultRevisionRef.current !== normalized.revision) {
       scheduledResultRevisionRef.current = normalized.revision;
       window.clearTimeout(resultRevealTimerRef.current);
-      const revealDelay = reducedMotion ? 270 : LOTTERY_SPIN_MS + 100;
+      const revealDelay = reducedMotion ? 270 : (normalized.payload.spinDurationMs || LOTTERY_SPIN_MS) + 100;
       resultRevealTimerRef.current = window.setTimeout(() => {
         setRevealedResultRevision(normalized.revision);
       }, revealDelay);
@@ -826,8 +842,11 @@ export default function CustomerDisplayPage() {
         {!loading && effectiveState.mode === "lottery_invitation" ? (
           <section className="customer-display-center-panel customer-display-lottery-invitation" role="dialog" aria-modal="true" aria-labelledby="lottery-invitation-title">
             <div className="customer-display-invitation-icon" aria-hidden="true"><Gift size={42} /></div>
-            <span className="customer-display-invitation-kicker"><Sparkles size={18} />{bilingual("幸运抽奖", "Lucky draw")}</span>
-            <h1 id="lottery-invitation-title">{bilingualLabel(effectiveState.payload.invitationI18n, "留下 Google 评论即可参加幸运大转盘抽奖", "Leave us a Google review to join the Lucky Wheel draw")}</h1>
+            {effectiveState.payload.invitationImageUrl ? <img src={effectiveState.payload.invitationImageUrl} alt="" className="customer-display-invitation-image" /> : null}
+            <h1 id="lottery-invitation-title">
+              <span lang="zh-CN">{effectiveState.payload.invitationI18n?.["zh-CN"] || "留下 Google 评论即可参加幸运大转盘抽奖"}</span>
+              <span lang="en">{effectiveState.payload.invitationI18n?.["en-GB"] || "Leave us a Google review to join the Lucky Wheel draw"}</span>
+            </h1>
             <div className="customer-display-invitation-actions">
               <button type="button" className="customer-display-invitation-no" disabled={invitationBusy} onClick={() => respondToInvitation(false)}>{bilingual("否", "No")}</button>
               <button type="button" className="customer-display-invitation-yes" disabled={invitationBusy} onClick={() => respondToInvitation(true)}>
@@ -852,9 +871,16 @@ export default function CustomerDisplayPage() {
                   </span>
                 </div>
                 {effectiveState.mode === "paid" ? (
-                  <span className="customer-display-paid-pill">{bilingual("已付款", "Paid")}</span>
+                  <span className="customer-display-paid-pill"><CircleCheck size={16} />{bilingual("已付款", "Paid")}</span>
                 ) : null}
               </div>
+
+              {effectiveState.mode === "paid" ? (
+                <div className="customer-display-payment-feedback" role="status">
+                  <CircleCheck size={24} />
+                  <strong>{bilingual("付款成功", "Payment successful")}</strong>
+                </div>
+              ) : null}
 
               <BillRows items={effectiveState.payload.items} locale={locale} currency={currency} />
 
@@ -893,6 +919,7 @@ export default function CustomerDisplayPage() {
                 reducedMotion={reducedMotion}
                 interactive={effectiveState.mode === "lottery_ready" && !drawing && Boolean(effectiveState.payload.ticketId && effectiveState.payload.actionToken)}
                 onSwipe={startDraw}
+                onGesture={ensureAudioContext}
                 ariaLabel={bilingual("滑动轮盘开始抽奖", "Swipe the wheel to start")}
               />
 

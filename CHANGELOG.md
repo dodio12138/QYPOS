@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: audit all lottery-admin numeric fields; minimum order, wheel duration, prize stock, paid feedback, and result duration now support continuous editing and commit-time range normalization
+
+- fix: make exact probability fields continuously editable, selecting the current value on focus so leading zeros no longer turn edits into values such as 02 or 05
+
+- feat: add a linked exact-percentage input beside each lottery slider; edits still rebalance unlocked prizes around locked values to total 100%
+
+- feat: add a compact lottery campaign status indicator to the POS customer-display controls, automatically showing whether a draw is currently active
+
+- feat: replace lottery probability inputs with lockable sliders; changes to one unlocked prize are shared evenly by the other unlocked prizes while keeping the total at 100%
+
+- feat: Add a 3–30 second wheel spin duration setting; customer animation, tick audio, and result reveal now use the configured duration
+
+- feat: add a Show invitation action after Show bill in the POS customer-display controls; staff can manually present the invitation for an eligible paid order, and customer confirmation opens the lottery-ready screen
+- fix: make campaign start/end controls an explicit Campaign validity section, show the Europe/London window in the campaign list, and reject an end time before the start time
+- feat: allow staff to confirm-void instant prizes as well as voucher prizes; keep wheel audio active across the full spinning state, and add an uploadable invitation image below the logo with the supplied Google-review QR as the default
+- fix: remove the “Lucky draw” invitation kicker, make the gift icon background transparent, and render the editable Chinese and English invitation copy on separate lines
+- fix: add a QYPOS-styled Cancel button that closes both new and edit lottery campaign forms; align the New campaign, Cancel, and future lottery controls to one shared size, radius, spacing, and colour system
 - feat: hide the new-campaign form until staff clicks New campaign; add a confirmed Void action beside redemption for claimable draw records, paginate lottery history at 10 rows per page, and align the controls with QYPOS styling
 - fix: remove the requirement for every published lottery campaign to contain an unlimited no-prize fallback; new campaigns now start with prize-only entries, no-prize remains optional, and exhausted finite-stock slices safely resolve to another available prize
 - fix: enforce a single running lottery campaign across overlapping schedules when publishing or resuming using a transactional lock and database exclusion constraint; flag schedule conflicts in Admin and disable conflicting publish/resume actions

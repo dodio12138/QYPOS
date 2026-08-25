@@ -116,6 +116,7 @@ export async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_idle_content JSONB NOT NULL DEFAULT '{}'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_lottery_invitation_enabled BOOLEAN NOT NULL DEFAULT true");
   await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_lottery_invitation_i18n JSONB NOT NULL DEFAULT '{"zh-CN":"留下 Google 评论即可参加幸运大转盘抽奖","en-GB":"Leave us a Google review to join the Lucky Wheel draw"}'`);
+  await pool.query("ALTER TABLE lottery_campaigns ADD COLUMN IF NOT EXISTS spin_duration_seconds INTEGER NOT NULL DEFAULT 10");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ");
   await pool.query(`CREATE TABLE IF NOT EXISTS menu_option_presets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

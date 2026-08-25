@@ -1,11 +1,64 @@
 "use client";
 
-import { Ban, ChevronLeft, ChevronRight, Gift, Pause, Pencil, Play, Plus, Save, Settings, Sparkles, Trash2, Trophy, X } from "lucide-react";
+import { Ban, ChevronLeft, ChevronRight, Clock, Gift, Lock, Pause, Pencil, Play, Plus, Save, Settings, Sparkles, Trash2, Trophy, Unlock, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, labelOf } from "../../../lib/api";
-import { formatLotteryProbability, lotteryProbabilities, normalizedLotteryWeights } from "./lottery-form-helpers";
+import { lotteryProbabilities, normalizedLotteryWeights, rebalanceLotteryProbabilities } from "./lottery-form-helpers";
 
 function t(locale, zh, en) { return locale === "en-GB" ? en : zh; }
+function numberDraft(value) { return value == null || Number.isNaN(Number(value)) ? "" : String(value); }
+function DeferredNumberInput({ value, onCommit, min, max, step = 1, allowEmpty = false, ...props }) {
+  const [draft, setDraft] = useState(numberDraft(value));
+  const focusedRef = useRef(false);
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(numberDraft(value));
+  }, [value]);
+  function commit(raw) {
+    const trimmed = raw.trim();
+    focusedRef.current = false;
+    if (!trimmed) {
+      if (allowEmpty) onCommit(null);
+      else setDraft(numberDraft(value));
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setDraft(numberDraft(value));
+      return;
+    }
+    const stepSize = Number(step);
+    const stepOffset = (parsed - (min ?? 0)) / stepSize;
+    if (stepSize > 0 && Math.abs(stepOffset - Math.round(stepOffset)) > 1e-8) {
+      setDraft(numberDraft(value));
+      return;
+    }
+    const bounded = Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, parsed));
+    onCommit(bounded);
+    setDraft(String(bounded));
+  }
+  return <input
+    {...props}
+    type="text"
+    inputMode={String(step).includes(".") ? "decimal" : "numeric"}
+    value={draft}
+    onFocus={(event) => {
+      focusedRef.current = true;
+      const input = event.currentTarget;
+      window.requestAnimationFrame(() => input.select());
+    }}
+    onChange={(event) => {
+      if (/^\d*(?:\.\d*)?$/.test(event.target.value)) setDraft(event.target.value);
+    }}
+    onBlur={(event) => commit(event.target.value)}
+    onKeyDown={(event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commit(event.currentTarget.value);
+        event.currentTarget.blur();
+      }
+    }}
+  />;
+}
 function campaignStatus(campaign, locale) {
   const now = Date.now();
   const running = campaign.status === "published" && new Date(campaign.starts_at).getTime() <= now && new Date(campaign.ends_at).getTime() > now;
@@ -32,6 +85,14 @@ function dateInput(date) {
   const offset = value.getTimezoneOffset();
   return new Date(value.getTime() - offset * 60_000).toISOString().slice(0, 16);
 }
+function scheduleLabel(campaign, locale) {
+  const formatter = new Intl.DateTimeFormat(locale === "en-GB" ? "en-GB" : "zh-CN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Europe/London"
+  });
+  return `${formatter.format(new Date(campaign.starts_at))} – ${formatter.format(new Date(campaign.ends_at))}`;
+}
 function initialForm() {
   const now = Date.now();
   return {
@@ -43,12 +104,13 @@ function initialForm() {
     rules_i18n: { "zh-CN": "点击按钮或滑动转盘开始抽奖", "en-GB": "Tap the button or swipe the wheel to start" },
     starts_at: dateInput(now),
     ends_at: dateInput(now + 30 * 86400000),
+    spin_duration_seconds: 10,
     minimum_order_total: 0,
     ticket_valid_minutes: 1440,
     claim_valid_minutes: 1440,
     prizes: [
-      { kind: "prize", fulfillment_type: "instant", name_i18n: { "zh-CN": "免费饮料", "en-GB": "Free drink" }, weight_value: 25, stock_total: 20, background_color: "#f97316", text_color: "#fff" },
-      { kind: "prize", fulfillment_type: "voucher", name_i18n: { "zh-CN": "下次九折", "en-GB": "10% off next time" }, weight_value: 75, stock_total: null, background_color: "#2563eb", text_color: "#fff" }
+      { kind: "prize", fulfillment_type: "instant", name_i18n: { "zh-CN": "免费饮料", "en-GB": "Free drink" }, weight_value: 25, locked: false, stock_total: 20, background_color: "#f97316", text_color: "#fff" },
+      { kind: "prize", fulfillment_type: "voucher", name_i18n: { "zh-CN": "下次九折", "en-GB": "10% off next time" }, weight_value: 75, locked: false, stock_total: null, background_color: "#2563eb", text_color: "#fff" }
     ]
   };
 }
@@ -65,6 +127,7 @@ function formFromCampaign(campaign) {
     rules_i18n: campaign.rules_i18n || fallback.rules_i18n,
     starts_at: dateInput(campaign.starts_at),
     ends_at: dateInput(campaign.ends_at),
+    spin_duration_seconds: Number(campaign.spin_duration_seconds || fallback.spin_duration_seconds),
     minimum_order_total: Number(campaign.minimum_order_total || 0),
     service_types: Array.isArray(campaign.service_types) ? campaign.service_types : fallback.service_types,
     excluded_payment_methods: Array.isArray(campaign.excluded_payment_methods) ? campaign.excluded_payment_methods : fallback.excluded_payment_methods,
@@ -79,6 +142,7 @@ function formFromCampaign(campaign) {
       description_i18n: prize.description_i18n || {},
       claim_instructions_i18n: prize.claim_instructions_i18n || {},
       weight_value: Number(prize.weight_bps) / 100,
+      locked: false,
       stock_total: prize.stock_total == null ? null : Number(prize.stock_total),
       stock_awarded: Number(prize.stock_awarded || 0),
       position,
@@ -93,6 +157,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
   const [campaigns, setCampaigns] = useState([]);
   const [draws, setDraws] = useState([]);
   const [form, setForm] = useState(initialForm);
+  const [probabilityDrafts, setProbabilityDrafts] = useState({});
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
   const [editingCampaignId, setEditingCampaignId] = useState(null);
@@ -128,12 +193,29 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
   function updatePrize(index, patch) {
     setForm((current) => ({ ...current, prizes: current.prizes.map((prize, i) => i === index ? { ...prize, ...patch } : prize) }));
   }
+  function updateProbability(index, value) {
+    setProbabilityDrafts({});
+    setForm((current) => ({ ...current, prizes: rebalanceLotteryProbabilities(current.prizes, index, value) }));
+  }
+  function commitProbability(index, value) {
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue) && numericValue > 0) updateProbability(index, numericValue);
+    else setProbabilityDrafts((current) => {
+      const next = { ...current };
+      delete next[index];
+      return next;
+    });
+  }
   function updateI18n(field, localeKey, value) {
     setForm((current) => ({ ...current, [field]: { ...current[field], [localeKey]: value } }));
   }
   async function saveCampaign(event) {
     event.preventDefault();
     if (!canManage) return;
+    if (new Date(form.ends_at) <= new Date(form.starts_at)) {
+      onNotify?.(t(locale, "结束时间必须晚于开始时间。", "The end time must be after the start time."));
+      return;
+    }
     const normalizedWeights = normalizedLotteryWeights(form.prizes);
     if (!normalizedWeights) { onNotify?.(t(locale, "每个奖项都需要输入大于 0 的权重数字。", "Enter a weight greater than 0 for every prize.")); return; }
     setSaving(true);
@@ -145,7 +227,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
           ...form,
           starts_at: new Date(form.starts_at).toISOString(),
           ends_at: new Date(form.ends_at).toISOString(),
-          prizes: form.prizes.map(({ weight_value, ...prize }, position) => ({ ...prize, weight_bps: normalizedWeights[position], position }))
+          prizes: form.prizes.map(({ weight_value, locked, ...prize }, position) => ({ ...prize, weight_bps: normalizedWeights[position], position }))
         })
       });
       setForm(initialForm());
@@ -232,6 +314,38 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       }
     }));
   }
+  function updateInvitationImage(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) {
+      onNotify?.(t(locale, "请选择图片文件。", "Choose an image file."));
+      return;
+    }
+    if (file.size > 650 * 1024) {
+      onNotify?.(t(locale, "图片不能超过 650KB。", "The image must be smaller than 650KB."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setSettings((current) => ({
+      ...current,
+      customer_display_idle_content: {
+        ...(current.customer_display_idle_content || {}),
+        review_image_url: String(reader.result || "")
+      }
+    }));
+    reader.onerror = () => onNotify?.(t(locale, "图片读取失败。", "The image could not be read."));
+    reader.readAsDataURL(file);
+  }
+  function resetInvitationImage() {
+    setSettings((current) => ({
+      ...current,
+      customer_display_idle_content: {
+        ...(current.customer_display_idle_content || {}),
+        review_image_url: "/customer-display/default-review-qr.png"
+      }
+    }));
+  }
   async function showTestOnCustomerDisplay() {
     if (!testCampaignId || testing) return;
     setTesting(true);
@@ -266,14 +380,25 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       {canManage && (campaignFormOpen || editingCampaignId) && <section className="panel" ref={campaignFormRef}>
         <div className="panel-title split">
           <div className="inline-title"><Sparkles size={18} /><h2>{editingCampaignId ? t(locale, "编辑抽奖活动", "Edit lottery campaign") : t(locale, "新建抽奖活动", "New lottery campaign")}</h2></div>
-          {editingCampaignId ? <button type="button" className="lottery-cancel-edit" onClick={cancelEdit}><X size={15} />{t(locale, "取消编辑", "Cancel edit")}</button> : null}
+          <button type="button" className="lottery-cancel-edit" onClick={cancelEdit}><X size={15} />{editingCampaignId ? t(locale, "取消编辑", "Cancel edit") : t(locale, "取消", "Cancel")}</button>
         </div>
         <form className="settings-form" onSubmit={saveCampaign}>
           <div className="settings-fields">
             <label>{t(locale, "内部名称", "Internal name")}<input value={form.internal_name} onChange={(e) => setForm({ ...form, internal_name: e.target.value })} required /></label>
-            <label>{t(locale, "最低订单金额", "Minimum order total")}<input type="number" min="0" step="0.01" value={form.minimum_order_total} onChange={(e) => setForm({ ...form, minimum_order_total: Number(e.target.value) })} /></label>
-            <label>{t(locale, "开始时间", "Starts")}<input type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} required /></label>
-            <label>{t(locale, "结束时间", "Ends")}<input type="datetime-local" value={form.ends_at} onChange={(e) => setForm({ ...form, ends_at: e.target.value })} required /></label>
+            <label>{t(locale, "最低订单金额", "Minimum order total")}<DeferredNumberInput min={0} step={0.01} value={form.minimum_order_total} onCommit={(value) => setForm((current) => ({ ...current, minimum_order_total: value }))} /></label>
+          </div>
+          <div className="lottery-schedule-editor">
+            <div className="panel-title"><Clock size={17} /><h3>{t(locale, "活动有效期", "Campaign validity")}</h3><span>{t(locale, "按英国时间显示", "Europe/London time")}</span></div>
+            <div className="settings-fields">
+              <label>{t(locale, "开始时间", "Starts")}<input type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} required /></label>
+              <label>{t(locale, "结束时间", "Ends")}<input type="datetime-local" min={form.starts_at} value={form.ends_at} onChange={(e) => setForm({ ...form, ends_at: e.target.value })} required /></label>
+            </div>
+          </div>
+          <div className="lottery-spin-duration-editor">
+            <div className="panel-title"><Clock size={17} /><h3>{t(locale, "转盘转动时长", "Wheel spin duration")}</h3><span>{t(locale, "从开始转动到停止", "From start to stop")}</span></div>
+            <div className="settings-fields">
+              <label>{t(locale, "转动秒数（3–30）", "Spin duration (3–30 seconds)")}<DeferredNumberInput min={3} max={30} step={1} value={form.spin_duration_seconds} onCommit={(value) => setForm((current) => ({ ...current, spin_duration_seconds: value }))} required /></label>
+            </div>
           </div>
           <div className="settings-fields">
             <label>{t(locale, "标题（中文）", "Title (Chinese)")}<input value={form.title_i18n["zh-CN"]} onChange={(e) => updateI18n("title_i18n", "zh-CN", e.target.value)} /></label>
@@ -282,7 +407,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
             <label>{t(locale, "转盘下方提示（英文，可留空）", "Wheel note (English, optional)")}<input value={form.subtitle_i18n["en-GB"] || ""} onChange={(e) => updateI18n("subtitle_i18n", "en-GB", e.target.value)} /></label>
           </div>
           <div className="lottery-prize-editor">
-            <div className="panel-title"><Gift size={18} /><h3>{t(locale, "奖项与概率", "Prizes & probabilities")}</h3><span>{t(locale, "自动归一 100% · 谢谢参与可选", "Normalized to 100% · No-prize optional")}</span></div>
+            <div className="panel-title"><Gift size={18} /><h3>{t(locale, "奖项与概率", "Prizes & probabilities")}</h3><span>{t(locale, "滑块自动平衡 · 可锁定", "Auto-balanced sliders · Lockable")}</span></div>
             {form.prizes.map((prize, index) => <div className="lottery-prize-row" key={prize.id || index}>
               <select value={prize.kind} onChange={(e) => updatePrize(index, { kind: e.target.value, fulfillment_type: e.target.value === "no_prize" ? null : prize.fulfillment_type || "instant" })}><option value="prize">{t(locale, "奖品", "Prize")}</option><option value="no_prize">{t(locale, "谢谢参与", "No prize")}</option></select>
               <select value={prize.fulfillment_type || ""} disabled={prize.kind === "no_prize"} onChange={(e) => updatePrize(index, { fulfillment_type: e.target.value })} aria-label={t(locale, "发放方式", "Fulfilment type")}>
@@ -292,14 +417,17 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
               </select>
               <input placeholder={t(locale, "奖项名称（中文）", "Prize name (Chinese)")} value={prize.name_i18n["zh-CN"] || ""} onChange={(e) => updatePrize(index, { name_i18n: { ...prize.name_i18n, "zh-CN": e.target.value } })} required />
               <input placeholder={t(locale, "奖项名称（英文）", "Prize name (English)")} value={prize.name_i18n["en-GB"] || ""} onChange={(e) => updatePrize(index, { name_i18n: { ...prize.name_i18n, "en-GB": e.target.value } })} required />
-              <div className="lottery-weight-field">
-                <input type="number" min="0.01" step="0.01" value={prize.weight_value} onChange={(e) => updatePrize(index, { weight_value: Number(e.target.value) })} aria-label={t(locale, "概率权重", "Probability weight")} />
-                <span>{formatLotteryProbability(probabilities[index])}</span>
+              <div className={`lottery-weight-field${prize.locked ? " is-locked" : ""}`}>
+                <input type="range" min="0.01" max="99.99" step="0.01" value={probabilities[index] || 0.01} onChange={(e) => updateProbability(index, Number(e.target.value))} disabled={prize.locked} aria-label={t(locale, "中奖概率", "Winning probability")} />
+                <input className="lottery-probability-input" type="text" inputMode="decimal" min="0.01" max="99.99" step="0.01" value={probabilityDrafts[index] ?? Number(probabilities[index] || 0).toFixed(2)} onFocus={(e) => { setProbabilityDrafts((current) => ({ ...current, [index]: Number(probabilities[index] || 0).toFixed(2) })); const input = e.currentTarget; window.requestAnimationFrame(() => input.select()); }} onChange={(e) => { if (/^\d*(?:\.\d*)?$/.test(e.target.value)) setProbabilityDrafts((current) => ({ ...current, [index]: e.target.value })); }} onBlur={(e) => commitProbability(index, e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitProbability(index, e.currentTarget.value); e.currentTarget.blur(); } }} disabled={prize.locked} aria-label={t(locale, "精确中奖概率百分比", "Exact winning probability percentage")} />
+                <button type="button" className="lottery-lock-button" onClick={() => updatePrize(index, { locked: !prize.locked })} aria-pressed={Boolean(prize.locked)} title={prize.locked ? t(locale, "解锁概率", "Unlock probability") : t(locale, "锁定概率", "Lock probability")}>
+                  {prize.locked ? <Lock size={14} /> : <Unlock size={14} />}
+                </button>
               </div>
-              <input type="number" min={prize.stock_awarded || 0} placeholder={t(locale, "库存不限", "Unlimited stock")} value={prize.stock_total ?? ""} onChange={(e) => updatePrize(index, { stock_total: e.target.value === "" ? null : Number(e.target.value) })} />
+              <DeferredNumberInput min={prize.stock_awarded || 0} step={1} allowEmpty placeholder={t(locale, "库存不限", "Unlimited stock")} value={prize.stock_total} onCommit={(value) => updatePrize(index, { stock_total: value })} />
               <button type="button" className="lottery-remove-prize" onClick={() => setForm({ ...form, prizes: form.prizes.filter((_, prizeIndex) => prizeIndex !== index) })} disabled={form.prizes.length <= 2} title={t(locale, "删除奖项", "Remove prize")}><Trash2 size={15} /></button>
             </div>)}
-            <button type="button" onClick={() => setForm({ ...form, prizes: [...form.prizes, { kind: "prize", fulfillment_type: "instant", name_i18n: { "zh-CN": "新奖项", "en-GB": "New prize" }, weight_value: 1, stock_total: null, background_color: "#f59e0b", text_color: "#fff" }] })}><Plus size={15} />{t(locale, "添加奖项", "Add prize")}</button>
+            <button type="button" onClick={() => setForm({ ...form, prizes: [...form.prizes, { kind: "prize", fulfillment_type: "instant", name_i18n: { "zh-CN": "新奖项", "en-GB": "New prize" }, weight_value: 1, locked: false, stock_total: null, background_color: "#f59e0b", text_color: "#fff" }] })}><Plus size={15} />{t(locale, "添加奖项", "Add prize")}</button>
           </div>
           <div className="settings-actions"><button className="primary" type="submit" disabled={saving}><Save size={16} />{saving ? t(locale, "保存中…", "Saving…") : editingCampaignId ? t(locale, "保存修改", "Save changes") : t(locale, "保存草稿", "Save draft")}</button></div>
         </form>
@@ -315,6 +443,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
               <div>
                 <div className="lottery-campaign-name"><strong>{labelOf(campaign.title_i18n, locale) || campaign.internal_name}</strong>{status.running ? <em>{t(locale, "当前活动", "Current")}</em> : null}{activationBlocked && campaign.status !== "published" ? <em className="is-conflicting">{t(locale, "时段冲突", "Schedule conflict")}</em> : null}</div>
                 <span>{campaign.internal_name} · {status.label}</span>
+                <small className="lottery-campaign-schedule"><Clock size={13} />{t(locale, "活动有效期：", "Valid: ")}{scheduleLabel(campaign, locale)}</small>
               </div>
               <div className="settings-actions">
                 {(campaign.status === "draft" || campaign.status === "paused") ? <button onClick={() => editCampaign(campaign.id)}><Pencil size={14} />{t(locale, "编辑", "Edit")}</button> : null}
@@ -360,6 +489,13 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
               <label>{t(locale, "邀请文字（中文）", "Invitation (Chinese)")}<input required value={settings.customer_display_lottery_invitation_i18n?.["zh-CN"] || ""} onChange={(e) => updateDisplayI18n("customer_display_lottery_invitation_i18n", "zh-CN", e.target.value)} /></label>
               <label>{t(locale, "邀请文字（英文）", "Invitation (English)")}<input required value={settings.customer_display_lottery_invitation_i18n?.["en-GB"] || ""} onChange={(e) => updateDisplayI18n("customer_display_lottery_invitation_i18n", "en-GB", e.target.value)} /></label>
             </div>
+            <div className="lottery-display-image-setting">
+              <label>{t(locale, "邀请页图片（Logo 下方）", "Invitation image (below logo)")}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={updateInvitationImage} /></label>
+              <div className="lottery-display-image-preview">
+                <img src={settings.customer_display_idle_content?.review_image_url || "/customer-display/default-review-qr.png"} alt="" />
+                <button type="button" className="lottery-record-action" onClick={resetInvitationImage}>{t(locale, "恢复默认二维码", "Restore default QR")}</button>
+              </div>
+            </div>
           </div>
 
           <div className="lottery-display-copy-group">
@@ -373,8 +509,8 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
           </div>
 
           <div className="settings-fields">
-            <label>{t(locale, "付款成功显示秒数", "Paid screen seconds")}<input type="number" min="1" max="30" value={settings.customer_display_payment_success_seconds ?? 5} onChange={(e) => setSettings({ ...settings, customer_display_payment_success_seconds: Number(e.target.value) })} /></label>
-            <label>{t(locale, "抽奖结果显示秒数", "Result screen seconds")}<input type="number" min="5" max="120" value={settings.customer_display_lottery_result_seconds ?? 20} onChange={(e) => setSettings({ ...settings, customer_display_lottery_result_seconds: Number(e.target.value) })} /></label>
+            <label>{t(locale, "付款成功显示秒数", "Paid screen seconds")}<DeferredNumberInput min={1} max={30} step={1} value={settings.customer_display_payment_success_seconds ?? 5} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_payment_success_seconds: value }))} /></label>
+            <label>{t(locale, "抽奖结果显示秒数", "Result screen seconds")}<DeferredNumberInput min={5} max={120} step={1} value={settings.customer_display_lottery_result_seconds ?? 20} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_lottery_result_seconds: value }))} /></label>
           </div>
           <div className="settings-actions"><button className="primary" type="submit"><Save size={16} />{t(locale, "保存顾客屏设置", "Save display settings")}</button></div>
         </form>
@@ -394,13 +530,13 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
                 {t(locale, "订单", "Order")} {draw.source_order_no}
               </button>
               <div className="lottery-draw-result"><strong>{prizeName}</strong><span>{labelOf(draw.campaign_title_i18n, locale)} · {draw.access_code_suffix}</span></div>
-              <span>{noPrize ? t(locale, "未中奖", "No prize") : instantPrize ? t(locale, "现场发放", "Give now") : voided ? t(locale, "已作废", "Voided") : draw.redeemed_at ? t(locale, "已兑奖", "Redeemed") : t(locale, "中奖 · 待兑奖", "Won · Pending")}</span>
-              {canRedeem && !noPrize && !instantPrize && !draw.redeemed_at && !voided ? action ? <div className="lottery-redeem-confirmation">
+              <span>{noPrize ? t(locale, "未中奖", "No prize") : voided ? t(locale, "已作废", "Voided") : instantPrize ? t(locale, "现场发放", "Give now") : draw.redeemed_at ? t(locale, "已兑奖", "Redeemed") : t(locale, "中奖 · 待兑奖", "Won · Pending")}</span>
+              {canRedeem && !noPrize && !draw.redeemed_at && !voided ? action ? <div className="lottery-redeem-confirmation">
                 <span className="lottery-action-confirm-label">{action === "void" ? t(locale, "确认作废？", "Confirm void?") : t(locale, "确认兑奖？", "Confirm redeem?")}</span>
                 <button className={action === "void" ? "lottery-record-action void" : "lottery-record-action primary"} onClick={() => action === "void" ? voidDraw(draw) : redeemDraw(draw)}>{action === "void" ? <Ban size={14} /> : <Sparkles size={14} />}{action === "void" ? t(locale, "确认作废", "Confirm void") : t(locale, "确认兑奖", "Confirm redeem")}</button>
                 <button className="lottery-record-action" onClick={() => setConfirmDrawAction(null)}>{t(locale, "取消", "Cancel")}</button>
               </div> : <div className="lottery-record-actions">
-                <button className="lottery-record-action primary" onClick={() => setConfirmDrawAction({ id: draw.id, action: "redeem" })}><Sparkles size={14} />{t(locale, "兑奖", "Redeem")}</button>
+                {!instantPrize ? <button className="lottery-record-action primary" onClick={() => setConfirmDrawAction({ id: draw.id, action: "redeem" })}><Sparkles size={14} />{t(locale, "兑奖", "Redeem")}</button> : null}
                 <button className="lottery-record-action void" onClick={() => setConfirmDrawAction({ id: draw.id, action: "void" })}><Ban size={14} />{t(locale, "作废", "Void")}</button>
               </div> : null}
             </div>;

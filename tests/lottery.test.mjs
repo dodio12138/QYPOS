@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 const { assertNoOverlappingLotteryCampaign, deleteLotteryCampaign, issueAdditionalLotteryTicket, lotteryClaimCodeRequired, selectLotteryOutcome, testLotteryCampaign } = await import("../apps/api/src/services/lottery.js");
 const { validatePrizes } = await import("../apps/api/src/routes/lottery.js");
-const { lotteryProbabilities, normalizedLotteryWeights } = await import("../apps/web/src/app/admin/_components/lottery-form-helpers.js");
+const { lotteryProbabilities, normalizedLotteryWeights, rebalanceLotteryProbabilities } = await import("../apps/web/src/app/admin/_components/lottery-form-helpers.js");
 
 function prizes() {
   return [
@@ -171,6 +171,30 @@ test("repeating decimal probability weights still save to exactly 10000 basis po
 
   assert.equal(weights.reduce((sum, weight) => sum + weight, 0), 10000);
   assert.ok(weights.every((weight) => weight > 0));
+});
+
+test("probability slider changes rebalance only unlocked prizes", () => {
+  const prizes = [
+    { weight_value: 20, locked: false },
+    { weight_value: 30, locked: true },
+    { weight_value: 50, locked: false }
+  ];
+  const adjusted = rebalanceLotteryProbabilities(prizes, 0, 40);
+
+  assert.deepEqual(lotteryProbabilities(adjusted), [40, 30, 30]);
+  assert.equal(adjusted[1].weight_value, 30);
+  assert.equal(adjusted.reduce((sum, prize) => sum + prize.weight_value, 0), 100);
+});
+
+test("probability slider keeps the final unlocked prize as the remainder", () => {
+  const prizes = [
+    { weight_value: 20, locked: true },
+    { weight_value: 30, locked: true },
+    { weight_value: 50, locked: false }
+  ];
+  const adjusted = rebalanceLotteryProbabilities(prizes, 2, 10);
+
+  assert.deepEqual(lotteryProbabilities(adjusted), [20, 30, 50]);
 });
 
 test("an exhausted test prize resolves to thank you without changing stock", () => {

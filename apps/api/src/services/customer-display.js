@@ -1,5 +1,6 @@
 export const CUSTOMER_DISPLAY_STATE_KEY = "customer_display:state";
 export const CUSTOMER_DISPLAY_REVISION_KEY = "customer_display:revision";
+export const DEFAULT_CUSTOMER_DISPLAY_REVIEW_IMAGE = "/customer-display/default-review-qr.png";
 
 const DISPLAY_MODES = new Set(["idle", "bill", "paid", "lottery_invitation", "lottery_ready", "lottery_spinning", "lottery_result"]);
 
@@ -149,8 +150,14 @@ export function displaySettings(settings = {}) {
         },
     payment_success_seconds: Math.min(30, Math.max(1, Number(settings.customer_display_payment_success_seconds || 5))),
     lottery_result_seconds: Math.min(120, Math.max(5, Number(settings.customer_display_lottery_result_seconds || 20))),
-    idle_content: settings.customer_display_idle_content && typeof settings.customer_display_idle_content === "object"
-      ? settings.customer_display_idle_content
-      : {}
+    invitation_image_url: settings.customer_display_idle_content && typeof settings.customer_display_idle_content === "object"
+      ? settings.customer_display_idle_content.review_image_url || DEFAULT_CUSTOMER_DISPLAY_REVIEW_IMAGE
+      : DEFAULT_CUSTOMER_DISPLAY_REVIEW_IMAGE,
+    idle_content: {
+      review_image_url: DEFAULT_CUSTOMER_DISPLAY_REVIEW_IMAGE,
+      ...(settings.customer_display_idle_content && typeof settings.customer_display_idle_content === "object"
+        ? settings.customer_display_idle_content
+        : {})
+    }
   };
 }

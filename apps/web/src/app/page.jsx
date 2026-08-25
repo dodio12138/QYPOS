@@ -152,6 +152,11 @@ export default function PosPage() {
   const kitchenPrintRef = useRef(true);
   const userRef = useRef(null);
   const previousSelectedOrderIdRef = useRef(null);
+  const pendingCustomerDisplayInvitationTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    window.clearTimeout(pendingCustomerDisplayInvitationTimerRef.current);
+  }, []);
 
   const locale = settings?.locale || "zh-CN";
   const currency = settings?.currency || "CNY";
@@ -339,6 +344,10 @@ export default function PosPage() {
     const previousId = previousSelectedOrderIdRef.current;
     const currentId = selectedOrder?.id || null;
     previousSelectedOrderIdRef.current = currentId;
+    if (!currentId || (previousId && previousId !== currentId)) {
+      window.clearTimeout(pendingCustomerDisplayInvitationTimerRef.current);
+      pendingCustomerDisplayInvitationTimerRef.current = null;
+    }
     if (!currentId || previousId === currentId || !canControlCustomerDisplay) return undefined;
     let active = true;
     async function syncSelectedOrderDisplay() {
@@ -356,10 +365,26 @@ export default function PosPage() {
   }, [canControlCustomerDisplay, selectedOrder?.id, selectedOrder?.status, settings?.customer_display_auto_show_lottery, settings?.customer_display_lottery_invitation_enabled]);
 
   async function presentPostPaymentLottery(orderId, lotteryTicket) {
-    if (!canControlCustomerDisplay || !orderId || !lotteryTicket) return null;
+    if (!canControlCustomerDisplay || !orderId) return null;
+    if (!lotteryTicket) {
+      if (settings?.customer_display_show_bill_on_checkout !== false) {
+        try { await api("/customer-display/show-order", { method: "POST", body: JSON.stringify({ order_id: orderId }) }); } catch { /* customer display is optional */ }
+      }
+      return null;
+    }
     if (settings?.customer_display_lottery_invitation_enabled !== false) {
       try {
-        await api("/customer-display/show-lottery-invitation", { method: "POST", body: JSON.stringify({ order_id: orderId }) });
+        if (settings?.customer_display_show_bill_on_checkout !== false) {
+          await api("/customer-display/show-order", { method: "POST", body: JSON.stringify({ order_id: orderId }) });
+          const seconds = Math.min(30, Math.max(1, Number(settings?.customer_display_payment_success_seconds || 5)));
+          window.clearTimeout(pendingCustomerDisplayInvitationTimerRef.current);
+          pendingCustomerDisplayInvitationTimerRef.current = window.setTimeout(() => {
+            pendingCustomerDisplayInvitationTimerRef.current = null;
+            api("/customer-display/show-lottery-invitation", { method: "POST", body: JSON.stringify({ order_id: orderId }) }).catch(() => {});
+          }, seconds * 1000);
+        } else {
+          await api("/customer-display/show-lottery-invitation", { method: "POST", body: JSON.stringify({ order_id: orderId }) });
+        }
         return "invitation";
       } catch { return null; }
     }

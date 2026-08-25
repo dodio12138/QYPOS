@@ -72,6 +72,7 @@ export async function getLotteryCampaignSnapshot(pool, campaignId) {
     losing_message_i18n: jsonValue(campaign.losing_message_i18n),
     rules_i18n: jsonValue(campaign.rules_i18n),
     theme: jsonValue(campaign.theme),
+    spin_duration_seconds: Number(campaign.spin_duration_seconds || 10),
     prizes: prizes.map((prize) => ({
       id: prize.id,
       kind: prize.kind,
@@ -238,7 +239,8 @@ export async function testLotteryCampaign({ pool, campaignId }) {
     campaign: {
       id: campaign.id,
       internal_name: campaign.internal_name,
-      title_i18n: jsonValue(campaign.title_i18n)
+      title_i18n: jsonValue(campaign.title_i18n),
+      spin_duration_seconds: Number(campaign.spin_duration_seconds || 10)
     },
     prize: {
       id: outcome.prize.id,

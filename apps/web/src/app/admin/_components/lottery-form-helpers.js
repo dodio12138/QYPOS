@@ -37,6 +37,43 @@ export function normalizedLotteryWeights(prizes = []) {
   return weights;
 }
 
+export function rebalanceLotteryProbabilities(prizes = [], changedIndex, nextPercentage) {
+  const currentWeights = normalizedLotteryWeights(prizes);
+  const index = Number(changedIndex);
+  if (!currentWeights || !Number.isInteger(index) || index < 0 || index >= prizes.length || prizes[index]?.locked) return prizes;
+
+  const lockedIndexes = prizes.map((prize, prizeIndex) => prize?.locked === true ? prizeIndex : -1).filter((prizeIndex) => prizeIndex >= 0);
+  const unlockedOthers = prizes
+    .map((_, prizeIndex) => prizeIndex)
+    .filter((prizeIndex) => prizeIndex !== index && !lockedIndexes.includes(prizeIndex));
+  const lockedTotal = lockedIndexes.reduce((sum, prizeIndex) => sum + currentWeights[prizeIndex], 0);
+  const maximumTarget = 10000 - lockedTotal - unlockedOthers.length;
+  const requestedTarget = Math.round(Number(nextPercentage) * 100);
+  const target = unlockedOthers.length
+    ? Math.min(Math.max(1, Number.isFinite(requestedTarget) ? requestedTarget : currentWeights[index]), Math.max(1, maximumTarget))
+    : 10000 - lockedTotal;
+  const weights = [...currentWeights];
+  const delta = target - weights[index];
+  weights[index] = target;
+
+  let remaining = Math.abs(delta);
+  const direction = delta < 0 ? 1 : -1;
+  while (remaining > 0 && unlockedOthers.length) {
+    const candidates = unlockedOthers.filter((prizeIndex) => direction === 1 || weights[prizeIndex] > 1);
+    if (!candidates.length) break;
+    const share = Math.max(1, Math.floor(remaining / candidates.length));
+    for (const prizeIndex of candidates) {
+      const capacity = direction === 1 ? remaining : weights[prizeIndex] - 1;
+      const amount = Math.min(share, capacity, remaining);
+      weights[prizeIndex] += direction * amount;
+      remaining -= amount;
+      if (!remaining) break;
+    }
+  }
+
+  return prizes.map((prize, prizeIndex) => ({ ...prize, weight_value: weights[prizeIndex] / 100 }));
+}
+
 export function formatLotteryProbability(value) {
   return `${Number(value || 0).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}%`;
 }

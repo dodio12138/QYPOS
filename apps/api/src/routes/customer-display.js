@@ -113,10 +113,10 @@ export default function register({
   }
 
   async function publishLotteryInvitation(orderId) {
-    const ticket = await issueReadyForOrder(orderId);
-    if (!ticket) throw httpError("No eligible lottery ticket is ready for this order", 409);
     const settings = displaySettings(await getSettings());
     if (!settings.lottery_invitation_enabled) throw httpError("Lottery invitation is disabled", 409);
+    const ready = await ensureReadyForOrder(orderId);
+    const ticket = ready.ticket;
     return publishCustomerDisplayState({
       redis,
       broadcast: emitCustomerDisplay,
@@ -126,7 +126,8 @@ export default function register({
         ticket_id: ticket.id,
         campaign_id: ticket.campaign_id,
         invitation_token: crypto.randomBytes(18).toString("hex"),
-        invitation_i18n: settings.lottery_invitation_i18n
+        invitation_i18n: settings.lottery_invitation_i18n,
+        invitation_image_url: settings.invitation_image_url
       },
       durationSeconds: 0
     });

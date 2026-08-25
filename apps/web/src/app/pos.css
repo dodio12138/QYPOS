@@ -1415,9 +1415,25 @@
   white-space: nowrap;
 }
 .customer-display-control-heading > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
+.customer-display-lottery-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted, #6b7280);
+  font-size: 12px;
+  font-weight: 700;
+}
+.customer-display-lottery-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+.customer-display-lottery-status.is-active { color: #166534; }
+.customer-display-lottery-status.is-active i { background: #16a34a; }
 .customer-display-control-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(118px, 1fr));
+  grid-template-columns: repeat(4, minmax(118px, 1fr));
   min-width: 0;
 }
 .customer-display-control-actions button {

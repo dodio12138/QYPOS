@@ -65,6 +65,28 @@ export default function register({
   nextOrderNo,
   datePrefix
 }) {
+function customerDisplayIdleContentJson(value) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const error = new Error("顾客屏欢迎内容格式无效");
+    error.statusCode = 400;
+    throw error;
+  }
+  const content = { ...value };
+  if (content.review_image_url != null && content.review_image_url !== "") {
+    const imageUrl = String(content.review_image_url);
+    const isDataImage = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(imageUrl);
+    const isDefaultImage = imageUrl === "/customer-display/default-review-qr.png";
+    if ((!isDataImage && !isDefaultImage) || imageUrl.length > 900_000) {
+      const error = new Error("顾客屏图片必须是 PNG/JPG/WebP/GIF，且不能超过 650KB");
+      error.statusCode = 400;
+      throw error;
+    }
+    content.review_image_url = imageUrl;
+  }
+  return JSON.stringify(content);
+}
+
 app.get("/settings", async () => {
   const settings = await getSettings();
   if (!settings) return settings;
@@ -98,6 +120,13 @@ app.put("/settings", async (request, reply) => {
       reply.code(401);
       return { error: "修改税务或服务费设置需要输入当前账号名和 PIN" };
     }
+  }
+  let idleContentJson = null;
+  try {
+    idleContentJson = customerDisplayIdleContentJson(body.customer_display_idle_content);
+  } catch (error) {
+    reply.code(error.statusCode || 400);
+    return { error: error.message };
   }
   const settings = await one(
     `UPDATE settings SET
@@ -170,7 +199,7 @@ app.put("/settings", async (request, reply) => {
       body.customer_display_auto_show_lottery,
       body.customer_display_payment_success_seconds,
       body.customer_display_lottery_result_seconds,
-      body.customer_display_idle_content === undefined ? null : JSON.stringify(body.customer_display_idle_content),
+      idleContentJson,
       body.customer_display_lottery_invitation_enabled,
       body.customer_display_lottery_invitation_i18n === undefined ? null : JSON.stringify(body.customer_display_lottery_invitation_i18n)
     ]
