@@ -673,8 +673,8 @@ export default function PosPage() {
       method: "POST",
       body: JSON.stringify(payload)
     });
+    closePaymentModal();
     setPendingComplimentary(false);
-    setPaying(false);
     setSelectedOrder(null);
     navigateMobileStep("tables");
     await refresh(false);
@@ -696,6 +696,13 @@ export default function PosPage() {
       await refresh(false);
     }, text(locale, `已收 ${money(payment.amount, currency, locale)}`, `Received ${money(payment.amount, currency, locale)}`));
     return result;
+  }
+
+  function closePaymentModal() {
+    setPaying(false);
+    if (canControlCustomerDisplay) {
+      api("/customer-display/reset", { method: "POST" }).catch(() => {});
+    }
   }
 
   async function finishDojoPayment(result) {
@@ -1054,7 +1061,7 @@ export default function PosPage() {
           currency={currency}
           dojoAvailable={Boolean(paymentProviders.dojo?.configured)}
           busy={busy}
-          onClose={() => setPaying(false)}
+          onClose={closePaymentModal}
           onPay={payOrder}
           onDojoPaid={finishDojoPayment}
           onComplimentary={() => {

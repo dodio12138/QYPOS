@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: Show the current order bill when checkout opens and reset the customer display to the welcome screen when checkout is exited or cancelled
+
 - feat: Add one Start/Pause lottery toggle to the POS customer-display controls; after pausing, Start resumes the most recently paused campaign while preserving existing permissions and publish, resume, and pause endpoints
 
 - fix: On tablet layouts, make user, realtime status and admin entry icon-first, use icon-only customer display controls, and reclaim vertical space for the table, menu and order workspace
