@@ -66,6 +66,7 @@ export async function getLotteryCampaignSnapshot(pool, campaignId) {
   )).rows;
   return {
     id: campaign.id,
+    activity_type: campaign.activity_type || "lucky_wheel",
     title_i18n: jsonValue(campaign.title_i18n),
     subtitle_i18n: jsonValue(campaign.subtitle_i18n),
     button_i18n: jsonValue(campaign.button_i18n),

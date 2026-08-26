@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- feat: Rename the POS draw control to Activity page, use Activity wording for the Admin entry, tests, and history, and add an Activity type as the first new-campaign field; Lucky Wheel is the first saved type and the model is ready for future activities
+
 - fix: Use activity wording for generic invitation, customer-display status, and Admin invitation settings while keeping lottery-specific wheel, draw, and winner copy unchanged, leaving room for future games or other activities
 
 - fix: Make customer-display controls white by default and mark the currently shown screen directly on its matching button with a red outline, soft red fill, and focus glow instead of a separate current-screen label

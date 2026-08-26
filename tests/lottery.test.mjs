@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const { assertNoOverlappingLotteryCampaign, deleteLotteryCampaign, issueAdditionalLotteryTicket, lotteryClaimCodeRequired, selectLotteryOutcome, testLotteryCampaign } = await import("../apps/api/src/services/lottery.js");
-const { validatePrizes } = await import("../apps/api/src/routes/lottery.js");
+const { campaignPayload, validatePrizes } = await import("../apps/api/src/routes/lottery.js");
 const { lotteryProbabilities, normalizedLotteryWeights, rebalanceLotteryProbabilities } = await import("../apps/web/src/app/admin/_components/lottery-form-helpers.js");
 
 function prizes() {
@@ -30,6 +30,19 @@ function prizes() {
     }
   ];
 }
+
+test("activity campaigns default to the Lucky Wheel type and reject unknown types", () => {
+  const payload = campaignPayload({
+    starts_at: "2026-09-01T10:00:00.000Z",
+    ends_at: "2026-09-02T10:00:00.000Z"
+  });
+  assert.equal(payload.activity_type, "lucky_wheel");
+  assert.throws(() => campaignPayload({
+    activity_type: "unknown",
+    starts_at: "2026-09-01T10:00:00.000Z",
+    ends_at: "2026-09-02T10:00:00.000Z"
+  }), /Unsupported activity type/);
+});
 
 test("lottery test selection uses the same weighted server-side outcome", () => {
   const winning = selectLotteryOutcome(prizes(), () => 1999);

@@ -82,7 +82,7 @@ const tabs = [
   ["delivery", CloudDownload, { "zh-CN": "外卖", "en-GB": "Delivery" }, ["manage_ops"]],
   ["online-orders", ClipboardList, { "zh-CN": "网站", "en-GB": "Website" }, ["manage_ops"]],
   ["layout", Armchair, { "zh-CN": "布局", "en-GB": "Layout" }, ["manage_tables"]],
-  ["lottery", Sparkles, { "zh-CN": "抽奖", "en-GB": "Lottery" }, ["manage_lottery", "redeem_lottery", "control_customer_display"]]
+  ["lottery", Sparkles, { "zh-CN": "活动", "en-GB": "Activity" }, ["manage_lottery", "redeem_lottery", "control_customer_display"]]
 ];
 const adminGatedTabs = new Set(["dashboard", "reports", "schedule", "settings", "users", "ops", "delivery", "online-orders", "layout", "lottery"]);
 

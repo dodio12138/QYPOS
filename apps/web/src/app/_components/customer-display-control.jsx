@@ -209,8 +209,8 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
         <button className={invitationCurrent ? "is-current" : ""} type="button" onClick={() => call("lottery_invitation", "/customer-display/show-lottery-invitation", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"} aria-current={invitationCurrent ? "page" : undefined} aria-label={text(locale, "显示邀请页", "Show invitation")} title={displayButtonTitle(locale, "显示邀请页", "Show invitation", invitationCurrent)}>
           <MessageCircle size={15} /><span className="customer-display-control-label">{busy === "lottery_invitation" ? "…" : text(locale, "显示邀请页", "Show invitation")}</span>
         </button>
-        <button className={lotteryCurrent ? "is-current" : ""} type="button" onClick={() => call("lottery", "/customer-display/show-lottery", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"} aria-current={lotteryCurrent ? "page" : undefined} aria-label={text(locale, "抽奖节目", "Lottery screen")} title={displayButtonTitle(locale, "抽奖节目", "Lottery screen", lotteryCurrent)}>
-          <Sparkles size={15} /><span className="customer-display-control-label">{busy === "lottery" ? "…" : text(locale, "抽奖节目", "Lottery screen")}</span>
+        <button className={lotteryCurrent ? "is-current" : ""} type="button" onClick={() => call("lottery", "/customer-display/show-lottery", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"} aria-current={lotteryCurrent ? "page" : undefined} aria-label={text(locale, "活动页面", "Activity page")} title={displayButtonTitle(locale, "活动页面", "Activity page", lotteryCurrent)}>
+          <Sparkles size={15} /><span className="customer-display-control-label">{busy === "lottery" ? "…" : text(locale, "活动页面", "Activity page")}</span>
         </button>
       </div>
       {!order ? <small>{text(locale, "先选择订单，再把内容发送到顾客屏。", "Select an order to send content to the customer display.")}</small> : null}

@@ -6,6 +6,11 @@ import { api, labelOf } from "../../../lib/api";
 import { lotteryProbabilities, normalizedLotteryWeights, rebalanceLotteryProbabilities } from "./lottery-form-helpers";
 
 function t(locale, zh, en) { return locale === "en-GB" ? en : zh; }
+const ACTIVITY_TYPES = [{ value: "lucky_wheel", zh: "幸运大转盘", en: "Lucky Wheel" }];
+function activityTypeLabel(value, locale) {
+  const type = ACTIVITY_TYPES.find((item) => item.value === value) || ACTIVITY_TYPES[0];
+  return t(locale, type.zh, type.en);
+}
 function numberDraft(value) { return value == null || Number.isNaN(Number(value)) ? "" : String(value); }
 function DeferredNumberInput({ value, onCommit, min, max, step = 1, allowEmpty = false, ...props }) {
   const [draft, setDraft] = useState(numberDraft(value));
@@ -96,6 +101,7 @@ function scheduleLabel(campaign, locale) {
 function initialForm() {
   const now = Date.now();
   return {
+    activity_type: "lucky_wheel",
     internal_name: "新活动",
     title_i18n: { "zh-CN": "幸运大转盘", "en-GB": "Lucky Wheel" },
     subtitle_i18n: { "zh-CN": "", "en-GB": "" },
@@ -119,6 +125,7 @@ function formFromCampaign(campaign) {
   const fallback = initialForm();
   return {
     ...fallback,
+    activity_type: campaign.activity_type || fallback.activity_type,
     internal_name: campaign.internal_name || fallback.internal_name,
     title_i18n: campaign.title_i18n || fallback.title_i18n,
     subtitle_i18n: campaign.subtitle_i18n || fallback.subtitle_i18n,
@@ -355,7 +362,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
         method: "POST",
         body: JSON.stringify({ show_on_customer_display: true })
       });
-      onNotify?.(t(locale, "测试抽奖页面已显示在顾客屏。", "Test draw is ready on the customer display."));
+      onNotify?.(t(locale, "测试活动页面已显示在顾客屏。", "Test activity is ready on the customer display."));
     } catch (error) { onNotify?.(error.message); }
     finally { setTesting(false); }
   }
@@ -385,6 +392,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
         </div>
         <form className="settings-form" onSubmit={saveCampaign}>
           <div className="settings-fields">
+            <label>{t(locale, "活动类型", "Activity type")}<select value={form.activity_type} onChange={(e) => setForm({ ...form, activity_type: e.target.value })}>{ACTIVITY_TYPES.map((type) => <option key={type.value} value={type.value}>{t(locale, type.zh, type.en)}</option>)}</select></label>
             <label>{t(locale, "内部名称", "Internal name")}<input value={form.internal_name} onChange={(e) => setForm({ ...form, internal_name: e.target.value })} required /></label>
             <label>{t(locale, "最低订单金额", "Minimum order total")}<DeferredNumberInput min={0} step={0.01} value={form.minimum_order_total} onCommit={(value) => setForm((current) => ({ ...current, minimum_order_total: value }))} /></label>
           </div>
@@ -443,7 +451,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
             return <article className={`lottery-campaign-card${editingCampaignId === campaign.id ? " is-editing" : ""}${status.running ? " is-running" : ""}`} key={campaign.id}>
               <div>
                 <div className="lottery-campaign-name"><strong>{labelOf(campaign.title_i18n, locale) || campaign.internal_name}</strong>{status.running ? <em>{t(locale, "当前活动", "Current")}</em> : null}{activationBlocked && campaign.status !== "published" ? <em className="is-conflicting">{t(locale, "时段冲突", "Schedule conflict")}</em> : null}</div>
-                <span>{campaign.internal_name} · {status.label}</span>
+                <span>{campaign.internal_name} · {activityTypeLabel(campaign.activity_type, locale)} · {status.label}</span>
                 <small className="lottery-campaign-schedule"><Clock size={13} />{t(locale, "活动有效期：", "Valid: ")}{scheduleLabel(campaign, locale)}</small>
               </div>
               <div className="settings-actions">
@@ -459,7 +467,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       </section>}
 
       {canManage && <section className="panel lottery-test-panel">
-        <div className="panel-title"><Sparkles size={18} /><h2>{t(locale, "抽奖测试", "Test draw")}</h2></div>
+        <div className="panel-title"><Sparkles size={18} /><h2>{t(locale, "活动测试", "Activity test")}</h2></div>
         <div className="lottery-test-controls">
           <label>
             <span>{t(locale, "选择活动", "Campaign")}</span>
@@ -468,10 +476,10 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
             </select>
           </label>
           <button className="primary lottery-test-action" type="button" disabled={!testCampaignId || testing} onClick={showTestOnCustomerDisplay}>
-            <Sparkles size={15} />{testing ? t(locale, "发送中…", "Sending…") : t(locale, "显示测试抽奖", "Show test draw")}
+            <Sparkles size={15} />{testing ? t(locale, "发送中…", "Sending…") : t(locale, "显示测试活动", "Show test activity")}
           </button>
         </div>
-        <p className="lottery-test-note">{t(locale, "顾客在顾客屏点击或滑动后才会开奖；测试不扣库存、不写抽奖记录。", "The draw starts only after customer interaction; tests do not use stock or create draw records.")}</p>
+        <p className="lottery-test-note">{t(locale, "顾客在顾客屏点击或滑动后才会开奖；测试不扣库存、不写活动记录。", "The draw starts only after customer interaction; tests do not use stock or create activity records.")}</p>
       </section>}
 
       {canSettings && settings && <section className="panel lottery-display-settings">
@@ -519,7 +527,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       </section>}
 
       {canManage && <section className="panel">
-        <div className="panel-title"><Gift size={18} /><h2>{t(locale, "抽奖记录", "Draw history")}</h2></div>
+        <div className="panel-title"><Gift size={18} /><h2>{t(locale, "活动记录", "Activity history")}</h2></div>
         <div className="lottery-draw-list">
           {visibleDraws.map((draw) => {
             const prizeName = labelOf(draw.prize_snapshot?.name_i18n, locale) || labelOf(draw.prize_name_i18n, locale);
@@ -544,7 +552,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
             </div>;
           })}
         </div>
-        <div className="lottery-pagination" aria-label={t(locale, "抽奖记录分页", "Lottery history pagination")}>
+        <div className="lottery-pagination" aria-label={t(locale, "活动记录分页", "Activity history pagination")}>
           <button className="lottery-record-action" type="button" disabled={drawPage <= 1} onClick={() => setDrawPage((page) => Math.max(1, page - 1))}><ChevronLeft size={15} />{t(locale, "上一页", "Previous")}</button>
           <span>{t(locale, `第 ${drawPage} / ${drawPageCount} 页`, `Page ${drawPage} / ${drawPageCount}`)} · {draws.length}</span>
           <button className="lottery-record-action" type="button" disabled={drawPage >= drawPageCount} onClick={() => setDrawPage((page) => Math.min(drawPageCount, page + 1))}>{t(locale, "下一页", "Next")}<ChevronRight size={15} /></button>

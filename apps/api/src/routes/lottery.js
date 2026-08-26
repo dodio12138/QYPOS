@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { publishCustomerDisplayState } from "../services/customer-display.js";
 import { activeLotteryCampaign, assertNoOverlappingLotteryCampaign, deleteLotteryCampaign, drawLottery, getLotteryCampaignSnapshot, testLotteryCampaign } from "../services/lottery.js";
 
+export const ACTIVITY_TYPES = Object.freeze({ lucky_wheel: "lucky_wheel" });
+
 function jsonObject(value, fallback = {}) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : fallback;
 }
@@ -54,15 +56,18 @@ export function validatePrizes(prizes, { publish = false } = {}) {
   if (enabled.some((prize) => prize.stock_total != null && prize.stock_total < Number(prize.stock_awarded || 0))) throw fail("Prize stock cannot be lower than stock already awarded");
 }
 
-function campaignPayload(body = {}) {
+export function campaignPayload(body = {}) {
   const startsAt = new Date(body.starts_at);
   const endsAt = new Date(body.ends_at);
   if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) throw fail("Campaign start and end times are invalid");
+  const activityType = String(body.activity_type || ACTIVITY_TYPES.lucky_wheel);
+  if (!Object.values(ACTIVITY_TYPES).includes(activityType)) throw fail("Unsupported activity type");
   const spinDurationSeconds = Number(body.spin_duration_seconds ?? 10);
   if (!Number.isFinite(spinDurationSeconds) || !Number.isInteger(spinDurationSeconds) || spinDurationSeconds < 3 || spinDurationSeconds > 30) {
     throw fail("Wheel spin duration must be a whole number between 3 and 30 seconds");
   }
   return {
+    activity_type: activityType,
     internal_name: String(body.internal_name || "").trim(),
     title_i18n: jsonObject(body.title_i18n),
     subtitle_i18n: jsonObject(body.subtitle_i18n),
@@ -201,9 +206,9 @@ export default function register({ app, pool, redis, query, one, requirePermissi
         await client.query("BEGIN");
         const inserted = await client.query(
           `INSERT INTO lottery_campaigns
-            (internal_name, title_i18n, subtitle_i18n, button_i18n, losing_message_i18n, rules_i18n, starts_at, ends_at, spin_duration_seconds, minimum_order_total, service_types, excluded_payment_methods, ticket_valid_minutes, claim_valid_minutes, theme, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
-          [campaign.internal_name, campaign.title_i18n, campaign.subtitle_i18n, campaign.button_i18n, campaign.losing_message_i18n, campaign.rules_i18n, campaign.starts_at, campaign.ends_at, campaign.spin_duration_seconds, campaign.minimum_order_total, campaign.service_types, campaign.excluded_payment_methods, campaign.ticket_valid_minutes, campaign.claim_valid_minutes, campaign.theme, (await userFromToken(request))?.id ?? null]
+            (activity_type, internal_name, title_i18n, subtitle_i18n, button_i18n, losing_message_i18n, rules_i18n, starts_at, ends_at, spin_duration_seconds, minimum_order_total, service_types, excluded_payment_methods, ticket_valid_minutes, claim_valid_minutes, theme, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+          [campaign.activity_type, campaign.internal_name, campaign.title_i18n, campaign.subtitle_i18n, campaign.button_i18n, campaign.losing_message_i18n, campaign.rules_i18n, campaign.starts_at, campaign.ends_at, campaign.spin_duration_seconds, campaign.minimum_order_total, campaign.service_types, campaign.excluded_payment_methods, campaign.ticket_valid_minutes, campaign.claim_valid_minutes, campaign.theme, (await userFromToken(request))?.id ?? null]
         );
         await insertPrizes(client, inserted.rows[0].id, prizes);
         await client.query("COMMIT");
@@ -246,13 +251,13 @@ export default function register({ app, pool, redis, query, one, requirePermissi
 
       const updatedCampaign = (await client.query(
         `UPDATE lottery_campaigns SET
-           internal_name = $2, title_i18n = $3, subtitle_i18n = $4, button_i18n = $5,
-           losing_message_i18n = $6, rules_i18n = $7, starts_at = $8, ends_at = $9,
-           spin_duration_seconds = $10, minimum_order_total = $11, service_types = $12,
-           excluded_payment_methods = $13, ticket_valid_minutes = $14, claim_valid_minutes = $15,
-           theme = $16, updated_at = now()
+           activity_type = $2, internal_name = $3, title_i18n = $4, subtitle_i18n = $5, button_i18n = $6,
+           losing_message_i18n = $7, rules_i18n = $8, starts_at = $9, ends_at = $10,
+           spin_duration_seconds = $11, minimum_order_total = $12, service_types = $13,
+           excluded_payment_methods = $14, ticket_valid_minutes = $15, claim_valid_minutes = $16,
+           theme = $17, updated_at = now()
          WHERE id = $1 RETURNING *`,
-        [campaign.id, payload.internal_name, payload.title_i18n, payload.subtitle_i18n, payload.button_i18n, payload.losing_message_i18n, payload.rules_i18n, payload.starts_at, payload.ends_at, payload.spin_duration_seconds, payload.minimum_order_total, payload.service_types, payload.excluded_payment_methods, payload.ticket_valid_minutes, payload.claim_valid_minutes, payload.theme]
+        [campaign.id, payload.activity_type, payload.internal_name, payload.title_i18n, payload.subtitle_i18n, payload.button_i18n, payload.losing_message_i18n, payload.rules_i18n, payload.starts_at, payload.ends_at, payload.spin_duration_seconds, payload.minimum_order_total, payload.service_types, payload.excluded_payment_methods, payload.ticket_valid_minutes, payload.claim_valid_minutes, payload.theme]
       )).rows[0];
 
       // Move old positions out of the active range before reordering. This
