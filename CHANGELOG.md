@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: Make customer-display controls white by default and mark the currently shown screen directly on its matching button with a red outline, soft red fill, and focus glow instead of a separate current-screen label
+
 - feat: Add a configurable invitation timeout that returns the customer display to Welcome after 10 seconds by default (1–60 seconds); show the current customer-display screen in the POS controls so staff can confirm what guests see
 
 - fix: Allow paid orders to reprint kitchen tickets without downgrading them to submitted; stale kitchen updates now preserve paid, with an explicit reprint confirmation in POS

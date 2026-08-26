@@ -17,18 +17,16 @@ function campaignControlCandidate(campaigns = []) {
     || null;
 }
 
-function displayModeLabel(mode, locale) {
-  const labels = {
-    idle: ["欢迎页", "Welcome"],
-    bill: ["账单", "Bill"],
-    paid: ["付款成功", "Payment complete"],
-    lottery_invitation: ["抽奖邀请", "Lottery invitation"],
-    lottery_ready: ["抽奖转盘", "Lottery wheel"],
-    lottery_spinning: ["抽奖进行中", "Lottery spinning"],
-    lottery_result: ["抽奖结果", "Lottery result"]
-  };
-  const [zh, en] = labels[mode] || ["未知页面", "Unknown screen"];
-  return text(locale, zh, en);
+function displayButtonIsCurrent(mode, target) {
+  if (!mode) return false;
+  if (target === "bill") return mode === "bill" || mode === "paid";
+  if (target === "lottery_invitation") return mode === "lottery_invitation";
+  if (target === "lottery") return ["lottery_ready", "lottery_spinning", "lottery_result"].includes(mode);
+  return mode === target;
+}
+
+function displayButtonTitle(locale, zh, en, current) {
+  return current ? text(locale, `${zh}（当前显示）`, `${en} (currently shown)`) : text(locale, zh, en);
 }
 
 export default function CustomerDisplayControl({ order, locale, user, onNotify }) {
@@ -174,6 +172,11 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
   const won = Boolean(draw && prize?.kind !== "no_prize");
   const instantPrize = won && prize?.fulfillment_type === "instant";
   const lotteryReady = lottery?.ticket_status === "issued" && !draw;
+  const displayMode = displayStatus?.state?.mode;
+  const welcomeCurrent = displayButtonIsCurrent(displayMode, "idle");
+  const billCurrent = displayButtonIsCurrent(displayMode, "bill");
+  const invitationCurrent = displayButtonIsCurrent(displayMode, "lottery_invitation");
+  const lotteryCurrent = displayButtonIsCurrent(displayMode, "lottery");
   return (
     <section className="customer-display-control" aria-label={text(locale, "顾客屏控制", "Customer display controls")}>
       <div className="customer-display-control-heading">
@@ -181,10 +184,6 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
         <span className={`customer-display-lottery-status${activeCampaign ? " is-active" : ""}`} title={activeCampaign ? labelOf(activeCampaign.title_i18n, locale) : undefined}>
           <i aria-hidden="true" />
           {activeCampaign ? text(locale, "抽奖活动进行中", "Lottery active") : text(locale, "暂无抽奖活动", "No active draw")}
-        </span>
-        <span className="customer-display-screen-status" title={text(locale, "当前顾客屏页面", "Current customer display screen")}>
-          <i aria-hidden="true" />
-          {displayStatus ? `${text(locale, "当前", "Now")}: ${displayModeLabel(displayStatus.state?.mode, locale)}` : text(locale, "状态读取中", "Reading status")}
         </span>
         {campaignControl ? (
           <span className="customer-display-campaign-actions" aria-label={text(locale, "抽奖活动快捷控制", "Lottery quick controls")}>
@@ -201,16 +200,16 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
         ) : null}
       </div>
       <div className="customer-display-control-actions">
-        <button type="button" onClick={() => call("idle", "/customer-display/reset")} disabled={busy !== ""} aria-label={text(locale, "欢迎界面", "Welcome screen")} title={text(locale, "欢迎界面", "Welcome screen")}>
+        <button className={welcomeCurrent ? "is-current" : ""} type="button" onClick={() => call("idle", "/customer-display/reset")} disabled={busy !== ""} aria-current={welcomeCurrent ? "page" : undefined} aria-label={text(locale, "欢迎界面", "Welcome screen")} title={displayButtonTitle(locale, "欢迎界面", "Welcome screen", welcomeCurrent)}>
           <Home size={15} /><span className="customer-display-control-label">{busy === "idle" ? "…" : text(locale, "欢迎界面", "Welcome screen")}</span>
         </button>
-        <button type="button" onClick={() => call("bill", "/customer-display/show-order", { order_id: order?.id })} disabled={disabled} aria-label={text(locale, "显示账单", "Show bill")} title={text(locale, "显示账单", "Show bill")}>
+        <button className={billCurrent ? "is-current" : ""} type="button" onClick={() => call("bill", "/customer-display/show-order", { order_id: order?.id })} disabled={disabled} aria-current={billCurrent ? "page" : undefined} aria-label={text(locale, "显示账单", "Show bill")} title={displayButtonTitle(locale, "显示账单", "Show bill", billCurrent)}>
           <ReceiptText size={15} /><span className="customer-display-control-label">{busy === "bill" ? "…" : text(locale, "显示账单", "Show bill")}</span>
         </button>
-        <button type="button" onClick={() => call("lottery_invitation", "/customer-display/show-lottery-invitation", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"} aria-label={text(locale, "显示邀请页", "Show invitation")} title={text(locale, "显示邀请页", "Show invitation")}>
+        <button className={invitationCurrent ? "is-current" : ""} type="button" onClick={() => call("lottery_invitation", "/customer-display/show-lottery-invitation", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"} aria-current={invitationCurrent ? "page" : undefined} aria-label={text(locale, "显示邀请页", "Show invitation")} title={displayButtonTitle(locale, "显示邀请页", "Show invitation", invitationCurrent)}>
           <MessageCircle size={15} /><span className="customer-display-control-label">{busy === "lottery_invitation" ? "…" : text(locale, "显示邀请页", "Show invitation")}</span>
         </button>
-        <button type="button" onClick={() => call("lottery", "/customer-display/show-lottery", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"} aria-label={text(locale, "抽奖节目", "Lottery screen")} title={text(locale, "抽奖节目", "Lottery screen")}>
+        <button className={lotteryCurrent ? "is-current" : ""} type="button" onClick={() => call("lottery", "/customer-display/show-lottery", { order_id: order?.id })} disabled={disabled || order?.status !== "paid"} aria-current={lotteryCurrent ? "page" : undefined} aria-label={text(locale, "抽奖节目", "Lottery screen")} title={displayButtonTitle(locale, "抽奖节目", "Lottery screen", lotteryCurrent)}>
           <Sparkles size={15} /><span className="customer-display-control-label">{busy === "lottery" ? "…" : text(locale, "抽奖节目", "Lottery screen")}</span>
         </button>
       </div>

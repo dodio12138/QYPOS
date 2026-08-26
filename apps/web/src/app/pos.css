@@ -1431,26 +1431,6 @@
 }
 .customer-display-lottery-status.is-active { color: #166534; }
 .customer-display-lottery-status.is-active i { background: #16a34a; }
-.customer-display-screen-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--muted, #6b7280);
-  font-size: 12px;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.customer-display-screen-status i {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #9ca3af;
-}
-.customer-display-screen-status.is-connected { color: #166534; }
-.customer-display-screen-status.is-connected i { background: #16a34a; }
 .customer-display-campaign-actions {
   display: inline-flex;
   align-items: center;
@@ -1492,25 +1472,38 @@
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--panel);
+  background: #fff;
   color: var(--ink);
   font-weight: 600;
-  transition: border-color 140ms, background 140ms, color 140ms;
+  transition: border-color 140ms, background 140ms, color 140ms, box-shadow 140ms, transform 140ms;
 }
 .customer-display-control-actions button:hover:not(:disabled) {
   border-color: var(--accent);
   background: #fff;
   color: var(--accent-strong);
 }
-.customer-display-control-actions button:last-child {
+.customer-display-control-actions button.is-current {
   border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  background: #fff4f4;
+  color: var(--accent-strong);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.14), 0 4px 12px rgba(185, 28, 28, 0.12);
+  animation: customer-display-current-pulse 2.4s ease-in-out infinite;
 }
-.customer-display-control-actions button:last-child:hover:not(:disabled) {
+.customer-display-control-actions button.is-current:hover:not(:disabled) {
   border-color: var(--accent-strong);
-  background: var(--accent-strong);
-  color: #fff;
+  background: #fee2e2;
+}
+.customer-display-control-actions button:focus-visible {
+  outline: 0;
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.22);
+}
+@keyframes customer-display-current-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.12), 0 4px 12px rgba(185, 28, 28, 0.1); }
+  50% { box-shadow: 0 0 0 5px rgba(185, 28, 28, 0.2), 0 5px 15px rgba(185, 28, 28, 0.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .customer-display-control-actions button.is-current { animation: none; }
 }
 .customer-display-control > small {
   grid-column: 2;
