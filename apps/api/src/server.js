@@ -112,6 +112,7 @@ export async function ensureSchema() {
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_show_bill_on_checkout BOOLEAN NOT NULL DEFAULT true");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_auto_show_lottery BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_payment_success_seconds INTEGER NOT NULL DEFAULT 5");
+  await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_lottery_invitation_seconds INTEGER NOT NULL DEFAULT 10");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_lottery_result_seconds INTEGER NOT NULL DEFAULT 20");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_idle_content JSONB NOT NULL DEFAULT '{}'");
   await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS customer_display_lottery_invitation_enabled BOOLEAN NOT NULL DEFAULT true");

@@ -129,7 +129,7 @@ export default function register({
         invitation_i18n: settings.lottery_invitation_i18n,
         invitation_image_url: settings.invitation_image_url
       },
-      durationSeconds: 0
+      durationSeconds: settings.lottery_invitation_seconds
     });
   }
 

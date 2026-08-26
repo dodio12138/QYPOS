@@ -1431,6 +1431,26 @@
 }
 .customer-display-lottery-status.is-active { color: #166534; }
 .customer-display-lottery-status.is-active i { background: #16a34a; }
+.customer-display-screen-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted, #6b7280);
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.customer-display-screen-status i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+.customer-display-screen-status.is-connected { color: #166534; }
+.customer-display-screen-status.is-connected i { background: #16a34a; }
 .customer-display-campaign-actions {
   display: inline-flex;
   align-items: center;

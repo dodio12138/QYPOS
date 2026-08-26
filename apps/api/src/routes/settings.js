@@ -128,6 +128,13 @@ app.put("/settings", async (request, reply) => {
     reply.code(error.statusCode || 400);
     return { error: error.message };
   }
+  if (body.customer_display_lottery_invitation_seconds !== undefined) {
+    const invitationSeconds = Number(body.customer_display_lottery_invitation_seconds);
+    if (!Number.isInteger(invitationSeconds) || invitationSeconds < 1 || invitationSeconds > 60) {
+      reply.code(400);
+      return { error: "抽奖邀请页自动返回时间必须是 1 到 60 秒之间的整数" };
+    }
+  }
   const settings = await one(
     `UPDATE settings SET
       locale = COALESCE($1, locale),
@@ -160,10 +167,11 @@ app.put("/settings", async (request, reply) => {
       customer_display_show_bill_on_checkout = COALESCE($28::boolean, customer_display_show_bill_on_checkout),
       customer_display_auto_show_lottery = COALESCE($29::boolean, customer_display_auto_show_lottery),
       customer_display_payment_success_seconds = COALESCE($30::integer, customer_display_payment_success_seconds),
-      customer_display_lottery_result_seconds = COALESCE($31::integer, customer_display_lottery_result_seconds),
-      customer_display_idle_content = COALESCE($32::jsonb, customer_display_idle_content),
-      customer_display_lottery_invitation_enabled = COALESCE($33::boolean, customer_display_lottery_invitation_enabled),
-      customer_display_lottery_invitation_i18n = COALESCE($34::jsonb, customer_display_lottery_invitation_i18n),
+      customer_display_lottery_invitation_seconds = COALESCE($31::integer, customer_display_lottery_invitation_seconds),
+      customer_display_lottery_result_seconds = COALESCE($32::integer, customer_display_lottery_result_seconds),
+      customer_display_idle_content = COALESCE($33::jsonb, customer_display_idle_content),
+      customer_display_lottery_invitation_enabled = COALESCE($34::boolean, customer_display_lottery_invitation_enabled),
+      customer_display_lottery_invitation_i18n = COALESCE($35::jsonb, customer_display_lottery_invitation_i18n),
       updated_at = now()
      WHERE id = (SELECT id FROM settings ORDER BY updated_at DESC LIMIT 1)
      RETURNING *`,
@@ -198,6 +206,7 @@ app.put("/settings", async (request, reply) => {
       body.customer_display_show_bill_on_checkout,
       body.customer_display_auto_show_lottery,
       body.customer_display_payment_success_seconds,
+      body.customer_display_lottery_invitation_seconds,
       body.customer_display_lottery_result_seconds,
       idleContentJson,
       body.customer_display_lottery_invitation_enabled,

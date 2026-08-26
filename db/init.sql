@@ -38,6 +38,7 @@ CREATE TABLE settings (
   customer_display_show_bill_on_checkout BOOLEAN NOT NULL DEFAULT true,
   customer_display_auto_show_lottery BOOLEAN NOT NULL DEFAULT false,
   customer_display_payment_success_seconds INTEGER NOT NULL DEFAULT 5,
+  customer_display_lottery_invitation_seconds INTEGER NOT NULL DEFAULT 10,
   customer_display_lottery_result_seconds INTEGER NOT NULL DEFAULT 20,
   customer_display_idle_content JSONB NOT NULL DEFAULT '{}',
   customer_display_lottery_invitation_enabled BOOLEAN NOT NULL DEFAULT true,

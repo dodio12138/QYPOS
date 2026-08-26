@@ -1,7 +1,7 @@
 "use client";
 
 import { CircleCheck, Gift, Home, MessageCircle, Monitor, Pause, Play, ReceiptText, Sparkles, TicketCheck } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, labelOf } from "../../lib/api";
 import { nextPosLotteryFeedback, POS_LOTTERY_FEEDBACK_MS } from "./customer-display-control-helpers";
 
@@ -17,15 +17,50 @@ function campaignControlCandidate(campaigns = []) {
     || null;
 }
 
+function displayModeLabel(mode, locale) {
+  const labels = {
+    idle: ["欢迎页", "Welcome"],
+    bill: ["账单", "Bill"],
+    paid: ["付款成功", "Payment complete"],
+    lottery_invitation: ["抽奖邀请", "Lottery invitation"],
+    lottery_ready: ["抽奖转盘", "Lottery wheel"],
+    lottery_spinning: ["抽奖进行中", "Lottery spinning"],
+    lottery_result: ["抽奖结果", "Lottery result"]
+  };
+  const [zh, en] = labels[mode] || ["未知页面", "Unknown screen"];
+  return text(locale, zh, en);
+}
+
 export default function CustomerDisplayControl({ order, locale, user, onNotify }) {
   const [busy, setBusy] = useState("");
   const [orderLottery, setOrderLottery] = useState(null);
   const [lotteryFeedback, setLotteryFeedback] = useState(null);
   const [activeCampaign, setActiveCampaign] = useState(null);
   const [campaignControl, setCampaignControl] = useState(null);
+  const [displayStatus, setDisplayStatus] = useState(null);
   const feedbackTrackerRef = useRef({ initialized: false, seenDrawId: null });
   const feedbackTimerRef = useRef(null);
   const canControl = Boolean(user?.permissions?.includes("control_customer_display"));
+
+  const refreshDisplayStatus = useCallback(async () => {
+    if (!canControl) return;
+    try {
+      const status = await api("/customer-display/status");
+      setDisplayStatus(status || null);
+    } catch {
+      setDisplayStatus(null);
+    }
+  }, [canControl]);
+
+  useEffect(() => {
+    if (!canControl) {
+      setDisplayStatus(null);
+      return undefined;
+    }
+    refreshDisplayStatus();
+    const timer = window.setInterval(refreshDisplayStatus, 5000);
+    return () => window.clearInterval(timer);
+  }, [canControl, refreshDisplayStatus]);
 
   useEffect(() => {
     let active = true;
@@ -96,6 +131,8 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
     setBusy(action);
     try {
       const result = await api(path, { method: "POST", body: JSON.stringify(body) });
+      if (result?.mode) setDisplayStatus((current) => ({ ...current, state: result }));
+      await refreshDisplayStatus();
       if (onNotify) onNotify(text(locale, "顾客屏已更新", "Customer display updated"));
       return result;
     } catch (error) {
@@ -144,6 +181,10 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
         <span className={`customer-display-lottery-status${activeCampaign ? " is-active" : ""}`} title={activeCampaign ? labelOf(activeCampaign.title_i18n, locale) : undefined}>
           <i aria-hidden="true" />
           {activeCampaign ? text(locale, "抽奖活动进行中", "Lottery active") : text(locale, "暂无抽奖活动", "No active draw")}
+        </span>
+        <span className="customer-display-screen-status" title={text(locale, "当前顾客屏页面", "Current customer display screen")}>
+          <i aria-hidden="true" />
+          {displayStatus ? `${text(locale, "当前", "Now")}: ${displayModeLabel(displayStatus.state?.mode, locale)}` : text(locale, "状态读取中", "Reading status")}
         </span>
         {campaignControl ? (
           <span className="customer-display-campaign-actions" aria-label={text(locale, "抽奖活动快捷控制", "Lottery quick controls")}>

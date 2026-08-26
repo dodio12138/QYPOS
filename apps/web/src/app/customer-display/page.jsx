@@ -76,6 +76,17 @@ function toIsoOrNull(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function invitationTimeoutSeconds(payload) {
+  const value = Number(
+    payload?.invitation_seconds
+    ?? payload?.settings?.lottery_invitation_seconds
+    ?? payload?.settings?.customer_display_lottery_invitation_seconds
+    ?? payload?.customer_display_lottery_invitation_seconds
+    ?? 10
+  );
+  return Math.min(60, Math.max(1, Number.isFinite(value) ? value : 10));
+}
+
 function logoSource(value) {
   // The API's default is a legacy public path; the bundled QYPOS logo is a
   // Next static asset and must use its emitted hashed URL in the browser.
@@ -243,6 +254,7 @@ function sanitizeState(source) {
       welcomeMessage: labelOf(payload?.idle_content?.message_i18n || payload?.idle_content?.subtitle_i18n || payload?.welcome_message_i18n || payload?.brand?.welcome_i18n || payload?.subtitle_i18n, locale),
       welcomeMessageI18n: payload?.idle_content?.message_i18n || payload?.idle_content?.subtitle_i18n || payload?.welcome_message_i18n || payload?.brand?.welcome_i18n || payload?.subtitle_i18n || {},
       invitationI18n: payload?.invitation_i18n || {},
+      invitationTimeoutSeconds: invitationTimeoutSeconds(payload),
       orderNumber: order?.order_number || bill?.order_no || payload?.order_number || payload?.display_order_number || "",
       serviceType: order?.service_type || bill?.service_type || payload?.service_type || "",
       tableLabel: order?.table_name || bill?.table_label || payload?.table_name || payload?.table_label || "",
@@ -509,6 +521,8 @@ export default function CustomerDisplayPage() {
   const tickTimersRef = useRef([]);
   const soundedResultRevisionRef = useRef(0);
   const resultSoundTimerRef = useRef(null);
+  const invitationTimerRef = useRef(null);
+  const invitationResponseInFlightRef = useRef(false);
   const reducedMotion = useReducedMotion();
   const now = useNow(1000);
 
@@ -532,6 +546,8 @@ export default function CustomerDisplayPage() {
     }
     return displayState;
   }, [displayState, now]);
+  const effectiveStateRef = useRef(effectiveState);
+  effectiveStateRef.current = effectiveState;
 
   const locale = effectiveState.payload.locale || "zh-CN";
   const currency = effectiveState.payload.currency || "GBP";
@@ -762,8 +778,10 @@ export default function CustomerDisplayPage() {
     }
   }
 
-  async function respondToInvitation(accepted) {
-    if (!effectiveState.payload.invitationToken || invitationBusy) return;
+  const respondToInvitation = useCallback(async (accepted) => {
+    const state = effectiveStateRef.current;
+    if (!state.payload.invitationToken || invitationResponseInFlightRef.current) return;
+    invitationResponseInFlightRef.current = true;
     setInvitationBusy(true);
     setDrawError("");
     try {
@@ -771,8 +789,8 @@ export default function CustomerDisplayPage() {
         method: "POST",
         body: JSON.stringify({
           accepted,
-          revision: effectiveState.revision,
-          invitation_token: effectiveState.payload.invitationToken
+          revision: state.revision,
+          invitation_token: state.payload.invitationToken
         })
       });
       applyState(result, { force: true });
@@ -780,9 +798,27 @@ export default function CustomerDisplayPage() {
       setDrawError(bilingual("此邀请已失效，请联系店员", "This invitation has expired. Please ask a member of staff."));
       refreshState();
     } finally {
+      invitationResponseInFlightRef.current = false;
       setInvitationBusy(false);
     }
-  }
+  }, [applyState, refreshState]);
+
+  useEffect(() => {
+    window.clearTimeout(invitationTimerRef.current);
+    if (effectiveState.mode !== "lottery_invitation") return undefined;
+    // Current APIs publish visible_until. The local fallback below supports
+    // older payloads that expose only the setting, without racing that expiry.
+    if (effectiveState.visible_until) return undefined;
+    const revision = effectiveState.revision;
+    invitationTimerRef.current = window.setTimeout(() => {
+      // Declining through the public invitation endpoint resets the shared
+      // display state too, so polling cannot revive an expired invitation.
+      if (effectiveStateRef.current.revision === revision) void respondToInvitation(false);
+    }, effectiveState.payload.invitationTimeoutSeconds * 1000);
+    return () => window.clearTimeout(invitationTimerRef.current);
+  }, [effectiveState.mode, effectiveState.payload.invitationTimeoutSeconds, effectiveState.revision, effectiveState.visible_until, respondToInvitation]);
+
+  useEffect(() => () => window.clearTimeout(invitationTimerRef.current), []);
 
   async function toggleSound() {
     if (soundEnabled) {

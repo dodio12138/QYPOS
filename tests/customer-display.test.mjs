@@ -62,10 +62,16 @@ test("customer display lottery invitation settings have editable bilingual defau
   });
 
   assert.equal(defaults.lottery_invitation_enabled, true);
+  assert.equal(defaults.lottery_invitation_seconds, 10);
   assert.match(defaults.lottery_invitation_i18n["en-GB"], /Lucky Wheel/);
   assert.equal(defaults.invitation_image_url, "/customer-display/default-review-qr.png");
   assert.equal(configured.lottery_invitation_enabled, false);
   assert.deepEqual(configured.lottery_invitation_i18n, { "zh-CN": "写评论后抽奖", "en-GB": "Review to enter" });
+});
+
+test("customer invitation timeout is bounded to one minute", () => {
+  assert.equal(displaySettings({ customer_display_lottery_invitation_seconds: 1 }).lottery_invitation_seconds, 1);
+  assert.equal(displaySettings({ customer_display_lottery_invitation_seconds: 999 }).lottery_invitation_seconds, 60);
 });
 
 test("welcome screen copy is optional and empty by default", () => {

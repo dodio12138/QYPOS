@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- feat: Add a configurable invitation timeout that returns the customer display to Welcome after 10 seconds by default (1–60 seconds); show the current customer-display screen in the POS controls so staff can confirm what guests see
+
 - fix: Allow paid orders to reprint kitchen tickets without downgrading them to submitted; stale kitchen updates now preserve paid, with an explicit reprint confirmation in POS
 
 - fix: Show the current order bill when checkout opens and reset the customer display to the welcome screen when checkout is exited or cancelled

@@ -149,6 +149,7 @@ export function displaySettings(settings = {}) {
           "en-GB": "Leave us a Google review to join the Lucky Wheel draw"
         },
     payment_success_seconds: Math.min(30, Math.max(1, Number(settings.customer_display_payment_success_seconds || 5))),
+    lottery_invitation_seconds: Math.min(60, Math.max(1, Number(settings.customer_display_lottery_invitation_seconds || 10))),
     lottery_result_seconds: Math.min(120, Math.max(5, Number(settings.customer_display_lottery_result_seconds || 20))),
     invitation_image_url: settings.customer_display_idle_content && typeof settings.customer_display_idle_content === "object"
       ? settings.customer_display_idle_content.review_image_url || DEFAULT_CUSTOMER_DISPLAY_REVIEW_IMAGE

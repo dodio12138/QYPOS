@@ -289,6 +289,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
         customer_display_auto_show_lottery: settings.customer_display_auto_show_lottery,
         customer_display_lottery_invitation_enabled: settings.customer_display_lottery_invitation_enabled,
         customer_display_lottery_invitation_i18n: settings.customer_display_lottery_invitation_i18n || {},
+        customer_display_lottery_invitation_seconds: Number(settings.customer_display_lottery_invitation_seconds ?? 10),
         customer_display_payment_success_seconds: Number(settings.customer_display_payment_success_seconds),
         customer_display_lottery_result_seconds: Number(settings.customer_display_lottery_result_seconds),
         customer_display_idle_content: settings.customer_display_idle_content || {}
@@ -509,6 +510,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
           </div>
 
           <div className="settings-fields">
+            <label>{t(locale, "抽奖邀请显示秒数", "Invitation screen seconds")}<DeferredNumberInput min={1} max={60} step={1} value={settings.customer_display_lottery_invitation_seconds ?? 10} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_lottery_invitation_seconds: value }))} /></label>
             <label>{t(locale, "付款成功显示秒数", "Paid screen seconds")}<DeferredNumberInput min={1} max={30} step={1} value={settings.customer_display_payment_success_seconds ?? 5} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_payment_success_seconds: value }))} /></label>
             <label>{t(locale, "抽奖结果显示秒数", "Result screen seconds")}<DeferredNumberInput min={5} max={120} step={1} value={settings.customer_display_lottery_result_seconds ?? 20} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_lottery_result_seconds: value }))} /></label>
           </div>
