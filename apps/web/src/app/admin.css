@@ -4912,6 +4912,16 @@ button.action-copy:disabled {
 }
 .lottery-admin-view .settings-fields input,
 .lottery-admin-view .settings-fields select { min-height: 40px; border-width: 1.5px; }
+.lottery-admin-view .activity-type-hint {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+}
 .lottery-display-settings { grid-column: 1 / -1; }
 .lottery-schedule-editor {
   display: grid;

@@ -101,7 +101,7 @@ function scheduleLabel(campaign, locale) {
 function initialForm() {
   const now = Date.now();
   return {
-    activity_type: "lucky_wheel",
+    activity_type: "",
     internal_name: "新活动",
     title_i18n: { "zh-CN": "幸运大转盘", "en-GB": "Lucky Wheel" },
     subtitle_i18n: { "zh-CN": "", "en-GB": "" },
@@ -219,6 +219,10 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
   async function saveCampaign(event) {
     event.preventDefault();
     if (!canManage) return;
+    if (!form.activity_type) {
+      onNotify?.(t(locale, "请先选择活动类型。", "Select an activity type first."));
+      return;
+    }
     if (new Date(form.ends_at) <= new Date(form.starts_at)) {
       onNotify?.(t(locale, "结束时间必须晚于开始时间。", "The end time must be after the start time."));
       return;
@@ -392,7 +396,13 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
         </div>
         <form className="settings-form" onSubmit={saveCampaign}>
           <div className="settings-fields">
-            <label>{t(locale, "活动类型", "Activity type")}<select value={form.activity_type} onChange={(e) => setForm({ ...form, activity_type: e.target.value })}>{ACTIVITY_TYPES.map((type) => <option key={type.value} value={type.value}>{t(locale, type.zh, type.en)}</option>)}</select></label>
+            <label>{t(locale, "活动类型", "Activity type")}<select value={form.activity_type} onChange={(e) => setForm({ ...form, activity_type: e.target.value })} required>
+              <option value="" disabled>{t(locale, "请选择活动类型", "Select an activity type")}</option>
+              {ACTIVITY_TYPES.map((type) => <option key={type.value} value={type.value}>{t(locale, type.zh, type.en)}</option>)}
+            </select></label>
+          </div>
+          {form.activity_type ? <>
+          <div className="settings-fields">
             <label>{t(locale, "内部名称", "Internal name")}<input value={form.internal_name} onChange={(e) => setForm({ ...form, internal_name: e.target.value })} required /></label>
             <label>{t(locale, "最低订单金额", "Minimum order total")}<DeferredNumberInput min={0} step={0.01} value={form.minimum_order_total} onCommit={(value) => setForm((current) => ({ ...current, minimum_order_total: value }))} /></label>
           </div>
@@ -439,6 +449,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
             <button type="button" onClick={() => setForm({ ...form, prizes: [...form.prizes, { kind: "prize", fulfillment_type: "instant", name_i18n: { "zh-CN": "新奖项", "en-GB": "New prize" }, weight_value: 1, locked: false, stock_total: null, background_color: "#f59e0b", text_color: "#fff" }] })}><Plus size={15} />{t(locale, "添加奖项", "Add prize")}</button>
           </div>
           <div className="settings-actions"><button className="primary" type="submit" disabled={saving}><Save size={16} />{saving ? t(locale, "保存中…", "Saving…") : editingCampaignId ? t(locale, "保存修改", "Save changes") : t(locale, "保存草稿", "Save draft")}</button></div>
+          </> : <p className="activity-type-hint">{t(locale, "请选择活动类型后继续配置。", "Select an activity type to continue configuring this activity.")}</p>}
         </form>
       </section>}
 

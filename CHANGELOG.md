@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: make Activity type the only initial field in a new campaign; hide internal name, dates, copy, prizes, and probability settings until a type is selected, then restore the matching settings for existing campaigns
+
 - feat: Rename the POS draw control to Activity page, use Activity wording for the Admin entry, tests, and history, and add an Activity type as the first new-campaign field; Lucky Wheel is the first saved type and the model is ready for future activities
 
 - fix: Use activity wording for generic invitation, customer-display status, and Admin invitation settings while keeping lottery-specific wheel, draw, and winner copy unchanged, leaving room for future games or other activities
