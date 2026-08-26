@@ -132,7 +132,7 @@ app.put("/settings", async (request, reply) => {
     const invitationSeconds = Number(body.customer_display_lottery_invitation_seconds);
     if (!Number.isInteger(invitationSeconds) || invitationSeconds < 1 || invitationSeconds > 60) {
       reply.code(400);
-      return { error: "抽奖邀请页自动返回时间必须是 1 到 60 秒之间的整数" };
+      return { error: "活动邀请页自动返回时间必须是 1 到 60 秒之间的整数" };
     }
   }
   const settings = await one(

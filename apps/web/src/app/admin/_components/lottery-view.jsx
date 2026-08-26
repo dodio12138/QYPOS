@@ -96,7 +96,7 @@ function scheduleLabel(campaign, locale) {
 function initialForm() {
   const now = Date.now();
   return {
-    internal_name: "新抽奖活动",
+    internal_name: "新活动",
     title_i18n: { "zh-CN": "幸运大转盘", "en-GB": "Lucky Wheel" },
     subtitle_i18n: { "zh-CN": "", "en-GB": "" },
     button_i18n: { "zh-CN": "开始抽奖", "en-GB": "Start draw" },
@@ -235,8 +235,8 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
       setCampaignFormOpen(false);
       await load();
       onNotify?.(editingCampaignId
-        ? t(locale, "抽奖活动已更新。", "Lottery campaign updated.")
-        : t(locale, "抽奖活动已保存为草稿。", "Campaign saved as draft."));
+        ? t(locale, "活动已更新。", "Activity updated.")
+        : t(locale, "活动已保存为草稿。", "Activity saved as draft."));
     } catch (error) { onNotify?.(error.message); }
     finally { setSaving(false); }
   }
@@ -380,7 +380,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
     <div className="admin-content-grid lottery-admin-view">
       {canManage && (campaignFormOpen || editingCampaignId) && <section className="panel" ref={campaignFormRef}>
         <div className="panel-title split">
-          <div className="inline-title"><Sparkles size={18} /><h2>{editingCampaignId ? t(locale, "编辑抽奖活动", "Edit lottery campaign") : t(locale, "新建抽奖活动", "New lottery campaign")}</h2></div>
+          <div className="inline-title"><Sparkles size={18} /><h2>{editingCampaignId ? t(locale, "编辑活动", "Edit activity") : t(locale, "新建活动", "New activity")}</h2></div>
           <button type="button" className="lottery-cancel-edit" onClick={cancelEdit}><X size={15} />{editingCampaignId ? t(locale, "取消编辑", "Cancel edit") : t(locale, "取消", "Cancel")}</button>
         </div>
         <form className="settings-form" onSubmit={saveCampaign}>
@@ -480,12 +480,12 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
           <div className="settings-checkboxes">
             <label className="checkbox"><input type="checkbox" checked={settings.customer_display_enabled !== false} onChange={(e) => setSettings({ ...settings, customer_display_enabled: e.target.checked })} />{t(locale, "启用顾客屏", "Enable customer display")}</label>
             <label className="checkbox"><input type="checkbox" checked={Boolean(settings.customer_display_show_bill_on_checkout)} onChange={(e) => setSettings({ ...settings, customer_display_show_bill_on_checkout: e.target.checked })} />{t(locale, "结账时显示账单", "Show bill at checkout")}</label>
-            <label className="checkbox"><input type="checkbox" checked={settings.customer_display_lottery_invitation_enabled !== false} onChange={(e) => setSettings({ ...settings, customer_display_lottery_invitation_enabled: e.target.checked, customer_display_auto_show_lottery: e.target.checked ? false : settings.customer_display_auto_show_lottery })} />{t(locale, "付款后显示抽奖邀请", "Show lottery invitation after payment")}</label>
+            <label className="checkbox"><input type="checkbox" checked={settings.customer_display_lottery_invitation_enabled !== false} onChange={(e) => setSettings({ ...settings, customer_display_lottery_invitation_enabled: e.target.checked, customer_display_auto_show_lottery: e.target.checked ? false : settings.customer_display_auto_show_lottery })} />{t(locale, "付款后显示活动邀请", "Show activity invitation after payment")}</label>
             <label className="checkbox"><input type="checkbox" checked={Boolean(settings.customer_display_auto_show_lottery)} onChange={(e) => setSettings({ ...settings, customer_display_auto_show_lottery: e.target.checked, customer_display_lottery_invitation_enabled: e.target.checked ? false : settings.customer_display_lottery_invitation_enabled })} />{t(locale, "跳过邀请，直接显示转盘", "Skip invitation and show wheel")}</label>
           </div>
 
           <div className="lottery-display-copy-group">
-            <div className="panel-title"><h3>{t(locale, "抽奖邀请文案", "Lottery invitation copy")}</h3></div>
+            <div className="panel-title"><h3>{t(locale, "活动邀请文案", "Activity invitation copy")}</h3></div>
             <div className="settings-fields">
               <label>{t(locale, "邀请文字（中文）", "Invitation (Chinese)")}<input required value={settings.customer_display_lottery_invitation_i18n?.["zh-CN"] || ""} onChange={(e) => updateDisplayI18n("customer_display_lottery_invitation_i18n", "zh-CN", e.target.value)} /></label>
               <label>{t(locale, "邀请文字（英文）", "Invitation (English)")}<input required value={settings.customer_display_lottery_invitation_i18n?.["en-GB"] || ""} onChange={(e) => updateDisplayI18n("customer_display_lottery_invitation_i18n", "en-GB", e.target.value)} /></label>
@@ -510,7 +510,7 @@ export default function LotteryView({ locale, user, onOpenOrder, onNotify }) {
           </div>
 
           <div className="settings-fields">
-            <label>{t(locale, "抽奖邀请显示秒数", "Invitation screen seconds")}<DeferredNumberInput min={1} max={60} step={1} value={settings.customer_display_lottery_invitation_seconds ?? 10} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_lottery_invitation_seconds: value }))} /></label>
+            <label>{t(locale, "活动邀请显示秒数", "Activity invitation screen seconds")}<DeferredNumberInput min={1} max={60} step={1} value={settings.customer_display_lottery_invitation_seconds ?? 10} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_lottery_invitation_seconds: value }))} /></label>
             <label>{t(locale, "付款成功显示秒数", "Paid screen seconds")}<DeferredNumberInput min={1} max={30} step={1} value={settings.customer_display_payment_success_seconds ?? 5} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_payment_success_seconds: value }))} /></label>
             <label>{t(locale, "抽奖结果显示秒数", "Result screen seconds")}<DeferredNumberInput min={5} max={120} step={1} value={settings.customer_display_lottery_result_seconds ?? 20} onCommit={(value) => setSettings((current) => ({ ...current, customer_display_lottery_result_seconds: value }))} /></label>
           </div>

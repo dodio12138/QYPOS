@@ -114,7 +114,7 @@ export default function register({
 
   async function publishLotteryInvitation(orderId) {
     const settings = displaySettings(await getSettings());
-    if (!settings.lottery_invitation_enabled) throw httpError("Lottery invitation is disabled", 409);
+    if (!settings.lottery_invitation_enabled) throw httpError("Activity invitation is disabled", 409);
     const ready = await ensureReadyForOrder(orderId);
     const ticket = ready.ticket;
     return publishCustomerDisplayState({
@@ -292,7 +292,7 @@ export default function register({
       if (!customerDisplayInvitationMatches(state, {
         revision: request.body?.revision,
         token: request.body?.invitation_token
-      })) throw httpError("The lottery invitation is no longer active", 409);
+      })) throw httpError("The activity invitation is no longer active", 409);
 
       if (request.body?.accepted !== true) return publishIdle();
       const ticket = await issueReadyForOrder(state.payload?.order_id);

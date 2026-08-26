@@ -152,7 +152,7 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
       ]);
       setActiveCampaign(campaign || null);
       setCampaignControl(campaignControlCandidate(campaigns));
-      onNotify?.(text(locale, action === "pause" ? "抽奖活动已暂停" : "抽奖活动已开始", action === "pause" ? "Lottery paused" : "Lottery started"));
+      onNotify?.(text(locale, action === "pause" ? "活动已暂停" : "活动已开始", action === "pause" ? "Activity paused" : "Activity started"));
     } catch (error) {
       onNotify?.(error.message);
     } finally {
@@ -183,10 +183,10 @@ export default function CustomerDisplayControl({ order, locale, user, onNotify }
         <span><Monitor size={16} />{text(locale, "顾客屏", "Customer display")}</span>
         <span className={`customer-display-lottery-status${activeCampaign ? " is-active" : ""}`} title={activeCampaign ? labelOf(activeCampaign.title_i18n, locale) : undefined}>
           <i aria-hidden="true" />
-          {activeCampaign ? text(locale, "抽奖活动进行中", "Lottery active") : text(locale, "暂无抽奖活动", "No active draw")}
+          {activeCampaign ? text(locale, "活动进行中", "Activity running") : text(locale, "暂无活动", "No activity is running")}
         </span>
         {campaignControl ? (
-          <span className="customer-display-campaign-actions" aria-label={text(locale, "抽奖活动快捷控制", "Lottery quick controls")}>
+          <span className="customer-display-campaign-actions" aria-label={text(locale, "活动快捷控制", "Activity quick controls")}>
             <button
               type="button"
               onClick={() => toggleCampaign(campaignControl.status === "published" ? "pause" : campaignControl.status === "paused" ? "resume" : "publish")}

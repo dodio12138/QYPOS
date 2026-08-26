@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix: Use activity wording for generic invitation, customer-display status, and Admin invitation settings while keeping lottery-specific wheel, draw, and winner copy unchanged, leaving room for future games or other activities
+
 - fix: Make customer-display controls white by default and mark the currently shown screen directly on its matching button with a red outline, soft red fill, and focus glow instead of a separate current-screen label
 
 - feat: Add a configurable invitation timeout that returns the customer display to Welcome after 10 seconds by default (1–60 seconds); show the current customer-display screen in the POS controls so staff can confirm what guests see
